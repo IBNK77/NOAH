@@ -1,0 +1,1292 @@
+{
+  "kaiju/selevarn": {
+    "path": "./img/kaiju/selevarn.webp",
+    "width": 960,
+    "height": 1024,
+    "bytes": 336216,
+    "source_sha256": "9b7446b09d9cdd86b465ad12ced896d40a6ce06f0914a02c404f9a76defa880c",
+    "bbox": {
+      "x": 7,
+      "y": 7,
+      "w": 947,
+      "h": 1010,
+      "imgW": 960,
+      "imgH": 1024
+    }
+  },
+  "aircraft/aa1": {
+    "path": "./img/aircraft/aa1.webp",
+    "width": 640,
+    "height": 442,
+    "bytes": 54046,
+    "source_sha256": "f8bce928f39876678a42e0e9093ca618935cf49573a8d18bc1265798d72f02b7",
+    "bbox": {
+      "x": 3,
+      "y": 3,
+      "w": 634,
+      "h": 436,
+      "imgW": 640,
+      "imgH": 442
+    }
+  },
+  "aircraft/aa2": {
+    "path": "./img/aircraft/aa2.webp",
+    "width": 491,
+    "height": 640,
+    "bytes": 72030,
+    "source_sha256": "a04963cd009494f34c398d5d5aae6221b3f3e6307b2cb979049eddabd1c55442",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 483,
+      "h": 632,
+      "imgW": 491,
+      "imgH": 640
+    }
+  },
+  "aircraft/aa3": {
+    "path": "./img/aircraft/aa3.webp",
+    "width": 640,
+    "height": 565,
+    "bytes": 96470,
+    "source_sha256": "fa1ec8c55ecf24f196c035ce9c43ac397b9bc383700ec46bf0f1bb576e94d594",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 632,
+      "h": 557,
+      "imgW": 640,
+      "imgH": 565
+    }
+  },
+  "aircraft/aa4": {
+    "path": "./img/aircraft/aa4.webp",
+    "width": 640,
+    "height": 472,
+    "bytes": 124304,
+    "source_sha256": "3b75b709fc66b130bede441858c08a5edc4c687f1cd854f4c81eff4de5b1209d",
+    "bbox": {
+      "x": 7,
+      "y": 0,
+      "w": 629,
+      "h": 472,
+      "imgW": 640,
+      "imgH": 472
+    }
+  },
+  "aircraft/aa5": {
+    "path": "./img/aircraft/aa5.webp",
+    "width": 640,
+    "height": 571,
+    "bytes": 95120,
+    "source_sha256": "ce3f0456d50dac0d2519752a90cf6ba4f63727d03654a3d42e211d0f451d99c8",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 632,
+      "h": 563,
+      "imgW": 640,
+      "imgH": 571
+    }
+  },
+  "background/forest": {
+    "path": "./img/background/forest.webp",
+    "width": 1254,
+    "height": 1254,
+    "bytes": 480812,
+    "source_sha256": "96ca6a7163fa874b64794e9193b5a5a43a42c9701345bab8b28d27daafb0c652",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 1254,
+      "h": 1254,
+      "imgW": 1254,
+      "imgH": 1254
+    }
+  },
+  "background/seafloor": {
+    "path": "./img/background/seafloor.webp",
+    "width": 1254,
+    "height": 1254,
+    "bytes": 403640,
+    "source_sha256": "e969ca138e8b4d1ce90c67669ce801918127ff05ed27258367087ad6dd96bb0c",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 1254,
+      "h": 1254,
+      "imgW": 1254,
+      "imgH": 1254
+    }
+  },
+  "brand/logo": {
+    "path": "./img/brand/logo.webp",
+    "width": 1536,
+    "height": 536,
+    "bytes": 251704,
+    "source_sha256": "4c7e64d151a7d1a8219eda224745240104fd892a3789b4774fe64dfc0980cdb1",
+    "bbox": {
+      "x": 6,
+      "y": 5,
+      "w": 1524,
+      "h": 525,
+      "imgW": 1536,
+      "imgH": 536
+    }
+  },
+  "brand/title": {
+    "path": "./img/brand/title.webp",
+    "width": 1024,
+    "height": 1536,
+    "bytes": 273822,
+    "source_sha256": "8dd14f05db4a67c9a5338909c570573be0811c97a0b598332dbbef960e9ce1dc",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 1024,
+      "h": 1536,
+      "imgW": 1024,
+      "imgH": 1536
+    }
+  },
+  "cards/visual": {
+    "path": "./img/cards/visual.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 103030,
+    "source_sha256": "566db375e507d77ac1caae6a29d07435f4872c03e806ceb7855a3c718852b520",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/missile1": {
+    "path": "./img/cards/missile1.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 129296,
+    "source_sha256": "f255c782c2716cf8536f16c78b2f2de081aac23407f190670e3b2772f2fad1ce",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/missile2": {
+    "path": "./img/cards/missile2.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 119306,
+    "source_sha256": "7dd6001098aecc7033819bbc1490c8e8288f60760d293733fd364a1ba24f1a5a",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/tranq1": {
+    "path": "./img/cards/tranq1.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 117294,
+    "source_sha256": "5159a79d60dbfd8f66677a1a918186da4b9cac372f0ff271962afa7dbe063c7b",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/tranq2": {
+    "path": "./img/cards/tranq2.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 123726,
+    "source_sha256": "a7fdbed5b715f4c58174697503d6f1e65a44e1754d7c4736a9d0ff801f90ca46",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/healshot": {
+    "path": "./img/cards/healshot.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 117478,
+    "source_sha256": "6b454985262b8d930cfb37162600602a31acf97b91051c2ed4e197c829fba82f",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/healshot2": {
+    "path": "./img/cards/healshot2.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 131078,
+    "source_sha256": "3bd05004faecbae5d376dfad183813a2e8ff07924c688cc593674277445e379d",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/repairdrone": {
+    "path": "./img/cards/repairdrone.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 96900,
+    "source_sha256": "f33fffec7ffb16a586e41d5244409d1fc98ff3263599eea1f4769ddd672fe68d",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/repairdrone2": {
+    "path": "./img/cards/repairdrone2.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 111704,
+    "source_sha256": "cd68c7c802de8b89b7fdd08d8c7ade5fb2dbe57e9968b3285b9edde2ee79f444",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/corrosion_mark": {
+    "path": "./img/cards/corrosion_mark.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 94910,
+    "source_sha256": "97a4725741f541907ff0f6c5733daa0f197762e2675a97373d2156a62900e95e",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/follow_fire_sr": {
+    "path": "./img/cards/follow_fire_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 103640,
+    "source_sha256": "918db2bd51e7a4d3715484d9195dbb5d9f553d83409e28ed60e24561354cd112",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/follow_support_sr": {
+    "path": "./img/cards/follow_support_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 89300,
+    "source_sha256": "41a6829e0095e5571d064e19fcfb7e496cfd4f014d7edb69b9e571738e37b06c",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/follow_repair_sr": {
+    "path": "./img/cards/follow_repair_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 103158,
+    "source_sha256": "b2b52227b1dda83e0150ec80d2f468710418666fd50856c76e52d39c4ac3bbc3",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/follow_research_sr": {
+    "path": "./img/cards/follow_research_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 129878,
+    "source_sha256": "1b9541ee1a170a92c0ab6770d06186a3025a29bb54a44ce2cc295531af22e9ba",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/follow_barrier_r": {
+    "path": "./img/cards/follow_barrier_r.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 92518,
+    "source_sha256": "bf08959179508c3762eaadc06d32ce6920f97abdc1dfa0b7c3c791eef3b301e6",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/follow_heal_r": {
+    "path": "./img/cards/follow_heal_r.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 112960,
+    "source_sha256": "96ac1d27a80a6b006ef9acd7ead85c61450ed37e0badece9f2f00adcab76c77d",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_fire_n": {
+    "path": "./img/cards/trial_fire_n.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 116032,
+    "source_sha256": "080ae07cbdeb5f4d2e4724ee71cdf6fce0818273e2ac7d3627eeb9e70f417306",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_fire_r": {
+    "path": "./img/cards/trial_fire_r.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 117698,
+    "source_sha256": "479b43e6471a6a2929f5576fbc6a379fcde6bcf3a8cf33f33fba4ddab0c77585",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_fire_sr": {
+    "path": "./img/cards/trial_fire_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 114758,
+    "source_sha256": "c1b3b8c3fde94ede56d783a476de25ccc477b8a79b253f19b28098101a2df955",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_fire_scrap_sr": {
+    "path": "./img/cards/trial_fire_scrap_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 94342,
+    "source_sha256": "3c338909a94635e8b2a0f6f61e3db2a44443685b61a3d4e092c1a571d7f75624",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_fire_ur": {
+    "path": "./img/cards/trial_fire_ur.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 105872,
+    "source_sha256": "164d455730e8a2ada67d1e4790e9fb9e1e89b5e9147360c8091c4a8dd93511e7",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_fire_lr": {
+    "path": "./img/cards/trial_fire_lr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 111504,
+    "source_sha256": "92910e3f447657c26524912cbdd7dd47e86065cd6f4ede8d2caa1720d485116f",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_support_n": {
+    "path": "./img/cards/trial_support_n.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 110004,
+    "source_sha256": "b4afa1bebd87bf2cd0afce8bcbf26e9ff6e11aca336e2c9c30340c1984b0306e",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_support_r": {
+    "path": "./img/cards/trial_support_r.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 115768,
+    "source_sha256": "1d865a8e356c27c09758e4b17c3efd1a7281b9bc8d2cb419f17269c8fac62337",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_support_sr": {
+    "path": "./img/cards/trial_support_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 109330,
+    "source_sha256": "e5aa96232740dcefe34e7eca2a5287640db792328b569ab0d088fb4d626d7c87",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_support_scrap_sr": {
+    "path": "./img/cards/trial_support_scrap_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 98756,
+    "source_sha256": "065a8e393befc37cb4ab982f2ee622759a6121c21d31dc09cac7847369cb1a01",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_support_ur": {
+    "path": "./img/cards/trial_support_ur.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 95510,
+    "source_sha256": "fe8f825be2beb66c57092012f5f66471e3a4afe5846b0f6bd4a7652c003f6693",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_support_lr": {
+    "path": "./img/cards/trial_support_lr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 102936,
+    "source_sha256": "521aa61854c2048a12a9f7767ea05b05e0b509c6cc74423473194e8c22c4bfee",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_research_n": {
+    "path": "./img/cards/trial_research_n.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 104668,
+    "source_sha256": "811e5319d623526c713fb2090e5d5545d24804e80a7997729fe0c401545b42fd",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_research_r": {
+    "path": "./img/cards/trial_research_r.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 116544,
+    "source_sha256": "1566a8c332d39ba8f061fb3f0633c1f8fc9edd026599c2871bd17a10565ce157",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_research_sr": {
+    "path": "./img/cards/trial_research_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 136698,
+    "source_sha256": "f1090d6f2a47bfb212af9104fdcf25b2affdf7fcd977fc36afcc5a2faff26df4",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_research_ur": {
+    "path": "./img/cards/trial_research_ur.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 98904,
+    "source_sha256": "42730f9027bf3e52726e692031a7dd8a278e4e786d5b6bf956da965d423fc8d3",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_research_lr": {
+    "path": "./img/cards/trial_research_lr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 120740,
+    "source_sha256": "2d12071d2faedbd9f00b1236a0c2a3c37ea331218673f1eb242cc1e4150334b2",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_operation_n": {
+    "path": "./img/cards/trial_operation_n.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 138000,
+    "source_sha256": "81a53dbec200b36b30abfac87df21b969559ce9adec0b0a603e5c36b177a0d85",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_operation_r": {
+    "path": "./img/cards/trial_operation_r.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 102602,
+    "source_sha256": "c15e7bffd1b37ee995f0314618e32ed2dd9db3269945a9f2861db99787e4dcd3",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_operation_recovery_sr": {
+    "path": "./img/cards/trial_operation_recovery_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 96542,
+    "source_sha256": "f6f4bf8fb7c93c668628dc41e6b515267787603600a792512324c81e4b383d6c",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_operation_sr": {
+    "path": "./img/cards/trial_operation_sr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 89260,
+    "source_sha256": "8af4c7502489153d9c5b12a46d83ffa5351652077253bee9545d2c8257c43e9d",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_operation_shield_r": {
+    "path": "./img/cards/trial_operation_shield_r.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 87532,
+    "source_sha256": "cef6a9a7fa4a0d41377898b4b20348c2e41161948c7495ec8bd03395e04d43f8",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_operation_ur": {
+    "path": "./img/cards/trial_operation_ur.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 113538,
+    "source_sha256": "8bcc4ecab7a334ef1e5d1a6818053066918f13c7d66e4237f23acaf76143b4e4",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "cards/trial_operation_lr": {
+    "path": "./img/cards/trial_operation_lr.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 141756,
+    "source_sha256": "e81d572dfdb27c54991a3dfffadecb6e0d76d1102fea5500c2b851044bbe7a4e",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "fx/impact": {
+    "path": "./img/fx/impact.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 267384,
+    "source_sha256": "a701559b4fc7821bee9ff6a7a9eb99fc2bc48a9c0de84c68604b1485e07eb2b1",
+    "bbox": {
+      "x": 14,
+      "y": 63,
+      "w": 741,
+      "h": 684,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/mist": {
+    "path": "./img/fx/mist.webp",
+    "width": 768,
+    "height": 758,
+    "bytes": 253374,
+    "source_sha256": "f143ef7b713704b49e6e8a79e3d8dfaefedb5ab63be88bb6ade093566d444580",
+    "bbox": {
+      "x": 2,
+      "y": 55,
+      "w": 763,
+      "h": 689,
+      "imgW": 768,
+      "imgH": 758
+    }
+  },
+  "fx/slash": {
+    "path": "./img/fx/slash.webp",
+    "width": 768,
+    "height": 739,
+    "bytes": 248400,
+    "source_sha256": "69e58dec723ca90e5fd9cc314a5eaf92875cdad213634f0dd4a8de58da60b23c",
+    "bbox": {
+      "x": 12,
+      "y": 60,
+      "w": 742,
+      "h": 640,
+      "imgW": 768,
+      "imgH": 739
+    }
+  },
+  "fx/pressure": {
+    "path": "./img/fx/pressure.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 246976,
+    "source_sha256": "1d8b613a3bf18bbfb4ed42d97165b1cc770f380951c50d0c1e1d2d3ffea8e0bf",
+    "bbox": {
+      "x": 6,
+      "y": 64,
+      "w": 755,
+      "h": 683,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/healing": {
+    "path": "./img/fx/healing.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 249872,
+    "source_sha256": "1aa77270ab2910bc0ff09e7a655ed20f1ef66850847b2620739cf67f03eaad2a",
+    "bbox": {
+      "x": 10,
+      "y": 61,
+      "w": 743,
+      "h": 679,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/acoustic": {
+    "path": "./img/fx/acoustic.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 235890,
+    "source_sha256": "2c1098d6539b780878d33d939bf35602f60bef65df0641a57e01be1612daf545",
+    "bbox": {
+      "x": 10,
+      "y": 51,
+      "w": 749,
+      "h": 708,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/repair": {
+    "path": "./img/fx/repair.webp",
+    "width": 768,
+    "height": 758,
+    "bytes": 274330,
+    "source_sha256": "73ed284fa9a35c753d1aed8aa58478e8d8bbcd100d11d0dd086bbf39c7d505e7",
+    "bbox": {
+      "x": 11,
+      "y": 51,
+      "w": 746,
+      "h": 682,
+      "imgW": 768,
+      "imgH": 758
+    }
+  },
+  "fx/shield": {
+    "path": "./img/fx/shield.webp",
+    "width": 768,
+    "height": 750,
+    "bytes": 305188,
+    "source_sha256": "42866461e1b24384bdeec771335c0e07ffe4f5fbef8e8edfc21fa6050543d463",
+    "bbox": {
+      "x": 12,
+      "y": 62,
+      "w": 735,
+      "h": 666,
+      "imgW": 768,
+      "imgH": 750
+    }
+  },
+  "fx/scan": {
+    "path": "./img/fx/scan.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 304232,
+    "source_sha256": "19e58528d651bc070cd2f07d983d4a0b2dde043ad5e1b9550e8ace7ada9ff5ab",
+    "bbox": {
+      "x": 7,
+      "y": 50,
+      "w": 751,
+      "h": 697,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "projectile/guidance": {
+    "path": "./img/projectile/guidance.webp",
+    "width": 124,
+    "height": 640,
+    "bytes": 18562,
+    "source_sha256": "0c98f5d00f7c1a387d3769451849d8f1f19c5c89985f6a46e6226f561d9d32bc",
+    "bbox": {
+      "x": 2,
+      "y": 2,
+      "w": 120,
+      "h": 636,
+      "imgW": 124,
+      "imgH": 640
+    }
+  },
+  "projectile/sedation": {
+    "path": "./img/projectile/sedation.webp",
+    "width": 118,
+    "height": 640,
+    "bytes": 23586,
+    "source_sha256": "2ea9bf8d7aac113f6b92e528a13fe18912df08209fd271c571cf34d6908041a0",
+    "bbox": {
+      "x": 2,
+      "y": 3,
+      "w": 114,
+      "h": 635,
+      "imgW": 118,
+      "imgH": 640
+    }
+  },
+  "aircraft/drone": {
+    "path": "./img/aircraft/drone.webp",
+    "width": 631,
+    "height": 640,
+    "bytes": 150160,
+    "source_sha256": "8b939ebbcd3e271124a422fc58e1ffccd6b5f586dadfa67e18399ece59f9d94d",
+    "bbox": {
+      "x": 6,
+      "y": 6,
+      "w": 619,
+      "h": 629,
+      "imgW": 631,
+      "imgH": 640
+    }
+  },
+  "kaiju/selevarn-step": {
+    "path": "./img/kaiju/selevarn-step.webp",
+    "width": 937,
+    "height": 1024,
+    "bytes": 283188,
+    "source_sha256": "850cc06e486f24707fce583be8074866a40d7fbdc967a9f7cc576a42c109bc9e",
+    "bbox": {
+      "x": 6,
+      "y": 6,
+      "w": 925,
+      "h": 1012,
+      "imgW": 937,
+      "imgH": 1024
+    }
+  },
+  "brand/order": {
+    "path": "./img/brand/order.webp",
+    "width": 502,
+    "height": 640,
+    "bytes": 83832,
+    "source_sha256": "5c48d72af831bf58e983432b4c34f54b9051f747b474e8edc3359dd3739edc7f",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 494,
+      "h": 631,
+      "imgW": 502,
+      "imgH": 640
+    }
+  },
+  "brand/icon": {
+    "path": "./img/brand/icon.webp",
+    "width": 640,
+    "height": 640,
+    "bytes": 42674,
+    "source_sha256": "5b54eebfb064c3b7cbd56cf232e6214daf8ae94d4b6442800f8dc07efb6f8263",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 640,
+      "imgW": 640,
+      "imgH": 640
+    }
+  },
+  "artifact/ore": {
+    "path": "./img/artifact/ore.webp",
+    "width": 640,
+    "height": 634,
+    "bytes": 127430,
+    "source_sha256": "672a77e7fdf00366c5ba031acf419ee041cf9b4265dfa31d2e4531a5a8d58166",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 632,
+      "h": 626,
+      "imgW": 640,
+      "imgH": 634
+    }
+  },
+  "artifact/crystal": {
+    "path": "./img/artifact/crystal.webp",
+    "width": 455,
+    "height": 640,
+    "bytes": 88970,
+    "source_sha256": "e49a96176ab1e5f299c85d24295ecb39d00251ae469c3d8d26a3300a3861c8fb",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 447,
+      "h": 632,
+      "imgW": 455,
+      "imgH": 640
+    }
+  },
+  "artifact/core": {
+    "path": "./img/artifact/core.webp",
+    "width": 587,
+    "height": 640,
+    "bytes": 104050,
+    "source_sha256": "38080d03e0fc1040d7ef815d628a41ad97e87a2518c86dda0fb10561ccc9eb58",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 579,
+      "h": 632,
+      "imgW": 587,
+      "imgH": 640
+    }
+  },
+  "artifact/raw": {
+    "path": "./img/artifact/raw.webp",
+    "width": 640,
+    "height": 547,
+    "bytes": 107216,
+    "source_sha256": "7c11786f49c459e569c6cd8a5e7c26e499a54715e3617ea804ed19b71457baec",
+    "bbox": {
+      "x": 4,
+      "y": 5,
+      "w": 631,
+      "h": 537,
+      "imgW": 640,
+      "imgH": 547
+    }
+  },
+  "fx/guidance-nr": {
+    "path": "./img/fx/guidance-nr.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 267916,
+    "source_sha256": "d6ecc6556a575e4312588f3cecd76d43f195b0321dc48db64e9c7d19040ce6b5",
+    "bbox": {
+      "x": 7,
+      "y": 43,
+      "w": 751,
+      "h": 697,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/guidance-sr": {
+    "path": "./img/fx/guidance-sr.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 239432,
+    "source_sha256": "40a20be3c5bf92822a7d7bd2ffdc1f4a4f68f70c0b7e66c5d8f26c65e3d10b50",
+    "bbox": {
+      "x": 0,
+      "y": 42,
+      "w": 768,
+      "h": 726,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/guidance-ur": {
+    "path": "./img/fx/guidance-ur.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 302158,
+    "source_sha256": "50013fb29d737337c3acbe3d43cf950143e2b382236c1b2ab28487cfb85fed02",
+    "bbox": {
+      "x": 4,
+      "y": 53,
+      "w": 755,
+      "h": 707,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/guidance-lr": {
+    "path": "./img/fx/guidance-lr.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 290754,
+    "source_sha256": "33571a13f14c1643ad3d2f2dd11822bead37b61cf2dca99e49378bafa0a415dd",
+    "bbox": {
+      "x": 0,
+      "y": 42,
+      "w": 768,
+      "h": 726,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/support-n": {
+    "path": "./img/fx/support-n.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 279680,
+    "source_sha256": "8a32ff2d41d56e97228e4ee693e2d4e5c6f8ed1c8a7e3d0752120dadd235e90a",
+    "bbox": {
+      "x": 0,
+      "y": 38,
+      "w": 767,
+      "h": 707,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/support-r": {
+    "path": "./img/fx/support-r.webp",
+    "width": 768,
+    "height": 759,
+    "bytes": 305190,
+    "source_sha256": "0b9e437f8fde9cfcf2698473a65cf1d6347d184e6d6fbb55bffae3a3a5eda6f8",
+    "bbox": {
+      "x": 4,
+      "y": 43,
+      "w": 759,
+      "h": 695,
+      "imgW": 768,
+      "imgH": 759
+    }
+  },
+  "fx/support-sr": {
+    "path": "./img/fx/support-sr.webp",
+    "width": 768,
+    "height": 757,
+    "bytes": 253868,
+    "source_sha256": "418783b1bade58173d3d020e5f4cb9dfb350a60e447540cecd9683e578569ca9",
+    "bbox": {
+      "x": 0,
+      "y": 32,
+      "w": 768,
+      "h": 725,
+      "imgW": 768,
+      "imgH": 757
+    }
+  },
+  "fx/support-ur": {
+    "path": "./img/fx/support-ur.webp",
+    "width": 768,
+    "height": 759,
+    "bytes": 271788,
+    "source_sha256": "5cd1f0178c3768f1833939fcf0e866150df266a558dafe203f4c1d43b4df7c14",
+    "bbox": {
+      "x": 0,
+      "y": 39,
+      "w": 768,
+      "h": 720,
+      "imgW": 768,
+      "imgH": 759
+    }
+  },
+  "fx/support-lr": {
+    "path": "./img/fx/support-lr.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 165878,
+    "source_sha256": "9b934668ed446197de0a1575401ff1947f223ba912872ff3138099b12ab1af94",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 768,
+      "h": 768,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/observe": {
+    "path": "./img/fx/observe.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 363546,
+    "source_sha256": "fd3a337f399c609e071dd140fa160b80b1b5c979cd237ec55a3bdab14e37a0a5",
+    "bbox": {
+      "x": 35,
+      "y": 35,
+      "w": 701,
+      "h": 684,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/observe-plus": {
+    "path": "./img/fx/observe-plus.webp",
+    "width": 768,
+    "height": 758,
+    "bytes": 321126,
+    "source_sha256": "d432f6bf6b9629ae7b3905b023c407b99642edb6a42a327e26d2d13e829ac582",
+    "bbox": {
+      "x": 0,
+      "y": 59,
+      "w": 768,
+      "h": 648,
+      "imgW": 768,
+      "imgH": 758
+    }
+  },
+  "fx/field-record": {
+    "path": "./img/fx/field-record.webp",
+    "width": 768,
+    "height": 750,
+    "bytes": 286246,
+    "source_sha256": "e1c79c132780ce6776447239ba781499b9ab076e79d7f59e8e9fd5767f8be089",
+    "bbox": {
+      "x": 0,
+      "y": 49,
+      "w": 768,
+      "h": 680,
+      "imgW": 768,
+      "imgH": 750
+    }
+  },
+  "fx/neutrino": {
+    "path": "./img/fx/neutrino.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 206776,
+    "source_sha256": "450c0a00e6c3dd7ba4c5adb38f9bddb36366e38e1ce75e1a9ccf321517f7084a",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 768,
+      "h": 768,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/bio-pattern": {
+    "path": "./img/fx/bio-pattern.webp",
+    "width": 768,
+    "height": 758,
+    "bytes": 190046,
+    "source_sha256": "76b0f114de776caee6cd5d934fb1d4a791182f368647bfef5538e6354d606e95",
+    "bbox": {
+      "x": 0,
+      "y": 0,
+      "w": 768,
+      "h": 758,
+      "imgW": 768,
+      "imgH": 758
+    }
+  },
+  "fx/eco-sync": {
+    "path": "./img/fx/eco-sync.webp",
+    "width": 768,
+    "height": 759,
+    "bytes": 246522,
+    "source_sha256": "290151d41240b82c55fc0446018c7c6551c1f98a2c553f1a4e0ab7d2d3ca7fff",
+    "bbox": {
+      "x": 10,
+      "y": 40,
+      "w": 748,
+      "h": 680,
+      "imgW": 768,
+      "imgH": 759
+    }
+  },
+  "fx/recovery-link": {
+    "path": "./img/fx/recovery-link.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 307804,
+    "source_sha256": "0f7ec3de434fbbdffed68e20b8a2915305f13f7543dd3ee35fabad7f456a91a5",
+    "bbox": {
+      "x": 0,
+      "y": 47,
+      "w": 768,
+      "h": 710,
+      "imgW": 768,
+      "imgH": 768
+    }
+  },
+  "fx/noah-recovery": {
+    "path": "./img/fx/noah-recovery.webp",
+    "width": 768,
+    "height": 768,
+    "bytes": 287774,
+    "source_sha256": "64b3d82cf270dbc2889b7da6382ea225cb59f6c0f6d14b3a558e6f803319215b",
+    "bbox": {
+      "x": 0,
+      "y": 9,
+      "w": 768,
+      "h": 759,
+      "imgW": 768,
+      "imgH": 768
+    }
+  }
+}
