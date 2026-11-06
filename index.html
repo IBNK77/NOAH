@@ -4222,7 +4222,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v347',
+    currentPrototypeVersion:'v348',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -10279,6 +10279,7 @@ function getRandomExplosionCell(){
     versionLabel.className = 'titleVersion';
     versionLabel.textContent = `VERSION ${NOAH_PROJECT_META.currentPrototypeVersion}`;
     ui.preActions.appendChild(versionLabel);
+    noahOnTitleRendered(versionLabel);   // v348: タイトルを出すたびに最新版を確認する
   }
 
   function renderSoundTestScreen(){
@@ -16870,6 +16871,137 @@ function showCardEnchantChoice(unit,item){
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden) noahAutosaveIfIdle(); });
   window.addEventListener('pagehide', ()=>{ noahAutosaveIfIdle(); });
   noahLoadRecords();
+
+  // ---- v348：最新版の確認（GitHub Pages など http/https で開いたときだけ） ----
+  // 起動時・タイトルに戻ったとき・タイトル表示中にアプリへ戻ってきたときに、サーバー上の
+  // version.json と index.html を確認する。新しい版が見つかったら、画像などのキャッシュを
+  // 確かめ直してから自動で読み込み直す（作戦の途中では読み込み直さず、次にタイトルへ戻ったときに行う）。
+  // ※新しい版を出すときは、currentPrototypeVersion と version.json の build を同じ番号に上げる。
+  //   version.json が無い・古いままでも、index.html 自体の確認で新しい版を見つけられる。
+  const NOAH_UPDATE_TIMEOUT_MS = 4000;
+  const NOAH_UPDATE_RECHECK_MS = 15000;
+  const NOAH_UPDATE_TRY_KEY = 'noah_update_try_v1';
+  let noahUpdateLabel = null;
+  let noahUpdateLastCheck = 0;
+  let noahUpdateBusy = false;
+  let noahUpdatePending = '';
+  function noahBuildNumber(v){ const m = /v(\d+)/i.exec(String(v || '')); return m ? Number(m[1]) : 0; }
+  function noahUpdateSupported(){
+    try{ return /^https?:$/.test(location.protocol) && !new URLSearchParams(location.search).get('preview'); }catch(e){ return false; }
+  }
+  function noahOnTitleScreen(){
+    const panel = document.getElementById('prePanel');
+    return !gameStarted && !!panel && panel.classList.contains('titleScreenPanel') && !!ui.preGame && ui.preGame.style.display !== 'none';
+  }
+  function noahSetUpdateLabel(state){
+    if(!noahUpdateLabel || !noahUpdateLabel.isConnected) return;
+    const base = `VERSION ${NOAH_PROJECT_META.currentPrototypeVersion}`;
+    noahUpdateLabel.textContent = state ? `${base} · ${state}` : base;
+  }
+  async function noahFetchWithTimeout(url, cacheMode){
+    const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+    const timer = setTimeout(()=>{ try{ if(ctrl) ctrl.abort(); }catch(e){} }, NOAH_UPDATE_TIMEOUT_MS);
+    try{
+      return await fetch(url, { cache:cacheMode, credentials:'same-origin', signal: ctrl ? ctrl.signal : undefined });
+    }finally{
+      clearTimeout(timer);
+    }
+  }
+  async function noahFindLatestBuild(){
+    const current = noahBuildNumber(NOAH_PROJECT_META.currentPrototypeVersion);
+    let ok = false;
+    // 1) 小さな version.json を、毎回キャッシュを通さずにサーバーへ問い合わせる
+    try{
+      const res = await noahFetchWithTimeout(`./version.json?t=${Date.now()}`, 'no-store');
+      if(res && res.ok){
+        ok = true;
+        const data = await res.json();
+        if(data && noahBuildNumber(data.build) > current) return { latest:String(data.build), ok:true };
+      }
+    }catch(e){}
+    // 2) index.html 自体も確認する（変わっていなければ「変更なし」の返事だけで済む）
+    try{
+      const res = await noahFetchWithTimeout(location.pathname, 'no-cache');
+      if(res && res.ok){
+        ok = true;
+        const m = /currentPrototypeVersion:\s*'(v\d+[a-z]*)'/.exec(await res.text());
+        if(m && noahBuildNumber(m[1]) > current) return { latest:m[1], ok:true };
+      }
+    }catch(e){}
+    return { latest:'', ok };
+  }
+  function noahReadUpdateTry(){ try{ return JSON.parse(sessionStorage.getItem(NOAH_UPDATE_TRY_KEY) || 'null'); }catch(e){ return null; } }
+  function noahWriteUpdateTry(v){ try{ if(v) sessionStorage.setItem(NOAH_UPDATE_TRY_KEY, JSON.stringify(v)); else sessionStorage.removeItem(NOAH_UPDATE_TRY_KEY); }catch(e){} }
+  async function noahRefreshCachedFiles(){
+    // 同じ名前のまま差し替えた画像やCSSも新しくなるよう、キャッシュを確かめ直しておく（BGMは対象外）
+    const urls = new Set([location.pathname, './', './index.html', './visual.css']);
+    try{
+      const res = await noahFetchWithTimeout('./img/asset-manifest.json', 'no-cache');
+      if(res && res.ok){
+        const manifest = await res.json();
+        Object.values(manifest || {}).forEach(v=>{ if(v && typeof v.path === 'string') urls.add(v.path); });
+      }
+    }catch(e){}
+    try{
+      performance.getEntriesByType('resource').forEach(entry=>{
+        const u = new URL(entry.name, location.href);
+        if(u.origin === location.origin && !/\.(mp3|m4a|ogg|wav)$/i.test(u.pathname)) urls.add(u.pathname + u.search);
+      });
+    }catch(e){}
+    await Promise.allSettled([...urls].map(u=>noahFetchWithTimeout(u, 'no-cache').then(r=>r && r.arrayBuffer ? r.arrayBuffer() : null)));
+  }
+  async function noahApplyUpdate(build){
+    const tried = noahReadUpdateTry();
+    const count = (tried && tried.build === build) ? (Number(tried.count) || 0) : 0;
+    if(count >= 2){
+      // 2回読み込み直しても古い版のまま：配信側の反映待ちなので、今回はあきらめる
+      noahUpdatePending = '';
+      noahSetUpdateLabel(`${build} WAITING`);
+      showToast(`最新版 ${build} はまだ配信されていません。少し時間をおいて開き直してください`, 3600);
+      return;
+    }
+    noahWriteUpdateTry({ build, count:count + 1 });
+    noahSetUpdateLabel(`UPDATING → ${build}`);
+    showToast(`最新版 ${build} を読み込みます`, 2600);
+    try{ await noahRefreshCachedFiles(); }catch(e){}
+    if(count === 0) location.reload();
+    else location.replace(`${location.pathname}?v=${encodeURIComponent(build)}&t=${Date.now()}`);
+  }
+  async function noahUpdateCheck(reason){
+    if(!noahUpdateSupported() || noahUpdateBusy) return;
+    if(navigator.onLine === false){ noahSetUpdateLabel('OFFLINE'); return; }
+    const now = Date.now();
+    if(reason !== 'boot' && now - noahUpdateLastCheck < NOAH_UPDATE_RECHECK_MS) return;
+    noahUpdateBusy = true;
+    noahUpdateLastCheck = now;
+    noahSetUpdateLabel('CHECKING');
+    try{
+      const result = await noahFindLatestBuild();
+      if(result.latest){
+        noahUpdatePending = result.latest;
+        if(noahOnTitleScreen()) await noahApplyUpdate(result.latest);
+      }else if(result.ok){
+        noahUpdatePending = '';
+        noahWriteUpdateTry(null);
+        noahSetUpdateLabel('LATEST');
+      }else{
+        noahSetUpdateLabel('');
+      }
+    }catch(e){
+      noahSetUpdateLabel('');
+    }finally{
+      noahUpdateBusy = false;
+    }
+  }
+  function noahOnTitleRendered(label){
+    noahUpdateLabel = label;
+    if(!noahUpdateSupported()) return;
+    if(noahUpdatePending && noahOnTitleScreen()){ noahApplyUpdate(noahUpdatePending); return; }
+    noahUpdateCheck(noahUpdateLastCheck ? 'title' : 'boot');
+  }
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && noahOnTitleScreen()) noahUpdateCheck('resume'); });
+  window.addEventListener('pageshow', e=>{ if(e.persisted && noahOnTitleScreen()) noahUpdateCheck('resume'); });
+  window.addEventListener('online', ()=>{ if(noahOnTitleScreen()) noahUpdateCheck('online'); });
 
 // Optional user-facing visual catalogue. Only active in EFFECTS.html's preview frame.
 if(new URLSearchParams(location.search).get('preview')==='effects'&&window.parent!==window) {
