@@ -1,5 +1,20 @@
 /* v338 · cinematic conservation art. Existing ASYLUM COMMAND layout retained. */
 img, canvas { image-rendering:auto !important; }
+/* v344: opaque clearance keeps the status rail out of iOS browser glass. */
+@media (orientation:portrait){
+  html.noah-ios{--noah-header-clearance:calc(max(env(safe-area-inset-top,0px),20px) + 12px);}
+  html.noah-ios::after{
+    content:'';position:fixed;inset:0 0 auto;height:var(--noah-header-clearance);
+    background:#02050a;z-index:10000;pointer-events:none;
+  }
+  html.noah-ios #app{padding-top:var(--noah-header-clearance);}
+  html.noah-ios #preGame,
+  html.noah-ios #modalBg,
+  html.noah-ios #pauseBg{padding-top:calc(var(--noah-header-clearance) + 6px);}
+  html.noah-ios #prePanel.titleScreenPanel.hasResume .titleSoundTestBtn{
+    top:calc(var(--noah-header-clearance) + 6px);
+  }
+}
 /* Title returns to the original navy grid and live sonar ripples. */
 .titleLogoWrap { width:min(82vw,340px); height:min(30vh,200px); }
 .titleLogo { image-rendering:auto; filter:drop-shadow(0 7px 20px rgba(0,0,0,.55)) drop-shadow(0 0 24px rgba(var(--noah-rgb),.25)); }
