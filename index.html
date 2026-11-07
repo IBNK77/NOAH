@@ -111,7 +111,16 @@ SAVE / CONTINUE（v336〜）：
   NOAH_SAVE_SKIP_KEYS に入れて保存から外すこと。セーブの形を大きく変えたら NOAH_SAVE_FORMAT を上げる。
 - 怪獣ごとの最高記録・前回結果は 'noah_records_v1' に別保存。
 - 画面内スクロールは極力避け、必要な箇所だけ小さく展開する。
-- 配布時は index.html、visual.css、img/、audio/、font/ のフォルダ構造を保つ。
+- 配布時は index.html、sw.js、version.json、visual.css、noah3d.js、vendor/、img/、audio/、font/ のフォルダ構造を保つ
+  （sw.js はオフライン用 v351〜、noah3d.js と vendor/three-r170.module.min.js は3D表示用 v352〜）。
+
+3D BOARD VIEW（v352〜・テスト版）：
+- 盤面を three.js で3D表示する（noah3d.js）。処理は「v352 3D BOARD VIEW」のブロック（noah3dBridge など）。
+- 3Dになるのは盤面の見た目だけ：怪獣・機体・ミサイル/麻酔弾・左右の木/岩山が3D（いまは仮モデル）。
+  移動先・攻撃予測・HPバーは2Dで描いた絵を機体の高さのパネルに写し、カード演出は2Dを斜めの面に重ねる。
+- 3D中は drawBoard() が何もせずに戻り、タップは noah3d.js が一番近いマスに吸い付けて onBoardTap({noahCell}) に渡す。
+- 盤面左上のボタンで 3D⇄2D と 視点（斜め⇄真上）を切り替え（localStorage 'noah_view3d_v1' / 'noah_view3d_cam_v1'）。
+  URL に ?3d=0 / ?3d=1 でその回だけ強制。3Dを始められないときは自動で2Dに戻る。
 
 ===============================================================================
 -->
@@ -752,6 +761,21 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
   animation:noahLamp 1.4s ease-in-out infinite;
 }
 .bzObs{ right:9px; }
+/* v352 3D表示：盤面左上の切り替えボタン（3D⇄2D・視点） */
+.bzViewCtl{ position:absolute; top:7px; left:9px; display:flex; gap:5px; pointer-events:auto; z-index:4; }
+.bzBtn{
+  position:relative;
+  appearance:none; -webkit-appearance:none;
+  margin:0; padding:4px 8px; min-height:21px;
+  border:1px solid var(--hair-3); border-radius:3px;
+  background:rgba(3,7,14,.62);
+  font-family:var(--f-hud); font-size:9px; font-weight:700; letter-spacing:.14em; line-height:1;
+  color:rgba(214,226,246,.86);
+  -webkit-tap-highlight-color:transparent;
+}
+.bzBtn::after{ content:""; position:absolute; inset:-7px -3px; }   /* 指で押しやすいように当たりを広げる */
+.bzBtn.on{ color:var(--noah-hi); border-color:rgba(120,230,255,.45); box-shadow:0 0 8px rgba(80,200,255,.18) inset; }
+.bzBtn:active{ transform:translateY(1px); }
 
 /* 7 ───────────────────────────────────────────────────────── Command deck */
 /* 行動機の見出し */
@@ -3633,6 +3657,8 @@ input[type="range"]::-webkit-slider-thumb{
   font-size:9.5px;
   font-weight:600;
   letter-spacing:.2em;
+  line-height:1.7;
+  white-space:pre-line;   /* v351: 2行目にオフライン保存の状態を出す */
   color:var(--text-3);
 }
 .titleSoundTestBtn{
@@ -4222,7 +4248,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v350',
+    currentPrototypeVersion:'v352',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -4722,6 +4748,7 @@ function noahLaunchAmmo(cardId,unit) {
  game.effects.push({type:'cardProjectile',cardId,start:performance.now(),duration:480,startCell:{x:boardXForUnitCol(unitColOf(unit))+.5+hover.driftX/cell,y:unit.row+.24+hover.bobY/cell},endCell:{x:3.5,y:1.7}});drawBoard();
 }
 function noahDrawAmmoProjectile(effect,cell,p) {
+ if(noah3dActive)return true; // v352: 3D表示中はミサイル・麻酔弾を3Dで描く
  const d=def(effect.cardId),a=effect.startCell,b=effect.endCell,key=d?.category==='fire'?'guidance':'sedation';
  const img=noahAmmoSprites[key];if(!img?.complete||!img.naturalWidth)return false;
  const dx=b.x-a.x,dy=b.y-a.y,curve=Math.sin(p*Math.PI)*.12;
@@ -13071,6 +13098,7 @@ function checkGameEnd(){
   }
 
   function drawBoard(){
+    if(noah3dActive) return;   // v352: 3D表示中は noah3d.js が盤面を描く
     const geom = getBoardGeom();
     const {canvasW, canvasH, size, cell, offsetX, offsetY} = geom;
     // Defensive frame reset: remove leaked translations/rotations without
@@ -15578,7 +15606,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(game.inputLocked) return;
     if(game.gameOver) return;
     const unit=curUnit();
-    const cell=boardCellFromEvent(e);
+    const cell=(e && e.noahCell) ? e.noahCell : boardCellFromEvent(e);   // v352: 3D表示では選んだマスが届く
     const tappedUnitCol=unitColFromBoardX(cell.x);
 
     if(game.mode==='sortie'){
@@ -16899,10 +16927,17 @@ function showCardEnchantChoice(unit,item){
     const panel = document.getElementById('prePanel');
     return !gameStarted && !!panel && panel.classList.contains('titleScreenPanel') && !!ui.preGame && ui.preGame.style.display !== 'none';
   }
+  let noahUpdateLabelState = '';
+  let noahOfflineLabel = '';      // v351: 2行目（OFFLINE READY / SAVING FOR OFFLINE nn%）
   function noahSetUpdateLabel(state){
+    noahUpdateLabelState = state || '';
+    noahRenderVersionLabel();
+  }
+  function noahRenderVersionLabel(){
     if(!noahUpdateLabel || !noahUpdateLabel.isConnected) return;
     const base = `VERSION ${NOAH_PROJECT_META.currentPrototypeVersion}`;
-    noahUpdateLabel.textContent = state ? `${base} · ${state}` : base;
+    const line1 = noahUpdateLabelState ? `${base} · ${noahUpdateLabelState}` : base;
+    noahUpdateLabel.textContent = noahOfflineLabel ? `${line1}\n${noahOfflineLabel}` : line1;
   }
   async function noahFetchWithTimeout(url, cacheMode){
     const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
@@ -16940,7 +16975,7 @@ function showCardEnchantChoice(unit,item){
   function noahWriteUpdateTry(v){ try{ if(v) sessionStorage.setItem(NOAH_UPDATE_TRY_KEY, JSON.stringify(v)); else sessionStorage.removeItem(NOAH_UPDATE_TRY_KEY); }catch(e){} }
   async function noahRefreshCachedFiles(){
     // 同じ名前のまま差し替えた画像やCSSも新しくなるよう、キャッシュを確かめ直しておく（BGMは対象外）
-    const urls = new Set([location.pathname, './', './index.html', './visual.css']);
+    const urls = new Set([location.pathname, './', './index.html', './visual.css', './noah3d.js']);
     try{
       const res = await noahFetchWithTimeout('./img/asset-manifest.json', 'no-cache');
       if(res && res.ok){
@@ -16970,6 +17005,11 @@ function showCardEnchantChoice(unit,item){
     noahSetUpdateLabel(`UPDATING → ${build}`);
     showToast(`最新版 ${build} を読み込みます`, 2600);
     try{ await noahRefreshCachedFiles(); }catch(e){}
+    try{
+      // v351: オフライン用の sw.js 自体が新しくなっていれば、それも先に受け取っておく
+      const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+      if(reg) await Promise.race([reg.update(), new Promise(r=>setTimeout(r, 3000))]);
+    }catch(e){}
     if(count === 0) location.reload();
     else location.replace(`${location.pathname}?v=${encodeURIComponent(build)}&t=${Date.now()}`);
   }
@@ -17001,6 +17041,7 @@ function showCardEnchantChoice(unit,item){
   }
   function noahOnTitleRendered(label){
     noahUpdateLabel = label;
+    noahRenderVersionLabel();
     if(!noahUpdateSupported()) return;
     if(noahUpdatePending && noahOnTitleScreen()){ noahApplyUpdate(noahUpdatePending); return; }
     noahUpdateCheck(noahUpdateLastCheck ? 'title' : 'boot');
@@ -17008,6 +17049,59 @@ function showCardEnchantChoice(unit,item){
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && noahOnTitleScreen()) noahUpdateCheck('resume'); });
   window.addEventListener('pageshow', e=>{ if(e.persisted && noahOnTitleScreen()) noahUpdateCheck('resume'); });
   window.addEventListener('online', ()=>{ if(noahOnTitleScreen()) noahUpdateCheck('online'); });
+
+  // ---------------------------------------------------------------------------
+  // v351: オフライン用（怪獣群島 WILD PACT と同じ仕組み）
+  //   GitHub Pages など https で開いたときだけ sw.js を登録し、本体・画像・フォント・BGMを端末に保存する。
+  //   保存が済むとタイトルの版数表示の下に「OFFLINE READY」と出て、機内モードでもホーム画面から起動できる。
+  //   file:// で開いたときや HTML ビューアーでは何もしない（これまでどおり）。
+  // ---------------------------------------------------------------------------
+  let noahOfflineTimer = 0;
+  function noahOfflineSupported(){
+    try{ return ('serviceWorker' in navigator) && window.isSecureContext && noahUpdateSupported(); }catch(e){ return false; }
+  }
+  function noahAskOfflineStatus(){
+    const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if(!sw || typeof MessageChannel !== 'function') return Promise.resolve(null);
+    return new Promise(resolve=>{
+      const ch = new MessageChannel();
+      const timer = setTimeout(()=>resolve(null), 4000);
+      ch.port1.onmessage = e=>{ clearTimeout(timer); resolve(e.data || null); };
+      try{ sw.postMessage({ type:'noah:status' }, [ch.port2]); }catch(e){ clearTimeout(timer); resolve(null); }
+    });
+  }
+  function noahWarmOffline(reg){
+    const sw = (reg && reg.active) || (navigator.serviceWorker && navigator.serviceWorker.controller);
+    if(!sw) return;
+    let bgm = [];
+    try{ bgm = (typeof EXTERNAL_BATTLE_BGM_TRACKS !== 'undefined' ? EXTERNAL_BATTLE_BGM_TRACKS : []).map(t=>t && t.src).filter(Boolean); }catch(e){}
+    try{ sw.postMessage({ type:'noah:warm', bgm }); }catch(e){}
+  }
+  async function noahWatchOffline(){
+    clearTimeout(noahOfflineTimer);
+    if(document.hidden){ noahOfflineTimer = setTimeout(noahWatchOffline, 3000); return; }
+    const st = await noahAskOfflineStatus();
+    if(st){
+      noahOfflineLabel = st.done ? 'OFFLINE READY' : `SAVING FOR OFFLINE ${st.percent}%`;
+      noahRenderVersionLabel();
+      if(st.done) return;
+      // 保存の途中で止まっていたら（アプリを裏に回したときなど）、つながっていれば続きを頼む
+      if(!st.warming && navigator.onLine !== false) noahWarmOffline(null);
+    }
+    noahOfflineTimer = setTimeout(noahWatchOffline, st && st.warming ? 1500 : 5000);
+  }
+  if(noahOfflineSupported()){
+    const startOffline = ()=>{
+      navigator.serviceWorker.register('./sw.js', { updateViaCache:'none' })
+        .then(()=>navigator.serviceWorker.ready)
+        .then(reg=>{ noahWarmOffline(reg); noahWatchOffline(); })
+        .catch(()=>{});
+      try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{}); }catch(e){}
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', ()=>{ noahWarmOffline(null); noahWatchOffline(); });
+    if(document.readyState === 'complete') startOffline();
+    else window.addEventListener('load', startOffline, { once:true });
+  }
 
 // Optional user-facing visual catalogue. Only active in EFFECTS.html's preview frame.
 if(new URLSearchParams(location.search).get('preview')==='effects'&&window.parent!==window) {
@@ -17066,6 +17160,219 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
  });
  setTimeout(bootEffectPreview,0);
 }
+
+  // ===========================================================================
+  // v352 3D BOARD VIEW（テスト版）
+  // ---------------------------------------------------------------------------
+  // ・盤面を three.js の3Dで描く（noah3d.js）。怪獣・機体・ミサイル/麻酔弾・左右の木/岩山が3Dの仮モデル。
+  //   ルール・カード・UIは同じ。移動先・攻撃予測・HPバーは2Dで描いた絵を機体の高さのパネルに写し、
+  //   カード演出は2Dのものを斜めの面に重ねて表示する（noah3dDrawTacticalLayer / noah3dDrawEffectsLayer）。
+  // ・3D中は drawBoard() は何もせず戻る。タップは noah3d.js が一番近いマスに吸い付けて onBoardTap({noahCell}) へ。
+  // ・盤面左上のボタンで 3D⇄2D と視点（斜め⇄真上）を切り替える。設定は localStorage に保存。
+  //   URL に ?3d=0 / ?3d=1 を付けるとその回だけ強制できる。
+  // ・3Dを始められなかった（WebGL2が使えない・ファイルが読めない）ときは自動で2Dに戻る。
+  // ・Meshy の本番モデルに差し替えるときは noah3d.js の makeKaiju / makeAircraft を GLB の読み込みに置き換える。
+  // ===========================================================================
+  var noah3dActive = false;   // drawBoard から先に参照されても false になるよう var で宣言
+  let noah3dHandle = null;
+  let noah3dLoading = null;
+  let noah3dWanted = false;
+  const NOAH_3D_PREF_KEY = 'noah_view3d_v1';
+  const NOAH_3D_CAM_KEY = 'noah_view3d_cam_v1';
+  const noah3dPreview = new URLSearchParams(location.search).get('preview') === 'effects';
+  const noah3dSupported = (()=>{
+    if(noah3dPreview) return false;
+    try{
+      const c = document.createElement('canvas');
+      const gl = c.getContext('webgl2');
+      if(!gl) return false;
+      const lose = gl.getExtension('WEBGL_lose_context');
+      if(lose) lose.loseContext();
+      return true;
+    }catch(e){ return false; }
+  })();
+  function noah3dReadPref(){
+    try{
+      const q = new URLSearchParams(location.search).get('3d');
+      if(q === '0' || q === '1') return q === '1';
+    }catch(e){}
+    try{
+      const v = localStorage.getItem(NOAH_3D_PREF_KEY);
+      if(v === '0') return false;
+      if(v === '1') return true;
+    }catch(e){}
+    return true;   // テスト版は最初から3D
+  }
+  let noah3dCamMode = (()=>{ try{ return localStorage.getItem(NOAH_3D_CAM_KEY) === 'top' ? 'top' : 'oblique'; }catch(e){ return 'oblique'; } })();
+
+  // 戦術パネル用：移動先・攻撃予測・HPバーだけを2Dで描く（地形・怪獣・機体・演出は描かない）
+  function noah3dPrepareBoardCtx(geom){
+    const {canvasW, canvasH} = geom;
+    const sx = (ui.board.width>0 && canvasW>0) ? ui.board.width/canvasW : Math.max(1, window.devicePixelRatio||1);
+    const sy = (ui.board.height>0 && canvasH>0) ? ui.board.height/canvasH : Math.max(1, window.devicePixelRatio||1);
+    boardCtx.setTransform(sx,0,0,sy,0,0);
+    boardCtx.globalAlpha=1;
+    boardCtx.globalCompositeOperation='source-over';
+    boardCtx.shadowBlur=0;
+    boardCtx.shadowColor='rgba(0,0,0,0)';
+    try{ boardCtx.filter='none'; }catch(e){}
+    boardCtx.clearRect(0,0,canvasW,canvasH);
+  }
+  // 描く大きさは盤面の正方形を最大 maxPx の正方形に縮めたもの（キャンバスの左上に描く）。描いた辺の長さ（px）を返す
+  function noah3dDrawTacticalLayer(maxPx=512){
+    const geom = getBoardGeom();
+    const {size, cell, offsetX, offsetY} = geom;
+    noah3dPrepareBoardCtx(geom);
+    noah3dFxDirty = true;   // このあと演出用に消し直す
+    const px = Math.max(64, Math.min(maxPx, ui.board.width, ui.board.height));
+    const k = px / Math.max(1, size);
+    boardCtx.setTransform(k,0,0,k,-offsetX*k,-offsetY*k);
+    boardCtx.save();
+    boardCtx.translate(offsetX, offsetY);
+    try{
+      if((game.mode==='move' || game.mode==='sortie') && !game.gameOver){
+        const unit=curUnit();
+        [0,1,2].forEach(unitCol=>{
+          [4,5,6].forEach(row=>{
+            const occupied=isGridOccupied(unitCol,row,game.mode==='move' ? unit : null);
+            const current=game.mode==='move' && unit && unitColOf(unit)===unitCol && unit.row===row;
+            if(occupied && !current) return;
+            const forecast=unit ? hypotheticalKaijuDamageForCell(unit, unitCol, row) : null;
+            const areaThreat=!!(forecast && forecast.area && forecast.targeted);
+            drawTacticalCandidateCell(cell, unitCol, row, { mode:game.mode, current, forecast, areaThreat });
+          });
+        });
+      }
+      drawKaijuBoardThreatCells(cell);
+      drawSortieDamageForecastOverlays(cell);
+      const entering = typeof game.aircraftEntryProgress === 'number' && game.aircraftEntryProgress < 1;
+      if(!game.introHideUnits && !entering){
+        game.units.forEach(u=>{
+          if(!unitOccupiesBoard(u)) return;
+          const x=boardXForUnitCol(unitColOf(u))*cell+cell/2, y=u.row*cell+cell/2;
+          const visualIndex=aircraftImageIndex(u.aircraftId);
+          const img=aircraftImgs[visualIndex];
+          let bodyW=cell, bodyH=cell;
+          if(img && img.complete && img.naturalWidth){ const m=getAircraftRenderMetrics(visualIndex,img,cell,x,y); bodyW=m.bodyW; bodyH=m.bodyH; }
+          drawAircraftHpBar(u, x, y, bodyW, bodyH, cell, size);
+        });
+      }
+      drawKaijuBoardThreatDamage(cell);
+    }finally{
+      boardCtx.restore();
+    }
+    return Math.round(px);
+  }
+  // 戦術パネルに何を出すか：0 なし / 1 HPバーだけ（ほぼ静止）/ 2 移動先・攻撃予測など動きのある表示
+  function noah3dTacticalLevel(){
+    if(!gameStarted || !game) return 0;
+    if((game.mode==='move' || game.mode==='sortie') && !game.gameOver) return 2;
+    if(game.phase!=='attack'){
+      try{ if(getKaijuBoardThreatCells().some(c=>c.danger || c.damage!=null)) return 2; }catch(e){ return 2; }
+    }
+    const entering = typeof game.aircraftEntryProgress === 'number' && game.aircraftEntryProgress < 1;
+    if(!game.introHideUnits && !entering && !shouldHideAircraftHpHud() && game.units.some(u=>unitOccupiesBoard(u))) return 1;
+    return 0;
+  }
+  // 演出用：カード演出・攻撃演出だけを2Dで描く（noah3d.js がこのキャンバスを斜めの面に重ねる）
+  let noah3dFxDirty = true;
+  function noah3dDrawEffectsLayer(){
+    if(!game.effects.length && !noah3dFxDirty) return;   // 何も描いていないままなら消し直さない
+    const geom = getBoardGeom();
+    noah3dPrepareBoardCtx(geom);
+    noah3dFxDirty = false;
+    if(!game.effects.length) return;
+    noah3dFxDirty = true;
+    boardCtx.save();
+    boardCtx.translate(geom.offsetX, geom.offsetY);
+    try{ drawEffects(geom.size, geom.cell); }
+    finally{ boardCtx.restore(); }
+  }
+  const noah3dBridge = {
+    host: ui.board.parentElement,
+    boardCanvas: ui.board,
+    get game(){ return game; },
+    curUnit: ()=>curUnit(),
+    unitOccupiesBoard: u=>unitOccupiesBoard(u),
+    aircraftIndex: u=>aircraftImageIndex(u.aircraftId),
+    boardX: u=>boardXForUnitCol(unitColOf(u)),
+    unitCol: u=>unitColOf(u),
+    isGridOccupied: (col,row,except)=>isGridOccupied(col,row,except),
+    followDroneColors: u=>ensureFollowDrones(u).map(card=>followDroneColor(card)),
+    cardCategory: id=>{ const d=def(id); return d ? d.category : ''; },
+    stageId: ()=>currentStageDef().id,
+    groundImage: ()=>{ const img=currentBoardBgImg(); return (img && img.complete && img.naturalWidth) ? noahPeriodicTerrain(img) : null; },
+    kaijuJitter: ()=>getKaijuDrawJitter(getBoardGeom().cell),
+    kaijuHeightCells: ()=>activeKaijuVisualSetId === 'gaiadran' ? 4 : 3,
+    kaijuCharging: ()=>{ try{ return !!isBathynomaSpecialCharging(); }catch(e){ return false; } },
+    geom: ()=>getBoardGeom(),
+    drawTactical: maxPx=>noah3dDrawTacticalLayer(maxPx),
+    tacticalLevel: ()=>noah3dTacticalLevel(),
+    drawEffects: ()=>noah3dDrawEffectsLayer(),
+    inputLocked: ()=>!!game.inputLocked,
+    boardVisible: ()=>gameStarted && !ui.app.classList.contains('preHidden') && !document.hidden,
+    tap: cell=>onBoardTap({ noahCell:cell }),
+    onFatal: err=>noah3dFail(err),
+  };
+
+  const noah3dCtl = document.createElement('span');
+  noah3dCtl.className = 'bzViewCtl';
+  noah3dCtl.innerHTML = '<button type="button" class="bzBtn" id="view3dBtn" aria-label="3D表示と2D表示の切り替え"></button><button type="button" class="bzBtn" id="viewCamBtn" aria-label="3D表示の視点の切り替え"></button>';
+  const noah3dBezel = ui.boardWrap.querySelector('.bezel');
+  if(noah3dSupported && noah3dBezel) noah3dBezel.appendChild(noah3dCtl);
+  const noah3dBtn = noah3dCtl.querySelector('#view3dBtn');
+  const noah3dCamBtn = noah3dCtl.querySelector('#viewCamBtn');
+  function noah3dUpdateChips(){
+    const on = noah3dWanted;
+    noah3dBtn.textContent = on ? '3D' : '2D';
+    noah3dBtn.classList.toggle('on', on);
+    noah3dBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    noah3dCamBtn.hidden = !on;
+    noah3dCamBtn.textContent = noah3dCamMode === 'top' ? '真上' : '斜め';
+  }
+  function noah3dStart(){
+    if(noah3dHandle || noah3dLoading) return;
+    const v = encodeURIComponent(NOAH_PROJECT_META.currentPrototypeVersion);
+    noah3dLoading = import(`./noah3d.js?v=${v}`)
+      .then(mod=>{
+        if(!noah3dWanted || noah3dHandle) return;
+        noah3dHandle = mod.start(noah3dBridge);
+        noah3dActive = true;
+        noah3dHandle.setCameraMode(noah3dCamMode);
+      })
+      .catch(err=>{ console.warn('[N.O.A.H. 3D] 3D表示を開始できませんでした', err); noah3dFail(err); })
+      .finally(()=>{ noah3dLoading = null; noah3dUpdateChips(); resizeBoard(); });
+  }
+  function noah3dStop(){
+    const h = noah3dHandle;
+    noah3dHandle = null;
+    noah3dActive = false;
+    if(h){ try{ h.stop(); }catch(e){ console.warn('[N.O.A.H. 3D]', e); } }
+    resizeBoard();
+  }
+  function noah3dFail(err){
+    const wasWanted = noah3dWanted;
+    noah3dWanted = false;
+    noah3dStop();
+    noah3dUpdateChips();
+    if(wasWanted) showToast('3D表示を開始できませんでした。2D表示で続けます', 3000);
+  }
+  function noah3dSetWanted(on, save){
+    noah3dWanted = !!on && noah3dSupported;
+    if(save){ try{ localStorage.setItem(NOAH_3D_PREF_KEY, on ? '1' : '0'); }catch(e){} }
+    if(noah3dWanted) noah3dStart(); else noah3dStop();
+    noah3dUpdateChips();
+  }
+  noah3dBtn.addEventListener('click', ()=>{ playTapSound(); noah3dSetWanted(!noah3dWanted, true); });
+  noah3dCamBtn.addEventListener('click', ()=>{
+    playTapSound();
+    noah3dCamMode = noah3dCamMode === 'top' ? 'oblique' : 'top';
+    try{ localStorage.setItem(NOAH_3D_CAM_KEY, noah3dCamMode); }catch(e){}
+    if(noah3dHandle) noah3dHandle.setCameraMode(noah3dCamMode);
+    noah3dUpdateChips();
+  });
+  if(noah3dSupported) noah3dSetWanted(noah3dReadPref(), false);
+  else noah3dUpdateChips();
 
   resizeBoard(); render(); renderTitleScreen(); requestAnimationFrame(kaijuAnimationLoop);
 })();
