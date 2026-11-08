@@ -4,6 +4,10 @@
 //  ・ゲーム本体（index.html）はネット優先。つながるときは毎回最新版を読み込んで保存し、
 //    つながらない（または4秒応答がない）ときだけ保存した版を使う。
 //  ・3D表示のプログラム noah3d.js（v352〜）もゲーム本体と同じくネット優先（本体と版がずれないように）。
+//    v353 で three.js をモジュール版から普通のスクリプト版（vendor/three-r170.min.js）に替えたので、古い方は消す。
+//  ・3Dの本番モデル（models/*.js。v354〜）は、ファイル名に版が入っていて中身が変わらないので、一度保存したら
+//    確かめ直さない（数MBあるので、毎回の確認で通信しないように）。中身を変えるときはファイル名ごと変える。
+//    models/ground-*.js（v355〜）は HTMLビューアー（file://）でだけ使う地面の画像なので、ここでは保存しない。
 //  ・画像・CSS・フォント・three.js（vendor/。中身を変えるときはファイル名ごと変える）は保存した版を優先し、
 //    裏で新しい版を確かめて入れ替える。タイトル画面の更新チェックが新しい版を見つけたときは、読み込み直す前に取り直す。
 //  ・BGMは保存した版を優先する（音声の「〇〇バイト目から」という分割読み込みにも応える）。
@@ -23,8 +27,17 @@ const CORE_FILES = {
   './font/noah-hud.woff': 72000,
   './img/brand/icon.png': 385000,
   './img/asset-manifest.json': 30000,
-  './noah3d.js': 60000,                      // v352 3D表示
-  './vendor/three-r170.module.min.js': 692000,   // v352 3D表示（three.js r170。中身を変えるときはファイル名ごと変える）
+  './noah3d.js': 105000,                      // v352 3D表示
+  './vendor/three-r170.min.js': 691000,          // 3D表示（three.js r170。v353〜は普通のスクリプト版。中身を変えるときはファイル名ごと変える）
+  './vendor/three-r170-gltfloader.min.js': 47100, // v354 3Dモデル（GLB）の読み込み
+  './models/aa1-v354.js': 459345,
+  './models/aa2-v354.js': 337813,
+  './models/aa3-v354.js': 529941,
+  './models/aa4-v354.js': 527393,
+  './models/aa5-v354.js': 650973,
+  './models/celevarn-v354.js': 1511679,
+  './models/rock-v354.js': 479119,
+  './models/tree-v354.js': 551063,   // v354 3Dの本番モデル
 };
 const CORE = Object.keys(CORE_FILES).map(p => new URL(p, SCOPE).href);
 const CORE_SIZE = new Map(Object.entries(CORE_FILES).map(([p, bytes]) => [new URL(p, SCOPE).href, bytes]));
@@ -43,8 +56,10 @@ const isAsset = url => {
   return p.startsWith(SCOPE) && /\.(css|woff2?|ttf|otf|webp|png|jpe?g|gif|svg|json|m?js)$/i.test(p)
     && !/\/version\.json$/i.test(p) && !/\/sw\.js$/i.test(p);
 };
-// ネット優先で読むプログラム（vendor/ の外にある .js。sw.js 自身はブラウザが直接確かめるのでここには来ない）
-const isAppScript = url => { const p = plain(url); return p.startsWith(SCOPE) && /\.m?js$/i.test(p) && !p.startsWith(SCOPE + 'vendor/'); };
+// ネット優先で読むプログラム（vendor/・models/ の外にある .js。sw.js 自身はブラウザが直接確かめるのでここには来ない）
+const isAppScript = url => { const p = plain(url); return p.startsWith(SCOPE) && /\.m?js$/i.test(p) && !p.startsWith(SCOPE + 'vendor/') && !p.startsWith(SCOPE + 'models/'); };
+// 中身の変わらない3Dモデル（ファイル名に版が入っている）
+const isModel = url => { const p = plain(url); return p.startsWith(SCOPE + 'models/') && /\.js$/i.test(p); };
 // 更新チェックが「最新を確かめて」と頼んできた読み込み
 const wantsFresh = request => request.cache === 'no-cache' || request.cache === 'reload' || request.cache === 'no-store';
 const okToStore = response => response && response.status === 200 && response.type === 'basic' && !response.redirected;
@@ -119,13 +134,24 @@ self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil((async () => {
     const page = await caches.open(PAGE_CACHE), assets = await caches.open(ASSET_CACHE);
-    await Promise.allSettled([storeFull(page, PAGE_URL), ...CORE.map(u => storeFull(assets, u))]);
+    // 3Dモデルは中身が変わらないので、保存済みなら取り直さない（数MBあるため）
+    await Promise.allSettled([storeFull(page, PAGE_URL), ...CORE.map(async u => {
+      if (isModel(u) && await assets.match(u)) return;
+      return storeFull(assets, u);
+    })]);
   })());
 });
 
+const RETIRED = ['./vendor/three-r170.module.min.js'].map(p => new URL(p, SCOPE).href);   // もう使わないファイル
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     for (const key of await caches.keys()) if (key.startsWith('noah-') && !KEEP.includes(key)) await caches.delete(key);
+    try {
+      const assets = await caches.open(ASSET_CACHE);
+      for (const url of RETIRED) await assets.delete(url);
+      // 使わなくなった版の3Dモデル（いまの CORE_FILES に無い models/ のファイル）を消す
+      for (const req of await assets.keys()) if (isModel(req.url) && !CORE.includes(plain(req.url))) await assets.delete(req);
+    } catch (e) {}
     await self.clients.claim();
   })());
 });
@@ -151,6 +177,7 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') return;          // ほかのページ（SOUNDS.html など）はそのままネットへ
   if (isBgm(request.url)) { media(event); return; }
   if (isAppScript(request.url)) { script(event); return; }
+  if (isModel(request.url)) { model(event); return; }
   if (isAsset(request.url)) { asset(event); }
 });
 
@@ -209,6 +236,19 @@ function script(event) {
       if (copy) return copy;
       return (await network).response;
     }
+  })());
+}
+
+// 3Dモデル：保存した版があればそれだけを使う（裏で確かめ直さない）。無ければネットから読んで保存する
+function model(event) {
+  const request = event.request, key = plain(request.url);
+  event.respondWith((async () => {
+    const cache = await caches.open(ASSET_CACHE);
+    const stored = await cache.match(key, { ignoreVary: true });
+    if (stored) return stored;
+    const response = await fetch(request);
+    if (okToStore(response)) event.waitUntil(cache.put(key, response.clone()).catch(() => {}));
+    return response;
   })());
 }
 

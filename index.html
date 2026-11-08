@@ -112,15 +112,21 @@ SAVE / CONTINUE（v336〜）：
 - 怪獣ごとの最高記録・前回結果は 'noah_records_v1' に別保存。
 - 画面内スクロールは極力避け、必要な箇所だけ小さく展開する。
 - 配布時は index.html、sw.js、version.json、visual.css、noah3d.js、vendor/、img/、audio/、font/ のフォルダ構造を保つ
-  （sw.js はオフライン用 v351〜、noah3d.js と vendor/three-r170.module.min.js は3D表示用 v352〜）。
+  （sw.js はオフライン用 v351〜、noah3d.js と vendor/three-r170.min.js は3D表示用 v352〜）。
 
 3D BOARD VIEW（v352〜・テスト版）：
 - 盤面を three.js で3D表示する（noah3d.js）。処理は「v352 3D BOARD VIEW」のブロック（noah3dBridge など）。
-- 3Dになるのは盤面の見た目だけ：怪獣・機体・ミサイル/麻酔弾・左右の木/岩山が3D（いまは仮モデル）。
-  移動先・攻撃予測・HPバーは2Dで描いた絵を機体の高さのパネルに写し、カード演出は2Dを斜めの面に重ねる。
+- 3Dになるのは盤面の見た目だけ：怪獣・機体・ミサイル/麻酔弾・左右の木/岩山が3D。v354〜、怪獣・機体5機・木・岩山は
+  Meshy の本番モデル（models/*.js。tools/noah_glb_optimize.py で軽くしたもの）。ミサイル・麻酔弾は仮モデルのまま。
+  移動先・攻撃予測・HPバーは2Dで描いた絵を機体の高さのパネルに写す。カード演出は2Dのまま、1つずつ3Dの位置に
+  合わせて画面に平行に描く（研究は怪獣の前に立てた面）。v353〜、three.js と noah3d.js は普通のスクリプトとして
+  読み込む（window.THREE / window.NOAH3D）。HTMLビューアーの file:// でも動かすため。
 - 3D中は drawBoard() が何もせずに戻り、タップは noah3d.js が一番近いマスに吸い付けて onBoardTap({noahCell}) に渡す。
 - 盤面左上のボタンで 3D⇄2D と 視点（斜め⇄真上）を切り替え（localStorage 'noah_view3d_v1' / 'noah_view3d_cam_v1'）。
   URL に ?3d=0 / ?3d=1 でその回だけ強制。3Dを始められないときは自動で2Dに戻る。
+- v355〜：file:// ではステージの画像を3Dの地面に使えないので、models/ground-*.js（同じ画像を文字にしたもの）を使う
+  （ブリッジの periodicTerrain で2Dと同じく継ぎ目をなじませる）。モデルの読み込みは1つずつ順番に行い、そろったら
+  盤面が出ていない間（タイトル画面など）にシェーダーをまとめて作っておく（noah3d.js の warmUp）。
 
 ===============================================================================
 -->
@@ -4248,7 +4254,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v352',
+    currentPrototypeVersion:'v355',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -4263,7 +4269,7 @@ input[type="range"]::-webkit-slider-thumb{
     deckCount:document.getElementById('deckCount'), discardCount:document.getElementById('discardCount'), boardWrap:document.getElementById('boardWrap'), board:document.getElementById('board'), infoRow:document.getElementById('infoRow'), infoUnit:document.getElementById('infoUnit'), infoState:document.getElementById('infoState'), infoRound:document.getElementById('infoRound'), infoDanger:document.getElementById('infoDanger'), dfBtn:document.getElementById('dfBtn'), logBtn:document.getElementById('logBtn'), pauseBtn:document.getElementById('pauseBtn'), phaseOverlay:document.getElementById('phaseOverlay'), phaseText:document.getElementById('phaseText'),
     hand:[...Array(5)].map((_,i)=>document.getElementById('hand'+i)), cannon:[...Array(4)].map((_,i)=>document.getElementById('cannon'+i)), deckBtn:document.getElementById('deckBtn'), discardBtn:document.getElementById('discardBtn'), supplyBtn:document.getElementById('supplyBtn'), statusBtn:document.getElementById('statusBtn'), endTurnBtn:document.getElementById('endTurnBtn'), toast:document.getElementById('toast'), modal:document.getElementById('modal'), modalBg:document.getElementById('modalBg'), modalTitle:document.getElementById('modalTitle'), modalBody:document.getElementById('modalBody'), modalButtons:document.getElementById('modalButtons'), modalCloseX:document.getElementById('modalCloseX'), pauseBg:document.getElementById('pauseBg'), pauseTitle:document.getElementById('pauseTitle'), pauseBody:document.getElementById('pauseBody'), pauseButtons:document.getElementById('pauseButtons'), pauseCloseX:document.getElementById('pauseCloseX'), app:document.getElementById('app'), preGame:document.getElementById('preGame'), preTitle:document.getElementById('preTitle'), preBody:document.getElementById('preBody'), preActions:document.getElementById('preActions'), inputShield:document.getElementById('inputShield')
   };
-  const boardCtx = ui.board.getContext('2d');
+  let boardCtx = ui.board.getContext('2d');   // v353: 3D表示の戦術パネルを描く間だけ別のキャンバスに差し替える
 /* N.O.A.H. v344 · visual pipeline. Injected inside the game closure at build time. */
 const noahArtReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const noahLoopTileCache = new WeakMap();
@@ -4604,6 +4610,7 @@ function noahCardSheet(key,p,x,y,w,h=w,opt={}) {
  boardCtx.drawImage(image,-w/2,-h/2,w,h);boardCtx.restore();return true;
 }
 function noahDrawMeshOnCreature(p,r,cell) {
+ if(noah3dActive)return true; // v353: 3D表示中は3Dの怪獣に光る網目を重ねる（noah3d.js）
  const frame=noahSpecificFrame('bio-pattern',p);
  if(!frame||!r.img||!r.img.complete)return false;
  const w=Math.max(1,Math.ceil(r.drawW)),h=Math.max(1,Math.ceil(r.drawH));
@@ -6272,7 +6279,20 @@ function noahDrawKaijuGroundShadow(cell) {
   function startExternalBattleBgmAfterKaijuIntro(){
     // 怪獣登場幕が流れて消えた直後だけ、初回の音ありBGMを開始する。
     // 同一作戦中の二重リスタートを避けるため initial ガードを使う。
-    return startExternalBattleBgmFromBeginning();
+    const started = startExternalBattleBgmFromBeginning();
+    // v355: iPhone の HTMLビューアーで、ここで頼んだ再生が始まらないまま、次に画面を触るまで無音のことがあった。
+    //       少し待っても止まったままなら、巻き戻さずにもう一度だけ再生を頼む（巻き戻さないので二重のイントロにはならない）。
+    setTimeout(nudgeExternalBattleBgmStart, 1500);
+    return started;
+  }
+
+  function nudgeExternalBattleBgmStart(){
+    const audio = externalBattleBgm;
+    if(!audio || !gameStarted || !game || game.gameOver || document.hidden) return;
+    if(!externalBattleBgmActive || externalBattleBgmAudibleStarted) return;   // もう鳴り始めた／止めた
+    if(!audio.paused) return;                                                 // 再生待ち（読み込み中）はそのまま待つ
+    externalBattleBgmStartInProgress = false;
+    tryPlayExternalBattleBgm({ restart:false, reload:false, fromGesture:false, reason:'start-nudge', initial:false });
   }
 
   function restartExternalBattleBgmFromBeginning(reason='restart', fromGesture=false){
@@ -17164,14 +17184,16 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   // ===========================================================================
   // v352 3D BOARD VIEW（テスト版）
   // ---------------------------------------------------------------------------
-  // ・盤面を three.js の3Dで描く（noah3d.js）。怪獣・機体・ミサイル/麻酔弾・左右の木/岩山が3Dの仮モデル。
+  // ・盤面を three.js の3Dで描く（noah3d.js）。怪獣・機体・ミサイル/麻酔弾・左右の木/岩山が3D。
+  //   v354〜 怪獣・機体・木・岩山は Meshy の本番モデル（models/*.js を noah3d.js が裏で読む。届くまでは仮モデル）。
   //   ルール・カード・UIは同じ。移動先・攻撃予測・HPバーは2Dで描いた絵を機体の高さのパネルに写し、
   //   カード演出は2Dのものを斜めの面に重ねて表示する（noah3dDrawTacticalLayer / noah3dDrawEffectsLayer）。
   // ・3D中は drawBoard() は何もせず戻る。タップは noah3d.js が一番近いマスに吸い付けて onBoardTap({noahCell}) へ。
   // ・盤面左上のボタンで 3D⇄2D と視点（斜め⇄真上）を切り替える。設定は localStorage に保存。
   //   URL に ?3d=0 / ?3d=1 を付けるとその回だけ強制できる。
   // ・3Dを始められなかった（WebGL2が使えない・ファイルが読めない）ときは自動で2Dに戻る。
-  // ・Meshy の本番モデルに差し替えるときは noah3d.js の makeKaiju / makeAircraft を GLB の読み込みに置き換える。
+  // ・モデルを差し替えるときは tools/noah_glb_optimize.py で models/<名前>-<版>.js を作り直し、noah3d.js の MODEL_FILES と
+  //   sw.js の CORE_FILES の名前を合わせる（ファイル名ごと変える。端末に保存した古い版は使われなくなる）。
   // ===========================================================================
   var noah3dActive = false;   // drawBoard から先に参照されても false になるよう var で宣言
   let noah3dHandle = null;
@@ -17218,18 +17240,25 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     try{ boardCtx.filter='none'; }catch(e){}
     boardCtx.clearRect(0,0,canvasW,canvasH);
   }
-  // 描く大きさは盤面の正方形を最大 maxPx の正方形に縮めたもの（キャンバスの左上に描く）。描いた辺の長さ（px）を返す
-  function noah3dDrawTacticalLayer(maxPx=512){
+  // 戦術パネル：盤面の正方形を target（noah3d.js の 512×512 のキャンバス）いっぱいに描く。
+  // 描画関数はどれも boardCtx に描くので、この間だけ boardCtx を target のものに差し替える。
+  // target には画像を描かないので、HTMLビューアー（file://）でもWebGLへ渡せる。
+  function noah3dDrawTacticalLayer(target){
+    if(!target || !target.getContext) return false;
     const geom = getBoardGeom();
-    const {size, cell, offsetX, offsetY} = geom;
-    noah3dPrepareBoardCtx(geom);
-    noah3dFxDirty = true;   // このあと演出用に消し直す
-    const px = Math.max(64, Math.min(maxPx, ui.board.width, ui.board.height));
-    const k = px / Math.max(1, size);
-    boardCtx.setTransform(k,0,0,k,-offsetX*k,-offsetY*k);
-    boardCtx.save();
-    boardCtx.translate(offsetX, offsetY);
+    const {size, cell} = geom;
+    const main = boardCtx;
+    boardCtx = target.getContext('2d');
     try{
+      boardCtx.setTransform(1,0,0,1,0,0);
+      boardCtx.globalAlpha=1;
+      boardCtx.globalCompositeOperation='source-over';
+      boardCtx.shadowBlur=0;
+      boardCtx.shadowColor='rgba(0,0,0,0)';
+      try{ boardCtx.filter='none'; }catch(e){}
+      boardCtx.clearRect(0,0,target.width,target.height);
+      const k = target.width / Math.max(1, size);
+      boardCtx.setTransform(k,0,0,k,0,0);
       if((game.mode==='move' || game.mode==='sortie') && !game.gameOver){
         const unit=curUnit();
         [0,1,2].forEach(unitCol=>{
@@ -17259,9 +17288,10 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       }
       drawKaijuBoardThreatDamage(cell);
     }finally{
-      boardCtx.restore();
+      boardCtx.setTransform(1,0,0,1,0,0);
+      boardCtx = main;
     }
-    return Math.round(px);
+    return true;
   }
   // 戦術パネルに何を出すか：0 なし / 1 HPバーだけ（ほぼ静止）/ 2 移動先・攻撃予測など動きのある表示
   function noah3dTacticalLevel(){
@@ -17274,19 +17304,103 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     if(!game.introHideUnits && !entering && !shouldHideAircraftHpHud() && game.units.some(u=>unitOccupiesBoard(u))) return 1;
     return 0;
   }
-  // 演出用：カード演出・攻撃演出だけを2Dで描く（noah3d.js がこのキャンバスを斜めの面に重ねる）
+  // 演出用：カード演出・攻撃演出を2Dのまま、1つずつ3Dの位置に合わせて「画面に平行に」描く（v353〜）。
+  //  ・爆発・着弾・回復・作戦・衝撃波 … その場所（機体の高さ／怪獣の胸の前）に、そこでの大きさで丸いまま描く
+  //  ・怪獣の攻撃（斬撃・ビーム・ブレス・弾）… 出る所と届く所の2点を、それぞれ3Dの位置に合わせる
+  //  ・研究 … 怪獣の前に立てた面に描く
+  //  proj.plane(x, y) / proj.standing(x, y) は盤面の位置（マス単位）→ 画面の位置（CSS px）。noah3d.js が渡す。
   let noah3dFxDirty = true;
-  function noah3dDrawEffectsLayer(){
+  function noah3dSimilarity(a, b, sa, sb, cell){
+    const dpx=b.x-a.x, dpy=b.y-a.y, dsx=sb.x-sa.x, dsy=sb.y-sa.y;
+    const den=(dpx*dpx+dpy*dpy) || 1e-9;
+    const zr=(dsx*dpx+dsy*dpy)/den/cell, zi=(dsy*dpx-dsx*dpy)/den/cell;   // 回転と拡大（盤面のpx → 画面のpx）
+    const qx=a.x*cell, qy=a.y*cell;
+    return [zr, zi, -zi, zr, sa.x-(zr*qx-zi*qy), sa.y-(zi*qx+zr*qy)];
+  }
+  function noah3dAffine(P, S, cell){
+    const q=P.map(p=>({x:p.x*cell, y:p.y*cell}));
+    const det=((q[1].x-q[0].x)*(q[2].y-q[0].y)-(q[2].x-q[0].x)*(q[1].y-q[0].y)) || 1e-9;
+    const solve=(v0,v1,v2)=>{
+      const A=((v1-v0)*(q[2].y-q[0].y)-(v2-v0)*(q[1].y-q[0].y))/det;
+      const C=((q[1].x-q[0].x)*(v2-v0)-(q[2].x-q[0].x)*(v1-v0))/det;
+      return [A, C, v0-A*q[0].x-C*q[0].y];
+    };
+    const [a,c,e]=solve(S[0].x,S[1].x,S[2].x), [b,d,f]=solve(S[0].y,S[1].y,S[2].y);
+    return [a,b,c,d,e,f];
+  }
+  function noah3dEffectPlacement(effect){
+    const unitCenter=i=>{ const u=game.units[i]; return u ? { x:boardXForUnitCol(unitColOf(u))+.5, y:u.row+.5 } : { x:3.5, y:5.5 }; };
+    switch(effect.type){
+      case 'explosion': { const c=effect.cell || {x:3,y:1}; return { kind:'point', p:{ x:c.x+.5+(effect.offsetX||0), y:c.y+.5+(effect.offsetY||0) } }; }
+      case 'guidanceFxExplosion': case 'guidanceFxLR': return { kind:'point', p:effect.point || {x:3.5,y:1.5} };
+      case 'supportFx': return /lr/.test(effect.variant||'') ? { kind:'span' } : { kind:'point', p:effect.point || {x:3.5,y:1.6} };
+      case 'artOperation': return { kind:'point', p:unitCenter(effect.unitIndex) };
+      case 'kaijuRing': return { kind:'point', p:effect.centerCell || kaijuAttackOrigin() };
+      case 'kaijuCrescent': case 'kaijuLine': case 'kaijuFxRingProjectile': case 'kaijuFxProjectile': case 'kaijuFxOrbProjectile':
+        return (effect.startCell && effect.endCell) ? { kind:'segment', a:effect.startCell, b:effect.endCell } : { kind:'span' };
+      case 'kaijuFxRowSweepProjectile': { const y=(Number(effect.row)||4)+.5; return { kind:'segment', a:{x:-.3,y}, b:{x:8.3,y} }; }
+      case 'kaijuFxBeamRange': { const rows=effect.rows && effect.rows.length ? effect.rows : [4]; return { kind:'segment', a:effect.origin || kaijuAttackOrigin(), b:{x:3.5, y:Math.max(...rows)+.5} }; }
+      case 'kaijuFxBreathColumn': { const x=Number(effect.boardX)+.5; return { kind:'segment', a:{x, y:2.45}, b:{x, y:6.72} }; }
+      case 'kaijuFxBreathRange': { const rows=effect.rows && effect.rows.length ? effect.rows : [4]; const y=(Math.min(...rows)+Math.max(...rows))/2+.5; return { kind:'segment', a:{x:-.5,y}, b:{x:7.5,y} }; }
+      case 'researchFx': return { kind:'standing' };
+      default: return { kind:'span' };
+    }
+  }
+  function noah3dEffectMatrix(effect, cell, proj){
+    const pl=noah3dEffectPlacement(effect);
+    if(pl.kind==='point'){
+      const p=pl.p, p2={x:p.x+1, y:p.y};
+      return noah3dSimilarity(p, p2, proj.plane(p.x,p.y), proj.plane(p2.x,p2.y), cell);
+    }
+    if(pl.kind==='segment'){
+      const a=pl.a, b=(Math.abs(pl.b.x-pl.a.x)+Math.abs(pl.b.y-pl.a.y)<1e-6) ? {x:pl.a.x+1, y:pl.a.y} : pl.b;
+      return noah3dSimilarity(a, b, proj.plane(a.x,a.y), proj.plane(b.x,b.y), cell);
+    }
+    if(pl.kind==='standing'){
+      const P=[{x:3.5,y:1.5},{x:4.5,y:1.5},{x:3.5,y:2.5}];
+      return noah3dAffine(P, P.map(p=>proj.standing(p.x,p.y)), cell);
+    }
+    const P=[{x:3.5,y:1.7},{x:3.5,y:5.5},{x:4.5,y:5.5}];
+    return noah3dAffine(P, P.map(p=>proj.plane(p.x,p.y)), cell);
+  }
+  function noah3dDrawEffectsLayer(proj){
     if(!game.effects.length && !noah3dFxDirty) return;   // 何も描いていないままなら消し直さない
     const geom = getBoardGeom();
     noah3dPrepareBoardCtx(geom);
     noah3dFxDirty = false;
-    if(!game.effects.length) return;
+    if(!game.effects.length || !proj) return;
     noah3dFxDirty = true;
-    boardCtx.save();
-    boardCtx.translate(geom.offsetX, geom.offsetY);
-    try{ drawEffects(geom.size, geom.cell); }
-    finally{ boardCtx.restore(); }
+    const now = performance.now();
+    pruneExpiredEffects(now);
+    const all = game.effects;
+    const sx = (ui.board.width>0 && geom.canvasW>0) ? ui.board.width/geom.canvasW : 1;
+    const sy = (ui.board.height>0 && geom.canvasH>0) ? ui.board.height/geom.canvasH : 1;
+    try{
+      for(const effect of all.slice()){
+        if(effect.type==='cardProjectile') continue;   // ミサイル・麻酔弾は3Dで飛ぶ
+        const m = noah3dEffectMatrix(effect, geom.cell, proj);
+        if(!m || !m.every(Number.isFinite)) continue;
+        game.effects = [effect];   // drawEffects に1つだけ描かせる（同期処理の間だけ）
+        boardCtx.setTransform(m[0]*sx, m[1]*sy, m[2]*sx, m[3]*sy, m[4]*sx, m[5]*sy);
+        drawEffects(geom.size, geom.cell, now);
+      }
+    }finally{
+      game.effects = all;
+      boardCtx.setTransform(sx,0,0,sy,0,0);
+    }
+  }
+  // 研究UR（生体解析）の網目の進み具合（0〜1）。出ていなければ -1
+  function noah3dKaijuScan(){
+    const now = performance.now();
+    for(const effect of game.effects){
+      if(effect.type!=='researchFx') continue;
+      const cardId = effect.cardId || {research_ur:'trial_research_ur'}[effect.variant];
+      const spec = cardId && NOAH_CARD_FX[cardId];
+      if(!spec || spec.recipe!=='silhouette-mesh') continue;
+      const p = (now - effect.start) / (effect.duration || 620);
+      if(p>=0 && p<=1) return p;
+    }
+    return -1;
   }
   const noah3dBridge = {
     host: ui.board.parentElement,
@@ -17302,13 +17416,15 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     cardCategory: id=>{ const d=def(id); return d ? d.category : ''; },
     stageId: ()=>currentStageDef().id,
     groundImage: ()=>{ const img=currentBoardBgImg(); return (img && img.complete && img.naturalWidth) ? noahPeriodicTerrain(img) : null; },
+    periodicTerrain: img=>noahPeriodicTerrain(img),   // v355: HTMLビューアー用に埋め込んだ地面の画像も、2Dと同じく継ぎ目をなじませる
     kaijuJitter: ()=>getKaijuDrawJitter(getBoardGeom().cell),
     kaijuHeightCells: ()=>activeKaijuVisualSetId === 'gaiadran' ? 4 : 3,
     kaijuCharging: ()=>{ try{ return !!isBathynomaSpecialCharging(); }catch(e){ return false; } },
     geom: ()=>getBoardGeom(),
-    drawTactical: maxPx=>noah3dDrawTacticalLayer(maxPx),
+    drawTactical: target=>noah3dDrawTacticalLayer(target),
     tacticalLevel: ()=>noah3dTacticalLevel(),
-    drawEffects: ()=>noah3dDrawEffectsLayer(),
+    drawEffects: proj=>noah3dDrawEffectsLayer(proj),
+    kaijuScan: ()=>noah3dKaijuScan(),
     inputLocked: ()=>!!game.inputLocked,
     boardVisible: ()=>gameStarted && !ui.app.classList.contains('preHidden') && !document.hidden,
     tap: cell=>onBoardTap({ noahCell:cell }),
@@ -17330,10 +17446,31 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     noah3dCamBtn.hidden = !on;
     noah3dCamBtn.textContent = noah3dCamMode === 'top' ? '真上' : '斜め';
   }
+  // three.js と noah3d.js は普通のスクリプトとして読み込む（ESモジュールはHTMLビューアーの file:// で読めないため。v353〜）
+  function noah3dLoadScript(src){
+    return new Promise((resolve, reject)=>{
+      const el = document.createElement('script');
+      el.src = src;
+      el.async = false;
+      el.onload = ()=>resolve();
+      el.onerror = ()=>{ el.remove(); reject(new Error('読み込めませんでした: ' + src)); };
+      document.head.appendChild(el);
+    });
+  }
+  let noah3dLib = null;
+  function noah3dLoadLib(){
+    if(window.NOAH3D && window.THREE) return Promise.resolve(window.NOAH3D);
+    if(noah3dLib) return noah3dLib;
+    const v = encodeURIComponent(NOAH_PROJECT_META.currentPrototypeVersion);
+    noah3dLib = (window.THREE ? Promise.resolve() : noah3dLoadScript('./vendor/three-r170.min.js'))
+      .then(()=>window.NOAH3D ? null : noah3dLoadScript(`./noah3d.js?v=${v}`))
+      .then(()=>{ if(!window.NOAH3D || !window.THREE) throw new Error('3D表示のファイルがそろっていません'); return window.NOAH3D; })
+      .catch(err=>{ noah3dLib = null; throw err; });
+    return noah3dLib;
+  }
   function noah3dStart(){
     if(noah3dHandle || noah3dLoading) return;
-    const v = encodeURIComponent(NOAH_PROJECT_META.currentPrototypeVersion);
-    noah3dLoading = import(`./noah3d.js?v=${v}`)
+    noah3dLoading = noah3dLoadLib()
       .then(mod=>{
         if(!noah3dWanted || noah3dHandle) return;
         noah3dHandle = mod.start(noah3dBridge);

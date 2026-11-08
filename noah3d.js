@@ -1,7 +1,8 @@
 // =============================================================================
 // noah3d.js — N.O.A.H. 盤面の3D表示（テスト版・v352〜）
 // -----------------------------------------------------------------------------
-// index.html から import('./noah3d.js') で読み込み、start(bridge) を呼ぶ。
+// index.html が vendor/three-r170.min.js（window.THREE）のあとに普通のスクリプトとして読み込み、
+// window.NOAH3D.start(bridge) を呼ぶ（v353〜。ESモジュールをやめ、HTMLビューアーの file:// でも読めるようにした）。
 // ゲームの中身（ルール・カード・UI）は変えず、盤面の「見え方」と「タップの受け取り方」だけを差し替える。
 //
 // 座標：盤面は x 0〜7（左→右）、y 0〜7（奥→手前）。3D空間では 1マス = 1。
@@ -12,13 +13,18 @@
 //   ② 怪獣（3D）
 //   ③ 戦術パネル：2Dの「移動先・攻撃予測・HPバー」をそのまま描いた絵を、機体の飛行高度に浮かべる
 //   ④ 機体・ミサイル・麻酔弾（3D）
-//   ⑤ カード演出：2Dの演出を描いたキャンバスを、手前は機体の高さ・奥は怪獣の胸の前を通る斜めの面に
-//      重ねて表示（CSS の matrix3d で遠近をつける）
+//   ⑤ カード演出：2Dの演出を、1つずつ3Dの位置（機体・怪獣の胸の前）に合わせ、画面に平行に描く（v353〜）。
+//      研究の演出は怪獣の前に立てた面に描く。爆発のときは3Dの光で怪獣・機体を照らす。
 //
-// いまは Meshy のモデルの代わりに、簡単な形を組み合わせた仮モデル。
-// 本番のモデル（GLB）に差し替えるときは makeKaiju / makeAircraft を置き換える（README の v352 の項を参照）。
+// v354〜：怪獣・機体5機・木・岩山は Meshy の本番モデル（models/*.js。GLB を base64 で埋め込んだもの）。
+//   tools/noah_glb_optimize.py で向き・大きさをそろえ、画像を WebP に縮めてある。ミサイル・麻酔弾は仮モデルのまま。
+//   読み込みは裏で行い、届くまで（または読めない端末では）これまでの仮モデルを出す。
+//   怪獣は Meshy の Smart Rig の骨を、ここで手続き的に動かす（歩き・呼吸・尾・突進・溜め）。
 // =============================================================================
-import * as THREE from './vendor/three-r170.module.min.js';
+(function () {
+'use strict';
+const THREE = window.THREE;
+if (!THREE) throw new Error('three.js（vendor/three-r170.min.js）が読み込まれていません');
 
 const FLY_Y = 1.1;              // 機体の飛行高度
 const PANEL_Y = FLY_Y - 0.12;   // 戦術パネルの高さ（機体の少し下）
@@ -43,9 +49,10 @@ const CAMERA_POSES = {
   top:     { elev: 88, fov: 34, target: new THREE.Vector3(0, 0.3, 0.0) },
 };
 
+// env … 映り込み用の空の明るさ（v354〜。機体と怪獣にだけ映す）
 const STAGE_LOOK = {
-  forest:   { fog: 0x9db3a6, fogNear: 18, fogFar: 48, sky: 0xe2f0ff, ground: 0x34402a, hemi: 1.25, sun: 0xfff0d2, sunI: 2.4, exposure: 1.02 },
-  seafloor: { fog: 0x0f4b57, fogNear: 12, fogFar: 36, sky: 0xa6ecff, ground: 0x0a2a30, hemi: 1.1,  sun: 0xc8f2ff, sunI: 1.6, exposure: 1.1 },
+  forest:   { fog: 0x9db3a6, fogNear: 18, fogFar: 48, sky: 0xe2f0ff, ground: 0x34402a, hemi: 1.25, sun: 0xfff0d2, sunI: 2.4, exposure: 1.02, env: 0.8, envSun: 3 },
+  seafloor: { fog: 0x0f4b57, fogNear: 12, fogFar: 36, sky: 0xa6ecff, ground: 0x0a2a30, hemi: 1.1,  sun: 0xc8f2ff, sunI: 1.6, exposure: 1.1, env: 0.7, envSun: 2.5 },
 };
 
 // -----------------------------------------------------------------------------
@@ -108,30 +115,6 @@ const warnTexture = () => canvasTexture(128, 128, (g) => {
   g.fillStyle = 'rgba(52,18,10,.96)'; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.font = '900 70px system-ui, sans-serif'; g.fillText('!', cx, cy + 10);
 });
-
-// 2次元の射影変換（4点→4点）。返り値は [h0..h7]（h8=1）
-function homography(src, dst) {
-  const A = [], b = [];
-  for (let i = 0; i < 4; i++) {
-    const [x, y] = src[i], [u, v] = dst[i];
-    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
-    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
-  }
-  for (let c = 0; c < 8; c++) {
-    let p = c;
-    for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
-    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
-    const d = A[c][c] || 1e-12;
-    for (let r = 0; r < 8; r++) {
-      if (r === c) continue;
-      const f = A[r][c] / d;
-      if (!f) continue;
-      for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k];
-      b[r] -= f * b[c];
-    }
-  }
-  return b.map((v, i) => v / A[i][i]);
-}
 
 // -----------------------------------------------------------------------------
 // 仮モデル：怪獣（白い装甲・紺の体・青く光る胸・三日月の角・刃のある前腕・長い尾）。正面は +Z（カメラ側）
@@ -359,7 +342,12 @@ function makeAircraft(type) {
     engine(-0.12, -0.02, 0.3, 0.04, 0.12); engine(0.12, -0.02, 0.3, 0.04, 0.12);
   }
   g.scale.setScalar(1.15);
-  return { group: g, engines, mats: [mats.body, mats.accent, mats.canopy], glowMat, type };
+  const matList = [mats.body, mats.accent, mats.canopy];
+  return {
+    real: false, group: g, engines, mats: matList, glowMat, type,
+    setAlpha: a => setOpacity(matList, a),
+    dispose() { disposeObject(g); },
+  };
 }
 
 function setOpacity(mats, alpha) {
@@ -401,12 +389,398 @@ function makeProjectile(kind, glowTex) {
   return { group: g, trail };
 }
 
+// =============================================================================
+// 本番モデルの読み込み（v354〜）
+// -----------------------------------------------------------------------------
+// models/<名前>-v354.js が window.NOAH3D_MODEL_DATA[名前] に GLB（base64）を入れる。<script> で読むので、
+// HTMLビューアー（file://）でも読める。GLB の中の画像は、ページの中で作った blob: の URL から <img> で読み、
+// WebGL に渡せるか（ブラウザの安全のための制限に掛からないか）を確かめてから使う。だめなら仮モデルのまま。
+// 3D⇄2D を切り替えても読み直さないよう、GLB のデータ（ArrayBuffer）はページを開いている間とっておく。
+// =============================================================================
+const MODEL_DIR = './models/';
+// models/ のファイル名。中身を変えたときはファイル名ごと変える（端末に保存した古い版を使わないように）。
+const MODEL_FILES = {
+  celevarn: 'celevarn-v354', AA1: 'aa1-v354', AA2: 'aa2-v354', AA3: 'aa3-v354', AA4: 'aa4-v354', AA5: 'aa5-v354',
+  tree: 'tree-v354', rock: 'rock-v354',
+  // HTMLビューアー（file://）用の地面の画像（v355〜）。ふつうの画像は file:// では3Dに使えないため、文字にして埋め込んだもの
+  'ground-forest': 'ground-forest-v355', 'ground-seafloor': 'ground-seafloor-v355',
+};
+const GLTF_LOADER_SRC = './vendor/three-r170-gltfloader.min.js';
+const AIRCRAFT_MODEL_NAMES = ['AA1', 'AA2', 'AA3', 'AA4', 'AA5'];
+const KAIJU_MODEL_NAME = 'celevarn';
+const modelBuffers = new Map();
+let gltfLoaderReady = null, webpReady = null;
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = src;
+    el.async = true;
+    el.onload = () => resolve();
+    el.onerror = () => { el.remove(); reject(new Error('読み込めませんでした: ' + src)); };
+    document.head.appendChild(el);
+  });
+}
+function ensureGLTFLoader() {
+  if (window.NOAH_GLTFLoader) return Promise.resolve();
+  if (!gltfLoaderReady) {
+    gltfLoaderReady = loadScriptOnce(GLTF_LOADER_SRC)
+      .then(() => { if (!window.NOAH_GLTFLoader) throw new Error('GLTFLoader がありません'); })
+      .catch(err => { gltfLoaderReady = null; throw err; });
+  }
+  return gltfLoaderReady;
+}
+// WebP を表示できる端末か（iOS 14 以降は可）
+function ensureWebP() {
+  if (!webpReady) {
+    webpReady = new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(img.width > 0 && img.height > 0);
+      img.onerror = () => resolve(false);
+      img.src = 'data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA';
+    });
+  }
+  return webpReady;
+}
+function base64ToBuffer(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+function modelBuffer(name) {
+  if (modelBuffers.has(name)) return modelBuffers.get(name);
+  const p = (async () => {
+    if (!(await ensureWebP())) throw new Error('WebP の画像を表示できない端末です');
+    const store = () => window.NOAH3D_MODEL_DATA || {};
+    if (!MODEL_FILES[name]) throw new Error('モデルの名前が登録されていません: ' + name);
+    if (!store()[name]) await loadScriptOnce(`${MODEL_DIR}${MODEL_FILES[name]}.js`);
+    const b64 = store()[name];
+    if (typeof b64 !== 'string' || !b64) throw new Error('モデルのデータがありません: ' + name);
+    delete window.NOAH3D_MODEL_DATA[name];      // 文字列のままでは持たない（メモリの節約）
+    return base64ToBuffer(b64);
+  })();
+  modelBuffers.set(name, p);
+  p.catch(() => { if (modelBuffers.get(name) === p) modelBuffers.delete(name); });   // 失敗したら次の機会に読み直す
+  return p;
+}
+
+// 画像を WebGL に渡せるか（HTMLビューアーなどで、画像が「別の場所のもの」扱いになると渡せない）
+function imageSafeForWebGL(img) {
+  try {
+    const c = document.createElement('canvas'); c.width = c.height = 1;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0, 1, 1); g.getImageData(0, 0, 1, 1);
+    return true;
+  } catch (e) { return false; }
+}
+// GLTFLoader の画像の読み込み役の代わり（いつも <img> で読む。iOS の古い版の ImageBitmap の不具合も避けられる）
+// 画像の展開（数十ミリ秒かかる）は img.decode() で裏で済ませ、画面の動きを止めないようにする（v355〜）
+function loadImageDecoded(url) {
+  return new Promise((resolve, reject) => {
+    const img = document.createElement('img');
+    let settled = false;
+    const ok = () => { if (!settled) { settled = true; img.onload = img.onerror = null; resolve(img); } };
+    const ng = () => { if (!settled) { settled = true; img.onload = img.onerror = null; reject(new Error('画像を読み込めませんでした')); } };
+    img.src = url;
+    if (typeof img.decode === 'function') img.decode().then(ok, () => { if (img.complete && img.naturalWidth) ok(); else { img.onload = ok; img.onerror = ng; } });
+    else { img.onload = ok; img.onerror = ng; }
+  });
+}
+const safeImageLoader = {
+  load(url, onLoad, onProgress, onError) {
+    loadImageDecoded(url).then(img => {
+      if (!imageSafeForWebGL(img)) throw new Error('この画像は3Dに使えません（ブラウザの安全のための制限）');
+      const tex = new THREE.Texture(img);
+      tex.needsUpdate = true;
+      onLoad(tex);
+    }).catch(err => { if (onError) onError(err); });
+  },
+};
+// ひと息つく（重い処理の合間に、タップや音の処理を先に通す）
+const yieldToUi = (ms = 0) => new Promise(r => setTimeout(r, ms));
+function parseModel(name) {
+  return Promise.all([modelBuffer(name), ensureGLTFLoader()]).then(([buffer]) => new Promise((resolve, reject) => {
+    const loader = new window.NOAH_GLTFLoader();
+    loader.register(parser => { parser.textureLoader = safeImageLoader; return { name: 'NOAH_safe_images' }; });
+    loader.parse(buffer, '', resolve, reject);
+  }));
+}
+function disposeObject(root) {
+  root.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    mats.forEach(m => {
+      for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'alphaMap', 'aoMap']) if (m[k]) m[k].dispose();
+      m.dispose();
+    });
+  });
+}
+
+// -----------------------------------------------------------------------------
+// 半透明にするとき（退場する怪獣・帰還中の機体・移動先の半透明の機体）に、体の奥の面が透けて見えないよう、
+// 先に「奥行きだけ」を書く影を重ねる。order は半透明のときの描く順番（小さいほど先）。
+// -----------------------------------------------------------------------------
+function makeFader(meshes, order) {
+  const depthMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, transparent: true, opacity: 1 });
+  const pre = meshes.map(m => {
+    let d;
+    if (m.isSkinnedMesh) { d = new THREE.SkinnedMesh(m.geometry, depthMat); d.bind(m.skeleton, m.bindMatrix); }
+    else d = new THREE.Mesh(m.geometry, depthMat);
+    d.position.copy(m.position); d.quaternion.copy(m.quaternion); d.scale.copy(m.scale);
+    d.frustumCulled = m.frustumCulled;
+    d.visible = false;
+    d.renderOrder = order - 0.05;
+    d.userData.noahDepthOnly = true;
+    m.parent.add(d);
+    return d;
+  });
+  const mats = [...new Set(meshes.map(m => m.material))];
+  let alpha = 1;
+  return {
+    mats,
+    set(a) {
+      if (a === alpha) return;
+      alpha = a;
+      const t = a < 0.999;
+      for (const m of mats) {
+        if (m.transparent !== t) { m.transparent = t; m.depthWrite = !t; m.needsUpdate = true; }
+        m.opacity = a;
+      }
+      meshes.forEach(m => { m.renderOrder = t ? order : 0; });
+      pre.forEach(d => { d.visible = t; });
+    },
+    dispose() { depthMat.dispose(); pre.forEach(d => { if (d.parent) d.parent.remove(d); }); },
+  };
+}
+
+// -----------------------------------------------------------------------------
+// 本番の怪獣（セレヴァーン）。Meshy の Smart Rig の骨をモデルの座標の軸で回して動かす。
+//  ・Meshy のモデルは下半身は正面を向いているが、上半身と顔が正面から約12°左（-X）を向いていたので、
+//    全体を +12° 回して顔を正面（カメラ側 +Z）に向けた（足先はわずかに右を向くが、ほとんど目立たない）。
+//  ・首の骨（Bone_026/025）にはほとんど重みが付いていないので、頭は Bone_024 で動かす。
+// -----------------------------------------------------------------------------
+const KAIJU_MODEL = {
+  yawDeg: 12,          // 顔を正面へ
+  height: 3.0,         // 3マス（2Dの絵と同じ「見えている体の高さ＝3マス」）
+  stepsPerCell: 1,     // 地形が1マス流れる間に1歩（足が地面に対して滑らない歩幅）
+  bones: {
+    hips: 'Bone_000', spine: ['Bone_004', 'Bone_003', 'Bone_002'], head: 'Bone_024', jaw: 'Bone_042',
+    legs: [['Bone_009', 'Bone_008', 'Bone_007'], ['Bone_014', 'Bone_013', 'Bone_012']],     // 太もも・すね・足首（-X 側, +X 側）
+    arms: [['Bone_036', 'Bone_035', 'Bone_034'], ['Bone_040', 'Bone_039', 'Bone_038']],     // 鎖骨・上腕・前腕
+    tail: ['Bone_023', 'Bone_022', 'Bone_021', 'Bone_020', 'Bone_019', 'Bone_018', 'Bone_017', 'Bone_016', 'Bone_015'],
+    ankles: ['Bone_006', 'Bone_011'],
+  },
+};
+
+function makeKaijuFromModel(gltf) {
+  const model = gltf.scene;
+  const skinned = [];
+  model.traverse(o => { if (o.isSkinnedMesh) skinned.push(o); });
+  if (!skinned.length) throw new Error('怪獣のモデルに骨のあるメッシュがありません');
+  const root = new THREE.Group();     // 足元（index 側の y=1.5 のマスの中心）
+  const body = new THREE.Group();     // 攻撃の揺れ・突進
+  const holder = new THREE.Group();   // 向き・大きさ・原点合わせ
+  root.add(body); body.add(holder); holder.add(model);
+  holder.rotation.y = THREE.MathUtils.degToRad(KAIJU_MODEL.yawDeg);
+  root.updateMatrixWorld(true);
+  const box0 = new THREE.Box3().setFromObject(holder);
+  holder.scale.setScalar(KAIJU_MODEL.height / Math.max(1e-6, box0.max.y - box0.min.y));
+  root.updateMatrixWorld(true);
+  const byName = {};
+  model.traverse(o => { if (o.isBone) byName[o.name] = o; });
+  const BN = KAIJU_MODEL.bones;
+  // 原点：左右は腰と両足首の真ん中、前後は両足首の真ん中、高さは足の裏
+  const box = new THREE.Box3().setFromObject(holder);
+  let cx = (box.min.x + box.max.x) / 2, cz = (box.min.z + box.max.z) / 2;
+  const hipsB = byName[BN.hips], a0 = byName[BN.ankles[0]], a1 = byName[BN.ankles[1]];
+  if (hipsB && a0 && a1) {
+    const h = hipsB.getWorldPosition(new THREE.Vector3()), p0 = a0.getWorldPosition(new THREE.Vector3()), p1 = a1.getWorldPosition(new THREE.Vector3());
+    cx = (h.x + (p0.x + p1.x) / 2) / 2; cz = (p0.z + p1.z) / 2;
+  }
+  holder.position.set(-cx, -box.min.y, -cz);
+  root.updateMatrixWorld(true);
+  const localBox = new THREE.Box3().setFromObject(root);
+
+  const mats = [];
+  skinned.forEach(m => {
+    m.castShadow = true; m.receiveShadow = false; m.frustumCulled = false;
+    if (!mats.includes(m.material)) mats.push(m.material);
+  });
+  const glowMats = mats.filter(m => m.emissiveMap);
+  glowMats.forEach(m => { m.emissive.set(0xffffff); m.emissiveIntensity = 1.2; });
+
+  // 骨：バインド時の「モデルの座標から見た向き」を覚えておき、モデルの座標の軸で回す
+  const modelInvQ = model.getWorldQuaternion(new THREE.Quaternion()).invert();
+  const rig = name => {
+    const b = byName[name];
+    if (!b) return null;
+    const w = b.getWorldQuaternion(new THREE.Quaternion()).premultiply(modelInvQ);
+    return { bone: b, local: b.quaternion.clone(), pos: b.position.clone(), w, wInv: w.clone().invert() };
+  };
+  const R = {
+    hips: rig(BN.hips), spine: BN.spine.map(rig), head: rig(BN.head), jaw: rig(BN.jaw),
+    legs: BN.legs.map(l => l.map(rig)), arms: BN.arms.map(l => l.map(rig)), tail: BN.tail.map(rig),
+  };
+  const Q = new THREE.Quaternion(), Q2 = new THREE.Quaternion(), E = new THREE.Euler();
+  function pose(b, x, y, z) {
+    if (!b) return;
+    E.set(x, y, z, 'YXZ'); Q.setFromEuler(E);
+    Q2.copy(b.wInv).multiply(Q).multiply(b.w);
+    b.bone.quaternion.copy(b.local).multiply(Q2);
+  }
+  const fader = makeFader(skinned, 0);
+  const head = R.head ? R.head.bone : model;
+
+  // scroll … 地形の流れた量（マス）。a … 歩きの強さ 0〜1。lunge … 攻撃の突進 0〜1。charge … 必殺技の溜め 0〜1
+  function animate(t, scroll, a, jitterX, lunge, charge) {
+    const ph = scroll * Math.PI * KAIJU_MODEL.stepsPerCell;
+    const breathe = Math.sin(t * 1.6);
+    body.position.set(jitterX, 0, lunge * 0.22);
+    body.rotation.x = lunge * 0.05;
+    if (R.hips) {
+      R.hips.bone.position.copy(R.hips.pos);
+      R.hips.bone.position.y += a * 0.012 * Math.cos(ph * 2) - charge * 0.03 + breathe * 0.002;
+      pose(R.hips, 0, a * 0.05 * Math.sin(ph), a * 0.022 * Math.sin(ph));
+    }
+    // 脚：太もも（前後に振る）・すね（振り出すときに持ち上げる）・足首（足をほぼ水平に保つ）。溜めでは少しかがむ
+    R.legs.forEach((leg, i) => {
+      const p = ph + (i ? Math.PI : 0);
+      const swing = a * 0.34 * Math.sin(p) - 0.14 * charge;
+      const lift = a * 0.5 * Math.max(0, -Math.cos(p)) + 0.24 * charge;
+      pose(leg[0], swing, 0, 0);
+      pose(leg[1], lift, 0, 0);
+      pose(leg[2], -(swing + lift) * 0.85, 0, 0);
+    });
+    // 背骨：呼吸・突進で前へ・溜めで胸を反らす
+    pose(R.spine[0], lunge * 0.09 - charge * 0.05 + breathe * 0.008, -a * 0.04 * Math.sin(ph), 0);
+    pose(R.spine[1], lunge * 0.06 - charge * 0.05 + breathe * 0.012, -a * 0.03 * Math.sin(ph), 0);
+    pose(R.spine[2], lunge * 0.05 - charge * 0.08 + breathe * 0.01, 0, 0);
+    // 腕：同じ側の脚と逆に振る。突進で刃を前へ、溜めで左右に広げる
+    R.arms.forEach((arm, i) => {
+      const side = i ? 1 : -1;
+      const p = ph + (i ? Math.PI : 0);
+      const swing = -a * 0.2 * Math.sin(p) + Math.sin(t * 1.2 + i * 1.7) * 0.03;
+      pose(arm[0], 0, 0, side * (breathe * 0.015 + charge * 0.08));
+      pose(arm[1], swing - lunge * 0.75 - charge * 0.2, 0, side * (lunge * 0.22 + charge * 0.45));
+      pose(arm[2], -lunge * 0.45 - charge * 0.3, 0, 0);
+    });
+    // 頭：ゆっくり見回す。突進で前へ、溜めで上を向いて口を開く
+    pose(R.head, Math.sin(t * 0.8) * 0.035 + lunge * 0.12 - charge * 0.22, Math.sin(t * 0.45) * 0.14 * (1 - charge), 0);
+    pose(R.jaw, lunge * 0.35 + charge * 0.25, 0, 0);
+    // 尾：根元から先へ伝わる波
+    R.tail.forEach((b, i) => pose(b, -charge * 0.03, 0.045 * Math.sin(t * 1.25 - i * 0.55) + a * 0.035 * Math.sin(ph - i * 0.5), 0));
+    // 喉〜胸の器官の光：呼吸に合わせて明滅、溜めで強く脈打つ
+    for (const m of glowMats) m.emissiveIntensity = 1.0 + 0.5 * (0.5 + 0.5 * breathe) + charge * (1.6 + 1.2 * Math.sin(t * 9));
+  }
+  return {
+    real: true, root, body, head, localBox, mats, skinned, animate,
+    setAlpha: a => { fader.set(a); skinned.forEach(m => { m.castShadow = a > 0.35; }); },
+    dispose() { fader.dispose(); disposeObject(root); },
+  };
+}
+
+// -----------------------------------------------------------------------------
+// 本番の機体。噴射口の位置（機首 -Z・全幅1にそろえた座標）に、仮モデルと同じ揺らめく炎を付ける
+// -----------------------------------------------------------------------------
+const AIRCRAFT_ENGINES = [
+  [[-0.072, -0.005, 0.385], [0.072, -0.005, 0.385]],                                     // AA1
+  [[-0.044, -0.023, 0.378], [0.044, -0.023, 0.378]],                                     // AA2
+  [[-0.21, 0.0, 0.41], [-0.09, 0.0, 0.42], [0.09, 0.0, 0.42], [0.21, 0.0, 0.41]],        // AA3
+  [[-0.03, 0.0, 0.44], [0.03, 0.0, 0.44]],                                               // AA4
+  [[-0.078, -0.02, 0.42], [0.078, -0.02, 0.42]],                                         // AA5
+];
+function makeAircraftFromModel(template, type) {
+  const look = AIRCRAFT_LOOKS[type] || AIRCRAFT_LOOKS[0];
+  const g = new THREE.Group();
+  const model = template.clone(true);          // 形と画像は共有し、材質だけ機体ごとに複製（半透明を別々にするため）
+  const meshes = [];
+  model.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.castShadow = true; o.receiveShadow = false; meshes.push(o); } });
+  g.add(model);
+  model.updateMatrixWorld(true);
+  const glowMat = new THREE.MeshBasicMaterial({ color: look.glow, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const flameGeo = new THREE.ConeGeometry(0.028, 0.15, 8, 1, true);
+  const engines = [];
+  for (const [x, y, z] of (AIRCRAFT_ENGINES[type] || [])) {
+    const flame = new THREE.Mesh(flameGeo, glowMat);
+    flame.rotation.x = Math.PI / 2;     // 先端を後ろ（+Z）へ
+    flame.position.set(x, y, z + 0.075);
+    flame.renderOrder = 4;
+    g.add(flame); engines.push(flame);
+  }
+  const fader = makeFader(meshes, 3.5);
+  return {
+    real: true, group: g, engines, glowMat, type, mats: fader.mats,
+    setAlpha: a => fader.set(a),
+    dispose() { fader.dispose(); meshes.forEach(m => m.material.dispose()); flameGeo.dispose(); glowMat.dispose(); },
+  };
+}
+
+// -----------------------------------------------------------------------------
+// 映り込み用の空（ステージの色のグラデーション）。金属の機体や怪獣の甲殻に、空と地面の色を映す
+// -----------------------------------------------------------------------------
+function makeEnvironment(renderer, look) {
+  const pm = new THREE.PMREMGenerator(renderer);
+  const envScene = new THREE.Scene();
+  const geo = new THREE.SphereGeometry(10, 32, 16);
+  const pos = geo.attributes.position;
+  const sky = new THREE.Color(look.sky), hor = new THREE.Color(look.fog), gnd = new THREE.Color(look.ground);
+  const c = new THREE.Color(), col = [];
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 10;
+    if (y >= 0) c.copy(hor).lerp(sky, Math.pow(y, 0.55)); else c.copy(hor).lerp(gnd, Math.pow(-y, 0.45));
+    col.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const dome = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.BackSide, vertexColors: true }));
+  envScene.add(dome);
+  const sunGeo = new THREE.SphereGeometry(1.1, 16, 8);
+  const sunMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(look.sun).multiplyScalar(look.envSun || 3) });
+  const sunBlob = new THREE.Mesh(sunGeo, sunMat);
+  sunBlob.position.set(-5.5, 12, 6.5).normalize().multiplyScalar(8.5);
+  envScene.add(sunBlob);
+  const rt = pm.fromScene(envScene, 0.035);
+  pm.dispose(); geo.dispose(); dome.material.dispose(); sunGeo.dispose(); sunMat.dispose();
+  return rt;
+}
+
 // -----------------------------------------------------------------------------
 // 左右の景色（森林：木／海底：岩山）。地形と一緒にスクロールする
 // -----------------------------------------------------------------------------
 const SCENERY_ZMIN = -24, SCENERY_PERIOD = 34;
 
-function buildScenery(stage) {
+// 木・岩山は数が多く画面の左右を広く覆うので、光の計算の軽い材質にする（ざらざらした物なので見た目はほぼ同じ）
+function toLambert(root) {
+  root.traverse(o => {
+    if (!o.isMesh || o.material.isMeshLambertMaterial) return;
+    const src = o.material;
+    const lam = new THREE.MeshLambertMaterial({
+      map: src.map || null, normalMap: src.normalMap || null, color: src.color ? src.color.clone() : 0xffffff,
+      side: src.side, alphaTest: src.alphaTest || 0, transparent: false,
+    });
+    if (src.normalScale) lam.normalScale.copy(src.normalScale);
+    if (lam.alphaTest > 0) lam.alphaToCoverage = true;     // 葉の縁を滑らかに（マルチサンプル）
+    o.material = lam;
+    src.dispose();
+  });
+}
+
+// 本番モデルのメッシュ（1つ）から、並べる用の形と材質を取り出す
+function sceneryParts(template) {
+  let mesh = null;
+  template.traverse(o => { if (o.isMesh && !mesh) mesh = o; });
+  if (!mesh) return null;
+  template.updateMatrixWorld(true);
+  // tools/noah_glb_optimize.py の出力は位置・向きを頂点に焼き込んであるので、そのまま使える（形と材質は元のモデルと共有）
+  if (!mesh.matrixWorld.equals(new THREE.Matrix4())) return null;
+  return { geometry: mesh.geometry, material: mesh.material };
+}
+
+function buildScenery(stage, templates = {}) {
+  const real = stage === 'seafloor' ? templates.rock : templates.tree;
+  if (real) {
+    const parts = sceneryParts(real);
+    if (parts) return buildRealScenery(stage, parts);
+  }
   const group = new THREE.Group();
   const items = [];
   const r = rng(stage === 'seafloor' ? 917 : 331);
@@ -467,13 +841,90 @@ function buildScenery(stage) {
     meshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
   }
   function dispose() { meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); m.dispose(); }); }
-  return { group, update, dispose };
+  return { group, update, dispose, real: false };
+}
+
+// 本番モデルの木（森林）・岩山（海底）。同じ形を、大きさ・向き・色を少しずつ変えて並べる（InstancedMesh）。
+// 本数が多いので、カメラに映る分（と影が映りそうな少し外側）だけを毎回選んで描く。
+function buildRealScenery(stage, parts) {
+  const sea = stage === 'seafloor';
+  const group = new THREE.Group();
+  const items = [];
+  const r = rng(sea ? 917 : 331);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pos = new THREE.Vector3(), scl = new THREE.Vector3();
+  const N = sea ? 110 : 150;
+  const mesh = new THREE.InstancedMesh(parts.geometry, parts.material, N);
+  // 影は怪獣と機体だけにする（木・岩山の影まで毎回描くと重いため。v355〜）
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.frustumCulled = false;
+  mesh.count = 0;
+  for (let i = 0; i < N; i++) {
+    const side = r() < 0.5 ? -1 : 1;
+    const color = new THREE.Color();
+    if (sea) {
+      // 道に近いほど小さく、外側ほど大きな岩山に（道へはみ出さない）。仮モデルと同じ並べ方
+      const ax = 2.0 + Math.pow(r(), 0.85) * 7.2;
+      const maxR = Math.min(1.6, (ax - 1.9) * 0.55);
+      const rad = Math.max(0.08, maxR * (0.35 + r() * 0.65));
+      const tall = Math.min(2.2, 0.3 + (ax - 2) * 0.32) * (0.55 + r() * 0.45);
+      const sy = tall * 1.3, sxz = rad * 1.8;
+      const s = [sxz * (0.85 + r() * 0.3), sy, sxz * (0.85 + r() * 0.3)];
+      items.push({ x: side * ax, z0: SCENERY_ZMIN + r() * SCENERY_PERIOD, y: -0.05 * sy, s, rot: [(r() - 0.5) * 0.16, r() * Math.PI * 2, (r() - 0.5) * 0.16], cy: sy * 0.45, rad: Math.max(s[0], s[2]) * 0.6 + sy * 0.3, color });
+      const k = 0.78 + r() * 0.3;
+      color.setRGB(k * (0.94 + r() * 0.08), k, k * (0.96 + r() * 0.08));
+    } else {
+      const x = side * (2.25 + Math.pow(r(), 1.2) * 5.7);
+      const h = 0.58 + r() * 0.46;
+      items.push({ x, z0: SCENERY_ZMIN + r() * SCENERY_PERIOD, y: -0.02, s: [h * (0.88 + r() * 0.24), h, h * (0.88 + r() * 0.24)], rot: [(r() - 0.5) * 0.08, r() * Math.PI * 2, (r() - 0.5) * 0.08], cy: h * 0.5, rad: h * 0.6, color });
+      const k = 0.8 + r() * 0.28, warm = r();
+      color.setRGB(k * (0.92 + warm * 0.12), k, k * (0.9 + (1 - warm) * 0.1));
+    }
+  }
+  group.add(mesh);
+  const sphere = new THREE.Sphere();
+  let lastScroll = NaN, lastVisible = '', lite = false;
+  // scroll … 地形の流れた量（マス）。frustum … カメラに映る範囲（無ければ全部描く）
+  function update(scroll, frustum) {
+    if (scroll !== lastScroll) {
+      lastScroll = scroll; lastVisible = '';
+      for (const it of items) {
+        let z = it.z0 - scroll;
+        it.z = ((z - SCENERY_ZMIN) % SCENERY_PERIOD + SCENERY_PERIOD) % SCENERY_PERIOD + SCENERY_ZMIN;
+      }
+    }
+    const vis = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      sphere.center.set(it.x, it.cy, it.z); sphere.radius = it.rad + 1.2;
+      if (!frustum || frustum.intersectsSphere(sphere)) vis.push(i);
+    }
+    const key = vis.join(',');
+    if (key === lastVisible) return;
+    lastVisible = key;
+    vis.forEach((idx, k) => {
+      const it = items[idx];
+      pos.set(it.x, it.y, it.z);
+      e.set(it.rot[0], it.rot[1], it.rot[2]); q.setFromEuler(e);
+      scl.set(it.s[0], it.s[1], it.s[2]);
+      m4.compose(pos, q, scl);
+      mesh.setMatrixAt(k, m4);
+      mesh.setColorAt(k, it.color);
+    });
+    mesh.count = vis.length;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
+  // 形と材質は本番モデルのものを共有しているので、ここでは並べた分だけ片付ける
+  function dispose() { mesh.dispose(); }
+  // いちばん軽い段では木・岩山を出さない（地面の画像だけでも左右の森・岩場は見える）
+  return { group, update, dispose, real: true, meshes: [mesh], visibleCount: () => (group.visible ? mesh.count : 0), total: N, setLite(on) { lite = !!on; group.visible = !lite; } };
 }
 
 // =============================================================================
 // 本体
 // =============================================================================
-export function start(bridge) {
+function start(bridge) {
   const host = bridge.host;
   const board2d = bridge.boardCanvas;
   const saved2dStyle = {};
@@ -501,7 +952,7 @@ export function start(bridge) {
   Object.assign(canvas.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', touchAction: 'none', zIndex: '1', display: 'block' });
   host.insertBefore(canvas, host.firstChild);
   cleanups.push(() => canvas.remove());
-  Object.assign(board2d.style, { position: 'absolute', left: '0', top: '0', transformOrigin: '0 0', pointerEvents: 'none', zIndex: '2', willChange: 'transform' });
+  Object.assign(board2d.style, { position: 'absolute', left: '0', top: '0', transform: '', transformOrigin: '0 0', pointerEvents: 'none', zIndex: '2', willChange: '' });
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 120);
@@ -524,18 +975,148 @@ export function start(bridge) {
   groundTex.wrapT = THREE.RepeatWrapping;
   groundTex.colorSpace = THREE.SRGBColorSpace;
   groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, map: groundTex });
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, map: groundTex, envMapIntensity: 0 });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(GROUND_W, GROUND_L), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, 0, GROUND_ZC);
   ground.receiveShadow = true;
   scene.add(ground);
   let groundImg = null, tileH = TILE_W;
+  // HTMLビューアーなどでファイルを直接開いたときは、画像をWebGLに渡せないことがある（ブラウザの安全のための制限）
+  const textureSafe = imageSafeForWebGL;
+  // HTMLビューアー（file://）では、ステージの画像が「別の場所のもの」扱いになって3Dに使えない。
+  // そのときは models/ に文字で埋め込んだ同じ画像を読んで使う（届くまでは簡単な地面）。v355〜
+  const safeGround = {};   // 'forest' | 'seafloor' → 'loading' | 'failed' | 画像（2Dと同じく継ぎ目をなじませたもの）
+  function loadSafeGround(stage) {
+    const key = stage === 'seafloor' ? 'seafloor' : 'forest';
+    if (safeGround[key]) return Promise.resolve();
+    safeGround[key] = 'loading';
+    return modelBuffer('ground-' + key)
+      .then(buf => {
+        const url = URL.createObjectURL(new Blob([buf], { type: 'image/webp' }));
+        return loadImageDecoded(url).finally(() => URL.revokeObjectURL(url));
+      })
+      .then(img => {
+        if (!running) return;
+        const tile = bridge.periodicTerrain ? bridge.periodicTerrain(img) : img;
+        if (!imageSafeForWebGL(img) || !imageSafeForWebGL(tile)) throw new Error('埋め込んだ画像も3Dに使えませんでした');
+        safeGround[key] = tile;
+        groundImg = null;        // 次のコマで地面を貼り直す
+      })
+      .catch(err => { safeGround[key] = 'failed'; console.warn('[N.O.A.H. 3D] 地面の画像を使えませんでした（簡単な地面のまま）', err); });
+  }
+  const groundFallback = {};
+  function proceduralGround(stage) {
+    const key = stage === 'seafloor' ? 'seafloor' : 'forest';
+    if (groundFallback[key]) return groundFallback[key];
+    const c = document.createElement('canvas'); c.width = c.height = 512;
+    const g = c.getContext('2d');
+    const sea = key === 'seafloor';
+    const r = rng(sea ? 77 : 55);
+    g.fillStyle = sea ? '#17393d' : '#1f3a1d'; g.fillRect(0, 0, 512, 512);
+    const blob = (x, y, rad, color) => { for (const oy of [-512, 0, 512]) { g.fillStyle = color; g.beginPath(); g.ellipse(x, y + oy, rad, rad * (0.6 + r() * 0.5), r() * 3, 0, Math.PI * 2); g.fill(); } };
+    for (let i = 0; i < 900; i++) {
+      const l = sea ? 14 + r() * 16 : 12 + r() * 18;
+      blob(r() * 512, r() * 512, 3 + r() * 14, sea ? `hsla(${185 + r() * 14},${18 + r() * 16}%,${l}%,.55)` : `hsla(${95 + r() * 30},${35 + r() * 25}%,${l}%,.6)`);
+    }
+    // 中央の道（2Dの画像と同じく、幅およそ2割）
+    const x0 = 512 * 0.385, x1 = 512 * 0.595;
+    const grd = g.createLinearGradient(x0 - 14, 0, x1 + 14, 0);
+    const pathCol = sea ? '120,175,170' : '118,112,62';
+    grd.addColorStop(0, `rgba(${pathCol},0)`); grd.addColorStop(0.08, `rgba(${pathCol},.92)`); grd.addColorStop(0.92, `rgba(${pathCol},.92)`); grd.addColorStop(1, `rgba(${pathCol},0)`);
+    g.fillStyle = grd; g.fillRect(x0 - 14, 0, x1 - x0 + 28, 512);
+    for (let i = 0; i < 260; i++) blob(x0 + r() * (x1 - x0), r() * 512, 1 + r() * 4, sea ? `rgba(200,240,230,${0.05 + r() * 0.1})` : `rgba(${60 + r() * 50},${60 + r() * 40},30,${0.15 + r() * 0.2})`);
+    groundFallback[key] = c;
+    return c;
+  }
 
   let scenery = null;
 
-  // 怪獣
-  const kaiju = makeKaiju();
+  // ---------------------------------------------------------------------------
+  // 本番モデル（裏で読み込み、届いたら仮モデルと差し替える。読めなければ仮モデルのまま）
+  // ---------------------------------------------------------------------------
+  const templates = {};            // 名前 → このセッションで読み込んだモデル（機体・木・岩山の元）
+  const requested = new Map();
+  const parsedScenes = [];         // 片付け用
+  const modelErrors = {};
+  // 映り込みの空は、金属の多い機体と怪獣にだけ付ける（地面・木・岩山には付けない。画面の大部分を占めるので重くなる）
+  let envTex = null, envIntensity = 1;
+  function applyEnv(obj) {
+    obj.traverse(o => {
+      const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+      for (const m of mats) {
+        if (!m.userData || !m.userData.noahEnv) continue;
+        if (m.envMap !== envTex) { m.envMap = envTex; m.needsUpdate = true; }
+        m.envMapIntensity = envIntensity;
+      }
+    });
+  }
+  // 読み込みは1つずつ順番に（いちどに全部すると、その間タップや音の処理がもたつくため。v355〜）
+  let loadChain = Promise.resolve();
+  function enqueue(task) {
+    const p = loadChain.then(() => (running ? task() : Promise.reject(new Error('3D表示を止めました'))));
+    loadChain = p.catch(() => {}).then(() => yieldToUi(40));
+    return p;
+  }
+  // 画像を先にGPUへ送っておく（差し替えた瞬間に止まらないように）。1枚ずつ、合間にひと息つく。
+  // シェーダーはここでは作らない：タイトル画面の下ごしらえ（warmUp）でまとめて作る。ゲーム中に届いたものは、初めて描くときに作る。
+  // （v354 の compileAsync は、作っている途中で3Dを止めると three.js の中でエラーになることがあったのでやめた）
+  async function prepareObject(obj, useEnv) {
+    const textures = new Set();
+    obj.traverse(o => {
+      const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+      mats.forEach(m => {
+        if (useEnv && m.isMeshStandardMaterial) m.userData.noahEnv = true;
+        if (m.map) m.map.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+        for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap']) if (m[k]) textures.add(m[k]);
+      });
+    });
+    if (useEnv) applyEnv(obj);
+    for (const t of textures) {
+      if (!running) return;
+      try { renderer.initTexture(t); } catch (e) {}
+      await yieldToUi();
+    }
+  }
+  function requestModel(name, prepare) {
+    if (requested.has(name)) return requested.get(name);
+    const p = enqueue(async () => {
+      const gltf = await parseModel(name);
+      if (!running) { disposeObject(gltf.scene); throw new Error('3D表示を止めました'); }
+      parsedScenes.push(gltf.scene);
+      await yieldToUi();
+      if (prepare) await prepare(gltf);
+      return gltf;
+    });
+    p.catch(err => { if (running) { modelErrors[name] = String(err && err.message || err); console.warn('[N.O.A.H. 3D] モデルを読み込めませんでした（仮モデルのまま）', name, err); } });
+    requested.set(name, p);
+    return p;
+  }
+  // 機体・木・岩山：読み込みを頼み、届いていればその元を返す（まだなら null）
+  function templateFor(name) {
+    if (templates[name]) return templates[name];
+    if (!requested.has(name)) {
+      const isScenery = name === 'tree' || name === 'rock';
+      requestModel(name, async gltf => {
+        if (isScenery) toLambert(gltf.scene);
+        await prepareObject(gltf.scene, !isScenery);
+        if (running) templates[name] = gltf.scene;
+      }).then(() => { if (running && isScenery) rebuildScenery(); }).catch(() => {});
+    }
+    return null;
+  }
+  const aircraftTemplate = type => templateFor(AIRCRAFT_MODEL_NAMES[type] || AIRCRAFT_MODEL_NAMES[0]);
+
+  // 怪獣（読み込みが終わるまでは仮モデル）
+  function placeholderKaiju() {
+    const k = makeKaiju();
+    k.real = false;
+    k.animate = (t, scroll, a, jx, lunge) => animateKaiju(k, t, scroll * Math.PI * 3, a, jx, lunge);
+    k.setAlpha = a => setOpacity(k.mats, a);
+    k.dispose = () => disposeObject(k.root);
+    return k;
+  }
+  let kaiju = placeholderKaiju();
   kaiju.root.position.set(0, 0, KAIJU_Z);
   scene.add(kaiju.root);
   const glowTex = glowTexture();
@@ -544,11 +1125,64 @@ export function start(bridge) {
   warnSprite.visible = false;
   scene.add(warnSprite);
   const tmpHead = new THREE.Vector3();
+  // 研究UR（生体解析）：怪獣の体に光る網目を重ねる。本番の怪獣は骨で動くので、同じ骨で動く網目を重ね、法線の向きに少し膨らませる
+  const scanMat = new THREE.MeshBasicMaterial({ color: 0x7ff6ff, wireframe: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  scanMat.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n\ttransformed += normalize( normal ) * 0.012;'); };
+  function attachScan(k) {
+    const list = [];
+    if (k.real) {
+      for (const m of k.skinned) {
+        const w = new THREE.SkinnedMesh(m.geometry, scanMat);
+        w.bind(m.skeleton, m.bindMatrix);
+        w.position.copy(m.position); w.quaternion.copy(m.quaternion); w.scale.copy(m.scale);
+        w.frustumCulled = false; w.renderOrder = 7; w.visible = false;
+        m.parent.add(w); list.push(w);
+      }
+    } else {
+      const bodyMeshes = []; k.root.traverse(o => { if (o.isMesh) bodyMeshes.push(o); });
+      for (const o of bodyMeshes) { const w = new THREE.Mesh(o.geometry, scanMat); w.scale.setScalar(1.03); w.renderOrder = 7; w.visible = false; o.add(w); list.push(w); }
+    }
+    return list;
+  }
+  let scanMeshes = attachScan(kaiju);
+  function updateScan(g) {
+    const sp = bridge.kaijuScan ? bridge.kaijuScan() : -1;
+    const on = sp >= 0 && kaiju.root.visible;
+    for (const w of scanMeshes) w.visible = on;
+    if (on) scanMat.opacity = (kaiju.real ? 0.3 : 0.8) * Math.min(1, sp / 0.1) * Math.min(1, (1 - sp) / 0.25) * (0.75 + 0.25 * Math.sin(sp * 40));
+  }
+  function swapKaiju(next) {
+    const prev = kaiju;
+    scanMeshes.forEach(w => { if (w.parent) w.parent.remove(w); });
+    scene.remove(prev.root);
+    prev.dispose();
+    kaiju = next;
+    kaiju.root.position.set(0, 0, KAIJU_Z);
+    scene.add(kaiju.root);
+    scanMeshes = attachScan(kaiju);
+  }
+  // 先に読み始めておく（順番に）：怪獣 → いまの機体（タイトル画面では初期の3機）→ 森林の木と海底の岩山。
+  // そろったら、まだ盤面が出ていなければ（タイトル画面・作戦の準備の間）、使うシェーダーを全部作っておく。
+  const preload = [];
+  preload.push(requestModel(KAIJU_MODEL_NAME, async gltf => {
+    const k = makeKaijuFromModel(gltf);
+    await prepareObject(k.root, true);
+    if (running) swapKaiju(k); else k.dispose();
+  }).catch(err => { if (running) { modelErrors[KAIJU_MODEL_NAME] = modelErrors[KAIJU_MODEL_NAME] || String(err && err.message || err); console.warn('[N.O.A.H. 3D] 怪獣のモデルを使えませんでした（仮モデルのまま）', err); } }));
+  try {
+    const g0 = bridge.game;
+    const names = new Set();
+    if (g0 && g0.units) g0.units.forEach(u => names.add(AIRCRAFT_MODEL_NAMES[bridge.aircraftIndex(u)] || AIRCRAFT_MODEL_NAMES[0]));
+    names.add(bridge.stageId() === 'seafloor' ? 'rock' : 'tree');
+    names.add('tree'); names.add('rock');
+    for (const n of names) { templateFor(n); if (requested.has(n)) preload.push(requested.get(n).catch(() => {})); }
+    if (location.protocol === 'file:') for (const st of ['forest', 'seafloor']) preload.push(enqueue(() => loadSafeGround(st)).catch(() => {}));
+  } catch (e) {}
+  Promise.all(preload).then(() => yieldToUi(60)).then(() => warmUp());
 
   // 戦術パネル（2Dの絵を機体の高度に浮かべる）
   const tacticalCanvas = document.createElement('canvas');
   tacticalCanvas.width = tacticalCanvas.height = TACTICAL_TEX;
-  const tacticalCtx = tacticalCanvas.getContext('2d');
   const tacticalTex = new THREE.CanvasTexture(tacticalCanvas);
   tacticalTex.colorSpace = THREE.SRGBColorSpace;
   tacticalTex.generateMipmaps = false;
@@ -725,12 +1359,13 @@ export function start(bridge) {
     }
     if (ghostOn) {
       const type = bridge.aircraftIndex(unit);
-      if (!ghost || ghost.type !== type) {
-        if (ghost) { scene.remove(ghost.model.group); ghost.model.group.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } }); }
-        const model = makeAircraft(type);
-        setOpacity(model.mats, 0.42);
+      const tpl = aircraftTemplate(type);
+      if (!ghost || ghost.type !== type || (tpl && !ghost.model.real)) {
+        if (ghost) { scene.remove(ghost.model.group); ghost.model.dispose(); }
+        const model = tpl ? makeAircraftFromModel(tpl, type) : makeAircraft(type);
+        model.setAlpha(0.42);
         model.glowMat.opacity = 0.35;
-        model.group.traverse(o => { if (o.isMesh) { o.castShadow = false; o.renderOrder = 5; } });
+        model.group.traverse(o => { if (o.isMesh) { o.castShadow = false; o.renderOrder = o.userData.noahDepthOnly ? 4.95 : 5; } });
         scene.add(model.group);
         ghost = { model, type };
       }
@@ -766,24 +1401,52 @@ export function start(bridge) {
   canvas.addEventListener('pointercancel', onCancel);
 
   // ---------------------------------------------------------------------------
-  // 演出の面（CSS matrix3d で2Dの演出キャンバスを斜めの面に重ねる）
+  // カード演出の置き場所。index.html は2Dの演出を1つずつ、ここで求めた画面上の位置・大きさに合わせて
+  // 画面に平行に描く（地面に寝かせない）。
+  //   plane(x, y)    … 盤面の位置を「中列では機体の高さ、奥では怪獣の胸の前」を通る面に置いたときの画面の位置
+  //   standing(x, y) … 怪獣の前に立てた面（研究の演出用）。盤面の y=0 が怪獣の頭の上、y=3 が足元
   // ---------------------------------------------------------------------------
-  let lastTransform = '';
   const EP = new THREE.Vector3();
-  function updateEffectTransform(geom) {
-    const { offsetX, offsetY, size } = geom;
-    const src = [[offsetX, offsetY], [offsetX + size, offsetY], [offsetX + size, offsetY + size], [offsetX, offsetY + size]];
-    const dst = [[0, 0], [7, 0], [7, 7], [0, 7]].map(([bx, by]) => { const s = toScreen(effectPlanePoint(bx, by, EP)); return [s.x, s.y]; });
-    const h = homography(src, dst);
-    const m = [h[0], h[3], 0, h[6], h[1], h[4], 0, h[7], 0, 0, 1, 0, h[2], h[5], 0, 1];
-    const css = `matrix3d(${m.map(v => (Math.abs(v) < 1e-9 ? 0 : +v.toPrecision(9))).join(',')})`;
-    if (css !== lastTransform) { board2d.style.transform = css; lastTransform = css; }
+  const STAND_Z = KAIJU_Z + 1.0, STAND_H = 1.1;
+  const fxProject = {
+    plane(bx, by) { const s = toScreen(effectPlanePoint(bx, by, EP)); return { x: s.x, y: s.y }; },
+    standing(bx, by) { const s = toScreen(EP.set(bx - 3.5, (3 - by) * STAND_H, STAND_Z)); return { x: s.x, y: s.y }; },
+  };
+
+  // 爆発・着弾の光：演出に合わせて、その場所で一瞬だけ3Dの光をともし、怪獣や機体を照らす
+  const flash = new THREE.PointLight(0xffa24a, 0, 7, 2);
+  scene.add(flash);
+  const FLASH_TYPES = {
+    explosion: ef => ({ p: ef.cell ? { x: ef.cell.x + 0.5 + (ef.offsetX || 0), y: ef.cell.y + 0.5 + (ef.offsetY || 0) } : null, peak: (ef.scale || 1) < 0.8 ? 5 : 14, color: ef.kind === 'support' ? 0x9effe0 : 0xffa24a }),
+    guidanceFxExplosion: ef => ({ p: ef.point, peak: 14, color: 0xffb070 }),
+    guidanceFxLR: ef => ({ p: ef.point, peak: 20, color: 0xd8ecff }),
+    supportFx: ef => ({ p: ef.point, peak: 9, color: 0x9effe0 }),
+  };
+  function updateFlash(g, now) {
+    let best = 0, bestP = null, bestColor = 0xffa24a;
+    for (const ef of g.effects) {
+      const f = FLASH_TYPES[ef.type];
+      if (!f) continue;
+      const p = (now - ef.start) / (ef.duration || 620);
+      if (p < 0 || p > 1) continue;
+      const info = f(ef);
+      if (!info.p) continue;
+      const v = info.peak * Math.pow(1 - p, 2) * Math.min(1, p / 0.05);
+      if (v > best) { best = v; bestP = info.p; bestColor = info.color; }
+    }
+    flash.intensity = best;
+    if (bestP) {
+      effectPlanePoint(bestP.x, bestP.y, flash.position);
+      flash.position.z += 0.8; flash.position.y += 0.1;
+      flash.color.set(bestColor);
+    }
   }
 
   // ---------------------------------------------------------------------------
   // ステージ
   // ---------------------------------------------------------------------------
   let lookStage = '';
+  let envRT = null;
   function applyStage(stage) {
     if (stage === lookStage) return;
     lookStage = stage;
@@ -793,8 +1456,24 @@ export function start(bridge) {
     hemi.color.set(L.sky); hemi.groundColor.set(L.ground); hemi.intensity = L.hemi;
     sun.color.set(L.sun); sun.intensity = L.sunI;
     renderer.toneMappingExposure = L.exposure;
+    // 映り込みの空（ステージの色）
+    try {
+      const next = makeEnvironment(renderer, L);
+      envTex = next.texture; envIntensity = L.env;
+      applyEnv(scene);
+      Object.values(templates).forEach(applyEnv);
+      if (envRT) envRT.dispose();
+      envRT = next;
+    } catch (e) { console.warn('[N.O.A.H. 3D] 映り込みの空を作れませんでした', e); }
+    rebuildScenery();
+  }
+  function rebuildScenery() {
+    if (!lookStage) return;
+    const sea = lookStage === 'seafloor';
+    templateFor(sea ? 'rock' : 'tree');     // 読み込みを頼む（届いたらもう一度ここに来る）
     if (scenery) { scene.remove(scenery.group); scenery.dispose(); }
-    scenery = buildScenery(stage === 'seafloor' ? 'seafloor' : 'forest');
+    scenery = buildScenery(sea ? 'seafloor' : 'forest', templates);
+    if (scenery.setLite) scenery.setLite(quality >= 2);
     scene.add(scenery.group);
   }
 
@@ -803,7 +1482,7 @@ export function start(bridge) {
   // ---------------------------------------------------------------------------
   function removeAircraft(a) {
     scene.remove(a.model.group);
-    a.model.group.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+    a.model.dispose();
     a.drones.forEach(m => { scene.remove(m); m.material.dispose(); });
   }
   function syncAircraft(g, now, dt) {
@@ -814,11 +1493,14 @@ export function start(bridge) {
       seen.add(u);
       let a = aircraft.get(u);
       const type = bridge.aircraftIndex(u);
-      if (!a || a.type !== type) {
-        if (a) removeAircraft(a);
-        const model = makeAircraft(type);
+      const tpl = aircraftTemplate(type);
+      if (!a || a.type !== type || (tpl && !a.model.real)) {
+        const keepPos = a && a.type === type ? a.pos : null;
+        const keepDrones = a && a.type === type ? a.drones : null;
+        if (a) { scene.remove(a.model.group); a.model.dispose(); if (!keepDrones) a.drones.forEach(m => { scene.remove(m); m.material.dispose(); }); }
+        const model = tpl ? makeAircraftFromModel(tpl, type) : makeAircraft(type);
         scene.add(model.group);
-        a = { model, type, pos: null, drones: [] };
+        a = { model, type, pos: keepPos, drones: keepDrones || [] };
         aircraft.set(u, a);
       }
       const target = new THREE.Vector3(bridge.boardX(u) + 0.5 - 3.5, FLY_Y, u.row + 0.5 - 3.5);
@@ -828,6 +1510,7 @@ export function start(bridge) {
         target.y += (1 - p) * 0.4;
       }
       if (!a.pos) a.pos = target.clone();
+      if (a.pos.distanceToSquared(target) > 2e-5) aircraftMoving = true;
       const dx = target.x - a.pos.x;
       a.pos.lerp(target, 1 - Math.exp(-dt * 9));
       const phase = now / 330 + type * 1.45, phase2 = now / 520 + type * 0.9;
@@ -835,7 +1518,7 @@ export function start(bridge) {
       const grp = a.model.group;
       grp.position.set(a.pos.x + Math.cos(phase2) * 0.012, a.pos.y + bob, a.pos.z);
       grp.rotation.set(Math.sin(phase * 0.7) * 0.03, 0, THREE.MathUtils.clamp(-dx * 0.9, -0.5, 0.5) + Math.sin(phase2) * 0.03);
-      setOpacity(a.model.mats, u.state === 'returning' ? 0.58 : 1);
+      a.model.setAlpha(u.state === 'returning' ? 0.58 : 1);
       const flick = 0.85 + Math.sin(now / 37 + type) * 0.1 + Math.random() * 0.08;
       a.model.engines.forEach(f => f.scale.set(1, flick, 1));
       // 追従ドローン
@@ -864,13 +1547,10 @@ export function start(bridge) {
     }
   }
 
-  const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
-  function arcPoint(pr, p, out) {
-    const e = 1 - Math.pow(1 - p, 1.6);
-    out.lerpVectors(pr.start, pr.end, e);
-    out.y += Math.sin(p * Math.PI) * 0.6;
-    out.x += Math.sin(p * Math.PI) * 0.28 * pr.side;
-    return out;
+  const tmpA = new THREE.Vector3();
+  // まっすぐ飛ぶ（撃った直後は少しゆっくり、だんだん速く）
+  function flightPoint(pr, p, out) {
+    return out.lerpVectors(pr.start, pr.end, p * (0.62 + 0.38 * p));
   }
   function disposeProjectile(pr) {
     scene.remove(pr.model.group);
@@ -890,16 +1570,14 @@ export function start(bridge) {
         scene.add(model.group);
         model.trail.forEach(s => scene.add(s));
         const sx = (ef.startCell ? ef.startCell.x : 3.5) - 3.5, sz = (ef.startCell ? ef.startCell.y : 5.5) - 3.5;
-        const side = sx < -0.5 ? -1 : sx > 0.5 ? 1 : (Math.random() < 0.5 ? -1 : 1);
         const end = effectPlanePoint(3.5 + (Math.random() - 0.5) * 0.3, FX_HIT_ROW, new THREE.Vector3());
         end.y += (Math.random() - 0.5) * 0.2;
-        pr = { model, history: [], start: new THREE.Vector3(sx, FLY_Y + 0.02, sz), end, side };
+        pr = { model, history: [], start: new THREE.Vector3(sx, FLY_Y + 0.02, sz), end };
         projectiles.set(ef, pr);
       }
-      const pos = arcPoint(pr, p, tmpA);
-      const ahead = arcPoint(pr, Math.min(1, p + 0.04), tmpB);
+      const pos = flightPoint(pr, p, tmpA);
       pr.model.group.position.copy(pos);
-      pr.model.group.lookAt(ahead);
+      pr.model.group.lookAt(pr.end);
       pr.model.group.rotateY(Math.PI);           // 模型の機首は -Z。lookAt は +Z を向けるので反転
       pr.history.unshift(pos.clone());
       if (pr.history.length > 20) pr.history.length = 20;
@@ -931,13 +1609,96 @@ export function start(bridge) {
   }
 
   // ---------------------------------------------------------------------------
+  // 下ごしらえ（v355〜）：タイトル画面など盤面が出ていない間に、ゲームで使う「絵の作り方」（シェーダー）を
+  // いちど全部作っておく。iPhone では、初めて使う絵の作り方を作るたびに一瞬止まるので、作戦の開始・
+  // 初めての移動（半透明の機体・光の柱）・初めての演出のときに引っかからないようにする。
+  // ---------------------------------------------------------------------------
+  let warmed = false;
+  // 1回分：仮の物を置いて1枚描き、すぐ片付ける（描く合間に盤面が出ても、仮の物が映らないように）
+  function warmPass(transparent) {
+    const temps = [], shown = [];
+    const show = o => { if (o && !o.visible) { o.visible = true; shown.push(o); } };
+    try {
+      if (!transparent) {
+        // 森林の木・海底の岩山の材質（1本ずつ）
+        for (const nm of ['tree', 'rock']) {
+          const parts = templates[nm] && sceneryParts(templates[nm]);
+          if (!parts) continue;
+          const im = new THREE.InstancedMesh(parts.geometry, parts.material, 1);
+          im.setMatrixAt(0, new THREE.Matrix4());
+          im.frustumCulled = false;
+          scene.add(im);
+          temps.push({ obj: im, dispose: () => im.dispose() });
+        }
+        // ミサイル・麻酔弾と軌跡、追従ドローン
+        for (const kind of ['fire', 'support']) {
+          const pm = makeProjectile(kind, glowTex);
+          pm.group.position.set(kind === 'fire' ? -0.5 : 0.5, FLY_Y, 0);
+          scene.add(pm.group);
+          pm.trail.forEach(sp => { sp.position.set(0, FLY_Y, 0.3); scene.add(sp); });
+          temps.push({ obj: pm.group, dispose: () => disposeProjectile({ model: pm }) });
+        }
+        const drone = new THREE.Mesh(droneGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.6, roughness: 0.3, flatShading: true }));
+        drone.castShadow = true; drone.position.set(0, FLY_Y, 1.5);
+        scene.add(drone);
+        temps.push({ obj: drone, dispose: () => drone.material.dispose() });
+        // 移動先の光の柱・押しているマスの枠・怪獣の足元の輪・行動中の輪・戦術パネル・「！」
+        show(tacticalPlane); show(pickFrame); show(pickRing); show(activeRing); show(warnSprite);
+        if (pillars[0]) show(pillars[0].g);
+      }
+      // 機体：ふつうのもの／半透明のもの（移動先・帰還中）
+      const tplName = AIRCRAFT_MODEL_NAMES.find(n => templates[n]);
+      if (tplName) {
+        const type = AIRCRAFT_MODEL_NAMES.indexOf(tplName);
+        const m = makeAircraftFromModel(templates[tplName], type);
+        m.setAlpha(transparent ? 0.42 : 1);
+        m.group.position.set(0, FLY_Y, 1);
+        m.group.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+        scene.add(m.group);
+        temps.push({ obj: m.group, dispose: () => m.dispose() });
+      }
+      // 半透明の怪獣（退場）と、研究URの網目
+      if (transparent) { kaiju.setAlpha(0.5); scanMeshes.forEach(w => { w.visible = true; }); }
+      const aspect = W / H;
+      cam.dist = fitDistance(cam.elev, cam.target, cam.fov, aspect);
+      placeCamera(cam.elev, cam.dist, cam.target, cam.fov, aspect);
+      kaiju.root.updateMatrixWorld(true);
+      renderer.render(scene, camera);
+    } finally {
+      if (transparent) { try { kaiju.setAlpha(1); } catch (e) {} scanMeshes.forEach(w => { w.visible = false; }); }
+      shown.forEach(o => { o.visible = false; });
+      temps.forEach(t => { scene.remove(t.obj); try { t.dispose(); } catch (e) {} });
+    }
+  }
+  async function warmUp() {
+    if (warmed || !running || contextLost) return;
+    if (bridge.boardVisible()) return;          // もうゲームが始まっていたら、その場その場で作る
+    warmed = true;
+    const t0 = performance.now();
+    try {
+      applyStage(bridge.stageId());            // 霧・光・映り込みの空・景色
+      for (const transparent of [false, true]) {
+        await yieldToUi(50);                   // 1回ごとにひと息つく（タップや音を先に通す）
+        if (!running || contextLost || bridge.boardVisible()) break;
+        warmPass(transparent);
+      }
+    } catch (e) {
+      console.warn('[N.O.A.H. 3D] 下ごしらえで問題がありました（ゲームには影響しません）', e);
+    }
+    stats.warmMs = Math.round(performance.now() - t0);
+  }
+
+  // ---------------------------------------------------------------------------
   // 毎フレーム
   // ---------------------------------------------------------------------------
   let raf = 0, last = performance.now(), running = true, lastRender = 0, errors = 0;
-  let walkPhase = 0, walkAmp = 0, lastScroll = null, lunge = 0;
+  let walkAmp = 0, lastScroll = null, lunge = 0, charge = 0, aircraftMoving = false;
+  const viewProj = new THREE.Matrix4(), viewFrustum = new THREE.Frustum();
+  let debugPose = null;   // テスト用：怪獣の姿勢を固定する（{ walk, scroll, lunge, charge, t }）
   const stats = { frames: 0, renderMs: 0, frameMs: 0, tacticalMs: 0, tacticalDraws: 0, effectsMs: 0 };
   // 端末が追いつかない（4秒間、画面の更新が毎秒38回を下回る）ときは、解像度などを1段ずつ下げる
-  let quality = 0, qualityLocked = false, tacticalInterval = 66, lastRaf = 0, windowStart = 0, startedAt = performance.now();
+  // 戦術パネル（移動先・攻撃予測）の描き直しは毎秒10回（v355〜。毎秒15回のとき、描き直しの間隔でコマが抜けているように見えたため）
+  let quality = 0, qualityLocked = false, tacticalInterval = 100, lastRaf = 0, windowStart = 0, startedAt = performance.now();
   const intervals = [];
   function applyQuality() {
     if (quality >= 1) renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
@@ -947,6 +1708,8 @@ export function start(bridge) {
       sun.shadow.mapSize.set(512, 512);
       if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
     }
+    // いちばん軽い段では、左右の木・岩山を出さない
+    if (scenery && scenery.setLite) scenery.setLite(quality >= 2);
     resize();
   }
   function watchSpeed(now) {
@@ -956,7 +1719,12 @@ export function start(bridge) {
     if (now - windowStart < 4000) return;
     if (!qualityLocked && now - startedAt > 5000 && intervals.length > 30 && quality < 2) {
       const sorted = intervals.slice().sort((a, b) => a - b);
-      if (sorted[sorted.length >> 1] > 26) { quality++; applyQuality(); }
+      const at = p => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
+      // v355: 低電力モードや本体が熱いとき、iPhone は描く回数を毎秒30回に抑える（ブラウザ側の制限）。
+      // そのときは軽くしても速くならないので、毎秒30回できれいに揃っている間は段を下げない
+      // （画質が粗くなったり、木・岩山が消えたりしないように）。
+      const steady30 = at(0.2) > 30 && at(0.8) < 37;
+      if (at(0.5) > 26 && !steady30) { quality++; applyQuality(); }
     }
     intervals.length = 0; windowStart = now;
   }
@@ -977,7 +1745,7 @@ export function start(bridge) {
     if (!g) return;
     watchSpeed(now);
     // 動きの少ないときは毎秒30回ほどに抑えて電池を節約する
-    const busy = g.effects.length > 0 || walkAmp > 0.02 || pressId !== null || lunge > 0.02 ||
+    const busy = g.effects.length > 0 || walkAmp > 0.02 || pressId !== null || lunge > 0.02 || charge > 0.02 || aircraftMoving ||
       (typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1) || Math.abs(cam.elev - desiredPose(g).elev) > 0.3;
     if (!busy && now - lastRender < 31) return;
     lastRender = now;
@@ -999,9 +1767,15 @@ export function start(bridge) {
 
     // ステージと地形
     applyStage(bridge.stageId());
-    const img = bridge.groundImage();
-    if (img && img !== groundImg && (img.naturalWidth || img.width)) {
-      groundImg = img;
+    const src = bridge.groundImage();
+    if (src && src !== groundImg && (src.naturalWidth || src.width)) {
+      groundImg = src;
+      let img = src;
+      if (!textureSafe(src)) {
+        const safe = safeGround[lookStage === 'seafloor' ? 'seafloor' : 'forest'];
+        if (safe && typeof safe === 'object') img = safe;
+        else { img = proceduralGround(lookStage); loadSafeGround(lookStage); }
+      }
       groundTex.image = img;
       groundTex.needsUpdate = true;
       const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
@@ -1012,25 +1786,26 @@ export function start(bridge) {
     const scroll = Number.isFinite(g.bgVisualOffsetCells) ? g.bgVisualOffsetCells : (g.bgOffsetCells || 0);
     const oy = (geom.offsetY || 0) / (geom.cell || 1);
     groundTex.offset.y = 1 - (GROUND_ZC + GROUND_L / 2) / tileH - (3.5 + oy + scroll) / tileH;
-    if (scenery) scenery.update(scroll);
 
     // 怪獣：地形が流れている間は歩く
     if (lastScroll === null) lastScroll = scroll;
     const speed = Math.abs(scroll - lastScroll) / Math.max(dt, 1e-3);
     lastScroll = scroll;
     walkAmp = smooth(walkAmp, speed > 0.05 ? 1 : 0, speed > 0.05 ? 8 : 3, dt);
-    walkPhase = scroll * Math.PI * 3;
     const jitter = bridge.kaijuJitter() || { x: 0 };
     const cellPx = geom.cell || 50;
     const attacking = now < (g.kaijuAttackJitterUntil || 0) && (g.kaijuAttackJitterScale == null || g.kaijuAttackJitterScale > 0.5);
     lunge = smooth(lunge, attacking ? 1 : 0, attacking ? 10 : 4, dt);
-    animateKaiju(kaiju, t, walkPhase, walkAmp, (jitter.x || 0) / cellPx, lunge);
     const kAlpha = Math.max(0, 1 - clamp01(Number(g.kaijuFadeProgress) || 0));
+    const charging = kAlpha > 0.16 && bridge.kaijuCharging();
+    charge = smooth(charge, charging ? 1 : 0, charging ? 2.5 : 4, dt);
+    if (debugPose) kaiju.animate(debugPose.t != null ? debugPose.t : t, debugPose.scroll != null ? debugPose.scroll : scroll, debugPose.walk || 0, 0, debugPose.lunge || 0, debugPose.charge || 0);
+    else kaiju.animate(t, scroll, walkAmp, (jitter.x || 0) / cellPx, lunge, charge);
     kaiju.root.visible = kAlpha > 0.01;
-    setOpacity(kaiju.mats, kAlpha);
+    kaiju.setAlpha(kAlpha);
     kaiju.root.scale.setScalar(bridge.kaijuHeightCells() / 3);
     kaiju.root.updateMatrixWorld(true);
-    warnSprite.visible = kAlpha > 0.16 && bridge.kaijuCharging();
+    warnSprite.visible = charging;
     if (warnSprite.visible) {
       kaiju.head.getWorldPosition(tmpHead);
       const pulse = 0.5 + 0.5 * Math.sin(now / 180);
@@ -1040,10 +1815,13 @@ export function start(bridge) {
 
     // 機体・ミサイル・目印
     activeRing.visible = false;
+    aircraftMoving = false;
     syncAircraft(g, now, dt);
     syncProjectiles(g, now);
     updatePillars(g, now);
     updatePickVisuals(g);
+    updateFlash(g, now);
+    updateScan(g);
 
     // カメラ
     const pose = desiredPose(g);
@@ -1056,22 +1834,20 @@ export function start(bridge) {
     const aspect = W / H;
     cam.dist = fitDistance(cam.elev, cam.target, cam.fov, aspect);
     placeCamera(cam.elev, cam.dist, cam.target, cam.fov, aspect);
+    // 左右の景色（カメラに映る分だけ）
+    if (scenery) {
+      viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      viewFrustum.setFromProjectionMatrix(viewProj);
+      scenery.update(scroll, viewFrustum);
+    }
 
-    // 戦術パネル（2Dで描いた絵を写す）。何も出ないときは写さない。動きのある表示は毎秒15回（重い端末では8回）、HPバーだけなら毎秒4回
+    // 戦術パネル（2Dで描いた絵を写す）。何も出ないときは写さない。動きのある表示は毎秒10回（重い端末では8回）、HPバーだけなら毎秒4回
     const level = bridge.tacticalLevel ? bridge.tacticalLevel() : 2;
     tacticalPlane.visible = level > 0;
     if (level > 0 && (level !== lastTacticalLevel || now - lastTacticalDraw > (level >= 2 ? tacticalInterval : 250))) {
       const t0 = performance.now();
       lastTacticalDraw = now;
-      const drawn = bridge.drawTactical(TACTICAL_TEX);
-      tacticalCtx.clearRect(0, 0, TACTICAL_TEX, TACTICAL_TEX);
-      if (typeof drawn === 'number' && drawn > 0) {
-        // 2Dのキャンバスの左上に、パネルの大きさ（最大512px）で描いてもらったものをそのまま写す
-        tacticalCtx.drawImage(board2d, 0, 0, drawn, drawn, 0, 0, TACTICAL_TEX, TACTICAL_TEX);
-      } else {
-        const sx = board2d.width / Math.max(1, geom.canvasW), sy = board2d.height / Math.max(1, geom.canvasH);
-        tacticalCtx.drawImage(board2d, geom.offsetX * sx, geom.offsetY * sy, geom.size * sx, geom.size * sy, 0, 0, TACTICAL_TEX, TACTICAL_TEX);
-      }
+      bridge.drawTactical(tacticalCanvas);   // 盤面の正方形をそのまま 512×512 に描いてもらう
       tacticalTex.needsUpdate = true;
       stats.tacticalMs += performance.now() - t0; stats.tacticalDraws++;
     }
@@ -1082,10 +1858,9 @@ export function start(bridge) {
     stats.renderMs += performance.now() - r0;
     stats.frames++;
 
-    // カード演出（2Dのまま、斜めの面に重ねる）
+    // カード演出（2Dのまま、3Dの位置に合わせて画面に平行に描く）
     const e0 = performance.now();
-    bridge.drawEffects();
-    updateEffectTransform(geom);
+    bridge.drawEffects(fxProject);
     stats.effectsMs += performance.now() - e0;
   }
   raf = requestAnimationFrame(frame);
@@ -1101,12 +1876,19 @@ export function start(bridge) {
     canvas.removeEventListener('webglcontextrestored', onRestored);
     for (const pr of projectiles.values()) disposeProjectile(pr);
     projectiles.clear();
+    for (const a of aircraft.values()) removeAircraft(a);
+    aircraft.clear();
+    if (ghost) { scene.remove(ghost.model.group); ghost.model.dispose(); ghost = null; }
     if (scenery) { scene.remove(scenery.group); scenery.dispose(); scenery = null; }
-    scene.traverse(o => {
-      if (o.geometry) o.geometry.dispose();
-      const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
-      mats.forEach(m => { if (m.map) m.map.dispose(); if (m.emissiveMap) m.emissiveMap.dispose(); m.dispose(); });
-    });
+    scanMeshes.forEach(w => { if (w.parent) w.parent.remove(w); });
+    scene.remove(kaiju.root);
+    kaiju.dispose();
+    disposeObject(scene);
+    parsedScenes.forEach(s => disposeObject(s));
+    parsedScenes.length = 0;
+    scanMat.dispose();
+    if (envRT) { envRT.dispose(); envRT = null; }
+    envTex = null;
     groundTex.dispose(); tacticalTex.dispose(); glowTex.dispose();
     cleanups.forEach(fn => { try { fn(); } catch (e) {} });
     renderer.dispose();
@@ -1118,7 +1900,7 @@ export function start(bridge) {
   return {
     stop,
     setCameraMode(mode) { camMode = mode === 'top' ? 'top' : 'oblique'; },
-    setQuality(q, lock) { qualityLocked = !!lock; quality = Math.max(0, Math.min(2, q | 0)); if (quality === 0) { renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); tacticalInterval = 66; } applyQuality(); },
+    setQuality(q, lock) { qualityLocked = !!lock; quality = Math.max(0, Math.min(2, q | 0)); if (quality === 0) { renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); tacticalInterval = 100; } applyQuality(); },
     get cameraMode() { return camMode; },
     stats() {
       return {
@@ -1132,8 +1914,21 @@ export function start(bridge) {
         aircraft: aircraft.size, projectiles: projectiles.size, stage: lookStage, warn: warnSprite.visible,
         pillars: pillars.filter(p => p.g.visible).length,
         running, contextLost, errors, visible: bridge.boardVisible(), quality,
+        models: {
+          kaiju: kaiju.real ? 'real' : 'placeholder',
+          aircraftReal: [...aircraft.values()].filter(a => a.model.real).length,
+          scenery: scenery ? (scenery.real ? 'real' : 'placeholder') : 'none',
+          sceneryDrawn: scenery && scenery.visibleCount ? scenery.visibleCount() + '/' + scenery.total : '',
+          loaded: Object.keys(templates).concat(kaiju.real ? [KAIJU_MODEL_NAME] : []),
+          errors: Object.assign({}, modelErrors),
+        },
+        charge, warmMs: stats.warmMs == null ? null : stats.warmMs,
       };
     },
+    // テスト用：怪獣の姿勢を固定する（null で元に戻す）
+    debugKaijuPose(p) { debugPose = p || null; },
+    // テスト用：場面の中身（重さの内訳を調べるときに一部を隠す）
+    debugParts() { return { scene, kaiju: kaiju.root, scenery: scenery && scenery.group, ground, aircraft: [...aircraft.values()].map(a => a.model.group), sun }; },
     // テスト用：盤面の位置（x, y）が画面のどこに映っているか（host 内の CSS px）
     screenOfCell(bx, by, y) { return toScreen(new THREE.Vector3(bx - 3.5, y == null ? PANEL_Y : y, by - 3.5)); },
     screenOfKaiju() { return toScreen(new THREE.Vector3(0, 1.6, KAIJU_Z)); },
@@ -1142,3 +1937,6 @@ export function start(bridge) {
   };
   }
 }
+
+window.NOAH3D = { start, version: 'v355' };
+})();
