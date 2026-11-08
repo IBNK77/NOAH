@@ -117,6 +117,245 @@ const warnTexture = () => canvasTexture(128, 128, (g) => {
 });
 
 // -----------------------------------------------------------------------------
+// 砂ぼこり・泡（v356〜）
+//   ・怪獣の足が地面に着くたびに、足元から砂ぼこりが広がる（森林は土ぼこり、海底は砂けむり。海底では泡も少し）
+//   ・海底では、ミサイルなどが炸裂したときに泡が出る。ときどき、ステージのどこかから泡がぽこぽこ昇っていく
+//   粒は四角い板をカメラに向けて並べ、種類ごとにまとめて1回で描く（数は多くても百数十。軽い）。
+//   地形が流れる（怪獣が歩く）と、粒も地面と一緒に流れる（水や空気は地面と一緒に止まっているので）。
+// -----------------------------------------------------------------------------
+// もこもこした砂ぼこりのかたまり（白。色は粒ごとに付ける）
+const dustTexture = () => canvasTexture(128, 128, (g) => {
+  const r = rng(4242);
+  for (let i = 0; i < 10; i++) {
+    const a = r() * Math.PI * 2, d = i ? 10 + r() * 14 : 0;
+    const x = 64 + Math.cos(a) * d, y = 64 + Math.sin(a) * d, rad = i ? 20 + r() * 14 : 40;
+    const grd = g.createRadialGradient(x, y, 0, x, y, rad);
+    grd.addColorStop(0, `rgba(255,255,255,${i ? 0.45 : 0.7})`);
+    grd.addColorStop(0.5, `rgba(255,255,255,${i ? 0.22 : 0.34})`);
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  }
+});
+// 泡：うすい中身・明るい縁・その外の細い暗い縁（白い怪獣の前でも見えるように）・左上の光の点
+const bubbleTexture = () => canvasTexture(64, 64, (g) => {
+  const c = 32, R = 26;
+  let grd = g.createRadialGradient(c, c, 0, c, c, R + 4);
+  grd.addColorStop(0, 'rgba(255,255,255,0.10)');
+  grd.addColorStop(0.62, 'rgba(255,255,255,0.18)');
+  grd.addColorStop(0.8, 'rgba(255,255,255,0.88)');
+  grd.addColorStop(0.88, 'rgba(255,255,255,0.6)');
+  grd.addColorStop(0.92, 'rgba(18,58,74,0.55)');
+  grd.addColorStop(1, 'rgba(18,58,74,0)');
+  g.fillStyle = grd; g.beginPath(); g.arc(c, c, R + 4, 0, Math.PI * 2); g.fill();
+  grd = g.createRadialGradient(c - 9, c - 10, 0, c - 9, c - 10, 8);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  grd = g.createRadialGradient(c + 8, c + 11, 0, c + 8, c + 11, 6);
+  grd.addColorStop(0, 'rgba(255,255,255,0.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+});
+
+const FX_VERT = `
+attribute vec3 iPos;
+attribute vec3 iColor;
+attribute vec3 iData;   // 大きさ・濃さ・回転
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vAlpha;
+#include <fog_pars_vertex>
+void main() {
+  vUv = uv; vColor = iColor; vAlpha = iData.y;
+  vec4 mvPosition = modelViewMatrix * vec4(iPos, 1.0);
+  float c = cos(iData.z), s = sin(iData.z);
+  vec2 q = position.xy * iData.x;
+  mvPosition.xy += vec2(c * q.x - s * q.y, s * q.x + c * q.y);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+const FX_FRAG = `
+uniform sampler2D map;
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vAlpha;
+#include <common>
+#include <fog_pars_fragment>
+void main() {
+  vec4 t = texture2D(map, vUv);
+  float a = t.a * vAlpha;
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(vColor * t.rgb, a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+function makeParticleLayer(tex, max, order) {
+  const base = new THREE.PlaneGeometry(1, 1);
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.setIndex(base.getIndex());
+  geo.setAttribute('position', base.getAttribute('position'));
+  geo.setAttribute('uv', base.getAttribute('uv'));
+  const pos = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);
+  const color = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);
+  const data = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);
+  [pos, color, data].forEach(a => a.setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('iPos', pos); geo.setAttribute('iColor', color); geo.setAttribute('iData', data);
+  geo.instanceCount = 0;
+  const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { map: { value: null } }]);
+  uniforms.map.value = tex;        // merge は画像を複製してしまうので、あとから入れる
+  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: FX_VERT, fragmentShader: FX_FRAG, transparent: true, depthWrite: false, fog: true });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = order;          // 怪獣のあと・戦術パネルの前（移動先などの表示が粒に隠れないように）
+  mesh.visible = false;
+  return { mesh, pos, color, data, max, dispose() { geo.dispose(); base.dispose(); mat.dispose(); tex.dispose(); } };
+}
+
+const FX_DUST = {
+  // color は sRGB。size は板の一辺（1マス = 1）。life は秒。speed は横に広がる速さ、up は舞い上がる速さ（毎秒）
+  forest:   { color: 0xcdbb95, n: 11, life: [1.3, 1.9], size: [0.4, 0.62], grow: 2.4, speed: [0.7, 1.3], up: [0.15, 0.38], drag: 3.0, rise: 0.06, alpha: 0.82 },
+  seafloor: { color: 0xc6e0d5, n: 11, life: [2.0, 2.9], size: [0.42, 0.64], grow: 2.6, speed: [0.4, 0.8], up: [0.14, 0.32], drag: 2.0, rise: 0.12, alpha: 0.75 },
+};
+const FX_BUBBLE_COLOR = 0xe2f8ff;
+const lerpRange = ([a, b]) => a + Math.random() * (b - a);
+
+function makeStageFx() {
+  const dustL = makeParticleLayer(dustTexture(), 72, 0.5);
+  const bubL = makeParticleLayer(bubbleTexture(), 120, 0.55);
+  const group = new THREE.Group();
+  group.add(dustL.mesh, bubL.mesh);
+  const dust = [], bubbles = [], emitters = [];
+  const dustColor = { forest: new THREE.Color(FX_DUST.forest.color), seafloor: new THREE.Color(FX_DUST.seafloor.color) };
+  const bubbleColor = new THREE.Color(FX_BUBBLE_COLOR);
+  let sea = false, lite = false, warming = false, nextAmbient = 0, lastNow = 0, lastScroll = null;
+  const camPos = new THREE.Vector3(), camDir = new THREE.Vector3();
+
+  function setStage(stage) {
+    sea = stage === 'seafloor';
+    dust.length = 0; bubbles.length = 0; emitters.length = 0; nextAmbient = 0;
+  }
+  // 泡を n 個。kind … 'burst'（炸裂）・'step'（足元）・'ambient'（ステージのどこか）
+  function bubbleAt(x, y, z, n, kind, spread) {
+    for (let i = 0; i < n && bubbles.length < bubL.max; i++) {
+      const burst = kind === 'burst';
+      const s = burst ? 0.14 + Math.random() * 0.16 : 0.1 + Math.random() * 0.09;
+      const a = Math.random() * Math.PI * 2, sp = burst ? 0.35 + Math.random() * 0.8 : 0.04;
+      bubbles.push({
+        x: x + (Math.random() - 0.5) * spread, y: y + (Math.random() - 0.5) * spread * 0.6, z: z + (Math.random() - 0.5) * spread,
+        vx: Math.cos(a) * sp, vy: burst ? (Math.random() - 0.25) * 0.6 : 0.12, vz: Math.sin(a) * sp * 0.6,
+        age: 0, life: burst ? 2.0 + Math.random() * 1.2 : 2.6 + Math.random() * 1.6,
+        s0: s, s1: s * 1.18, a: 0.8 + Math.random() * 0.2, rot: 0, vr: 0, c: bubbleColor,
+        drag: 2.6, buoy: 1.1, maxUp: 0.42 + s * 3.2, lift: 0,
+        wob: 0.015 + Math.random() * 0.03, wobF: 5 + Math.random() * 5, wobP: Math.random() * 6.28, fin: 0.08, fout: 0.72,
+      });
+    }
+  }
+  // 怪獣の足が地面に着いた（x, z は足首の真下）
+  function footfall(x, z) {
+    const D = sea ? FX_DUST.seafloor : FX_DUST.forest;
+    const n = Math.round(D.n * (lite ? 0.5 : 1));
+    for (let i = 0; i < n && dust.length < dustL.max; i++) {
+      const a = Math.random() * Math.PI * 2, sp = lerpRange(D.speed), r0 = 0.1 + Math.random() * 0.14;
+      const s0 = lerpRange(D.size);
+      dust.push({
+        x: x + Math.cos(a) * r0, y: 0, z: z + Math.sin(a) * r0 * 0.8,
+        vx: Math.cos(a) * sp, vy: lerpRange(D.up), vz: Math.sin(a) * sp * 0.8,
+        age: 0, life: lerpRange(D.life), s0, s1: s0 * D.grow, a: D.alpha * (0.7 + Math.random() * 0.3),
+        rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 0.9, c: sea ? dustColor.seafloor : dustColor.forest,
+        drag: D.drag, buoy: D.rise, maxUp: 0.45, lift: 0.32, wob: 0, fin: 0.07, fout: 0.5,
+      });
+    }
+    if (sea && Math.random() < 0.4) bubbleAt(x, 0.12, z, 1 + (Math.random() < 0.4 ? 1 : 0), 'step', 0.3);
+  }
+  // 炸裂（海底だけ泡を出す）。peak … 光の強さ（大きな炸裂ほど泡が多い）
+  function burst(x, y, z, peak) {
+    if (!sea) return;
+    const n = Math.max(2, Math.round(peak * 0.42 * (lite ? 0.6 : 1)));
+    bubbleAt(x, y, z, n, 'burst', 0.35);
+  }
+  function ambient(now) {
+    if (!nextAmbient) nextAmbient = now + 1200 + Math.random() * 2000;
+    if (now >= nextAmbient) {
+      nextAmbient = now + (lite ? 2 : 1) * (3000 + Math.random() * 4000);   // 3〜7秒おき（ときどき・ほんの少し）
+      // 6割は道の外（岩場のすき間）、4割は道の上から
+      const outside = Math.random() < 0.6;
+      const x = outside ? (Math.random() < 0.5 ? -1 : 1) * (2.2 + Math.random() * 2.6) : (Math.random() - 0.5) * 3.2;
+      emitters.push({ x, z: -6.5 + Math.random() * 9, left: 3 + Math.floor(Math.random() * 4), next: now });
+    }
+    for (let i = emitters.length - 1; i >= 0; i--) {
+      const e = emitters[i];
+      if (now >= e.next) { bubbleAt(e.x, 0.08, e.z, 1, 'ambient', 0.08); e.left--; e.next = now + 110 + Math.random() * 260; }
+      if (e.left <= 0) emitters.splice(i, 1);
+    }
+  }
+  function step(list, dt, ds) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i];
+      p.age += dt;
+      if (p.age >= p.life) { list[i] = list[list.length - 1]; list.pop(); continue; }
+      const k = Math.exp(-p.drag * dt);
+      p.vx *= k; p.vz *= k;
+      p.vy = Math.min(p.maxUp, p.vy * k + p.buoy * dt);
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt - ds;
+      p.rot += p.vr * dt;
+    }
+  }
+  function write(layer, list) {
+    const n = Math.min(list.length, layer.max);
+    layer.mesh.visible = n > 0;
+    layer.mesh.geometry.instanceCount = n;
+    if (!n) return;
+    for (const p of list) p.depth = (p.x - camPos.x) * camDir.x + (p.y - camPos.y) * camDir.y + (p.z - camPos.z) * camDir.z;
+    list.sort((a, b) => b.depth - a.depth);   // 遠いものから描く
+    const P = layer.pos.array, C = layer.color.array, D = layer.data.array;
+    for (let i = 0; i < n; i++) {
+      const p = list[i], u = p.age / p.life, j = i * 3;
+      const size = p.s0 + (p.s1 - p.s0) * (1 - Math.pow(1 - u, 2.2));   // はじめに速く広がり、だんだんゆっくり
+      let x = p.x, z = p.z;
+      if (p.wob) { x += Math.sin(p.age * p.wobF + p.wobP) * p.wob; z += Math.cos(p.age * p.wobF * 0.8 + p.wobP) * p.wob * 0.6; }
+      P[j] = x; P[j + 1] = p.y + p.lift * size; P[j + 2] = z;   // 砂ぼこりは板の下の端が地面に沈まないよう少し浮かせる
+      C[j] = p.c.r; C[j + 1] = p.c.g; C[j + 2] = p.c.b;
+      const fadeIn = Math.min(1, p.age / p.fin);
+      const f = u <= p.fout ? 0 : (u - p.fout) / (1 - p.fout);
+      const fadeOut = 1 - f * f * (3 - 2 * f);      // なめらかに消える
+      D[j] = size; D[j + 1] = p.a * fadeIn * fadeOut; D[j + 2] = p.rot;
+    }
+    layer.pos.needsUpdate = true; layer.color.needsUpdate = true; layer.data.needsUpdate = true;
+  }
+  // 毎フレーム。now … ミリ秒、scroll … 地形の流れた量（マス）
+  function update(now, scroll, camera) {
+    const dt = lastNow ? Math.min(0.1, Math.max(0, (now - lastNow) / 1000)) : 0;
+    lastNow = now;
+    const ds = lastScroll == null || Math.abs(scroll - lastScroll) > 3 ? 0 : scroll - lastScroll;
+    lastScroll = scroll;
+    step(dust, dt, ds);
+    step(bubbles, dt, ds);
+    for (const e of emitters) e.z -= ds;
+    if (sea) ambient(now);
+    camera.getWorldPosition(camPos); camera.getWorldDirection(camDir);
+    if (warming) return;
+    write(dustL, dust);
+    write(bubL, bubbles);
+  }
+  // 下ごしらえ用：見えない粒を1つずつ置いて、絵の作り方（シェーダー）を作らせる
+  function warm(on) {
+    warming = on;
+    for (const L of [dustL, bubL]) {
+      L.data.array[0] = 0.01; L.data.array[1] = 0; L.data.needsUpdate = true;
+      L.mesh.geometry.instanceCount = on ? 1 : 0;
+      L.mesh.visible = on;
+    }
+  }
+  return {
+    group, setStage, footfall, burst, update, warm,
+    setLite(on) { lite = !!on; },
+    count: () => ({ dust: dust.length, bubbles: bubbles.length, emitters: emitters.length }),
+    // テスト用：すぐに泡を出す
+    debugAmbient(now) { nextAmbient = now; },
+    dispose() { dustL.dispose(); bubL.dispose(); },
+  };
+}
+
+// -----------------------------------------------------------------------------
 // 仮モデル：怪獣（白い装甲・紺の体・青く光る胸・三日月の角・刃のある前腕・長い尾）。正面は +Z（カメラ側）
 // -----------------------------------------------------------------------------
 function makeKaiju() {
@@ -672,8 +911,11 @@ function makeKaijuFromModel(gltf) {
     // 喉〜胸の器官の光：呼吸に合わせて明滅、溜めで強く脈打つ
     for (const m of glowMats) m.emissiveIntensity = 1.0 + 0.5 * (0.5 + 0.5 * breathe) + charge * (1.6 + 1.2 * Math.sin(t * 9));
   }
+  // 足首の骨（-X 側, +X 側）。歩きの周期で足が地面に着くのは、地形が「1.5マス（-X 側）・0.5マス（+X 側）＋2マスごと」流れたとき
+  //（前へ歩くとき。後ろへ下がるときは左右が入れ替わる）。砂ぼこりはそこに出す（v356〜）
+  const feet = BN.ankles.map(n => byName[n] || null);
   return {
-    real: true, root, body, head, localBox, mats, skinned, animate,
+    real: true, root, body, head, localBox, mats, skinned, animate, feet,
     setAlpha: a => { fader.set(a); skinned.forEach(m => { m.castShadow = a > 0.35; }); },
     dispose() { fader.dispose(); disposeObject(root); },
   };
@@ -1120,6 +1362,42 @@ function start(bridge) {
   kaiju.root.position.set(0, 0, KAIJU_Z);
   scene.add(kaiju.root);
   const glowTex = glowTexture();
+  // 砂ぼこり・泡（v356〜）
+  const stageFx = makeStageFx();
+  scene.add(stageFx.group);
+  const tmpFoot = new THREE.Vector3();
+  // 怪獣の足が地面に着いたら砂ぼこりを出す。prev → cur は、このコマの間に地形が流れた量（マス）
+  function kaijuFootfalls(prev, cur, alpha) {
+    if (!kaiju.real || !kaiju.feet || walkAmp < 0.3 || alpha < 0.5 || !kaiju.root.visible) return;
+    const spc = KAIJU_MODEL.stepsPerCell;
+    const a = prev * spc, b = cur * spc, d = b - a;
+    if (!(Math.abs(d) > 1e-6 && Math.abs(d) < 1.5)) return;
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    for (let m = Math.ceil(lo - 0.5); m + 0.5 <= hi; m++) {
+      if (m + 0.5 <= lo) continue;
+      const even = ((m % 2) + 2) % 2 === 0;
+      const leg = d > 0 ? (even ? 1 : 0) : (even ? 0 : 1);
+      const bone = kaiju.feet[leg];
+      if (!bone) continue;
+      bone.getWorldPosition(tmpFoot);
+      stageFx.footfall(tmpFoot.x, tmpFoot.z + 0.08 * kaiju.root.scale.z);
+    }
+  }
+  // 炸裂の泡（海底）：演出が始まった瞬間に1回だけ
+  const blasted = new WeakSet();
+  const tmpBlast = new THREE.Vector3();
+  function blastBubbles(g, now) {
+    for (const ef of g.effects) {
+      const f = FLASH_TYPES[ef.type];
+      if (!f || blasted.has(ef) || now < ef.start) continue;
+      blasted.add(ef);
+      if (now - ef.start > Math.min(1500, ef.duration || 620)) continue;     // もう終わった演出（盤面が隠れている間に始まったもの）には出さない
+      const info = f(ef);
+      if (!info.p) continue;
+      effectPlanePoint(info.p.x, info.p.y, tmpBlast);
+      stageFx.burst(tmpBlast.x, tmpBlast.y, tmpBlast.z, info.peak);
+    }
+  }
   const warnSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: warnTexture(), depthTest: false, depthWrite: false, transparent: true, toneMapped: false }));
   warnSprite.renderOrder = 9;
   warnSprite.visible = false;
@@ -1456,6 +1734,7 @@ function start(bridge) {
     hemi.color.set(L.sky); hemi.groundColor.set(L.ground); hemi.intensity = L.hemi;
     sun.color.set(L.sun); sun.intensity = L.sunI;
     renderer.toneMappingExposure = L.exposure;
+    stageFx.setStage(stage);
     // 映り込みの空（ステージの色）
     try {
       const next = makeEnvironment(renderer, L);
@@ -1645,6 +1924,9 @@ function start(bridge) {
         // 移動先の光の柱・押しているマスの枠・怪獣の足元の輪・行動中の輪・戦術パネル・「！」
         show(tacticalPlane); show(pickFrame); show(pickRing); show(activeRing); show(warnSprite);
         if (pillars[0]) show(pillars[0].g);
+        // 砂ぼこり・泡（見えない粒を1つずつ）
+        stageFx.warm(true);
+        temps.push({ obj: null, dispose: () => stageFx.warm(false) });
       }
       // 機体：ふつうのもの／半透明のもの（移動先・帰還中）
       const tplName = AIRCRAFT_MODEL_NAMES.find(n => templates[n]);
@@ -1667,7 +1949,7 @@ function start(bridge) {
     } finally {
       if (transparent) { try { kaiju.setAlpha(1); } catch (e) {} scanMeshes.forEach(w => { w.visible = false; }); }
       shown.forEach(o => { o.visible = false; });
-      temps.forEach(t => { scene.remove(t.obj); try { t.dispose(); } catch (e) {} });
+      temps.forEach(t => { if (t.obj) scene.remove(t.obj); try { t.dispose(); } catch (e) {} });
     }
   }
   async function warmUp() {
@@ -1708,8 +1990,9 @@ function start(bridge) {
       sun.shadow.mapSize.set(512, 512);
       if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
     }
-    // いちばん軽い段では、左右の木・岩山を出さない
+    // いちばん軽い段では、左右の木・岩山を出さない（砂ぼこり・泡も少なめに）
     if (scenery && scenery.setLite) scenery.setLite(quality >= 2);
+    stageFx.setLite(quality >= 2);
     resize();
   }
   function watchSpeed(now) {
@@ -1738,7 +2021,9 @@ function start(bridge) {
     if (!running) return;
     raf = requestAnimationFrame(frame);
     const now = performance.now();
-    const dt = Math.min(0.1, (now - last) / 1000);
+    // 時刻が戻ったとき（テスト用の止めた時計など。実機では起きない）に、動きが暴れたり描くのが止まったりしないように
+    if (now < last) { lastRender = 0; lastRaf = 0; windowStart = 0; intervals.length = 0; }
+    const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
     last = now;
     if (contextLost || !bridge.boardVisible()) { lastRaf = 0; windowStart = 0; intervals.length = 0; return; }
     const g = bridge.game;
@@ -1789,6 +2074,7 @@ function start(bridge) {
 
     // 怪獣：地形が流れている間は歩く
     if (lastScroll === null) lastScroll = scroll;
+    const prevScroll = lastScroll;
     const speed = Math.abs(scroll - lastScroll) / Math.max(dt, 1e-3);
     lastScroll = scroll;
     walkAmp = smooth(walkAmp, speed > 0.05 ? 1 : 0, speed > 0.05 ? 8 : 3, dt);
@@ -1805,6 +2091,7 @@ function start(bridge) {
     kaiju.setAlpha(kAlpha);
     kaiju.root.scale.setScalar(bridge.kaijuHeightCells() / 3);
     kaiju.root.updateMatrixWorld(true);
+    if (!debugPose) kaijuFootfalls(prevScroll, scroll, kAlpha);
     warnSprite.visible = charging;
     if (warnSprite.visible) {
       kaiju.head.getWorldPosition(tmpHead);
@@ -1840,6 +2127,9 @@ function start(bridge) {
       viewFrustum.setFromProjectionMatrix(viewProj);
       scenery.update(scroll, viewFrustum);
     }
+    // 砂ぼこり・泡
+    blastBubbles(g, now);
+    stageFx.update(now, scroll, camera);
 
     // 戦術パネル（2Dで描いた絵を写す）。何も出ないときは写さない。動きのある表示は毎秒10回（重い端末では8回）、HPバーだけなら毎秒4回
     const level = bridge.tacticalLevel ? bridge.tacticalLevel() : 2;
@@ -1880,6 +2170,7 @@ function start(bridge) {
     aircraft.clear();
     if (ghost) { scene.remove(ghost.model.group); ghost.model.dispose(); ghost = null; }
     if (scenery) { scene.remove(scenery.group); scenery.dispose(); scenery = null; }
+    scene.remove(stageFx.group); stageFx.dispose();
     scanMeshes.forEach(w => { if (w.parent) w.parent.remove(w); });
     scene.remove(kaiju.root);
     kaiju.dispose();
@@ -1923,7 +2214,15 @@ function start(bridge) {
           errors: Object.assign({}, modelErrors),
         },
         charge, warmMs: stats.warmMs == null ? null : stats.warmMs,
+        fx: stageFx.count(),
       };
+    },
+    // テスト用：砂ぼこり・泡をすぐに出す（{ foot: [x, z] } / { burst: [bx, by, peak] } / { ambient: true }）
+    debugFx(o) {
+      if (o && o.foot) stageFx.footfall(o.foot[0], o.foot[1]);
+      if (o && o.burst) { const v = effectPlanePoint(o.burst[0], o.burst[1]); stageFx.burst(v.x, v.y, v.z, o.burst[2] || 14); }
+      if (o && o.ambient) stageFx.debugAmbient(performance.now());
+      return stageFx.count();
     },
     // テスト用：怪獣の姿勢を固定する（null で元に戻す）
     debugKaijuPose(p) { debugPose = p || null; },
@@ -1938,5 +2237,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v355' };
+window.NOAH3D = { start, version: 'v356' };
 })();

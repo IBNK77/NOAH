@@ -8,6 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <!-- v344: iOSの上部UIは不透明な余白で保護する。ステータスバー設定はblackを維持し、ブラウザが返すsafe-areaが0でも最上段の操作を上端へ置かない。 -->
+<!-- v356: ただしホーム画面から開いたとき（standalone）は、iOS がステータスバーの下からページを置くので、その余白は付けない（visual.css の読み込みの直後の <style>）。 -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <!-- v301: GitHub Pages / iOSホーム画面 / お気に入り用の外部アイコン指定。
      画像ファイルは index.html と同じ階層にある img/noah_icon.png を想定。
@@ -127,6 +128,9 @@ SAVE / CONTINUE（v336〜）：
 - v355〜：file:// ではステージの画像を3Dの地面に使えないので、models/ground-*.js（同じ画像を文字にしたもの）を使う
   （ブリッジの periodicTerrain で2Dと同じく継ぎ目をなじませる）。モデルの読み込みは1つずつ順番に行い、そろったら
   盤面が出ていない間（タイトル画面など）にシェーダーをまとめて作っておく（noah3d.js の warmUp）。
+- v356〜：怪獣の足が地面に着くたびに足元から砂ぼこり、海底では炸裂の泡・ときどき昇る泡（noah3d.js の makeStageFx。
+  3Dのみ）。ホーム画面から開いたとき（standalone）は、上の黒い余白（visual.css の v344 の余白）を付けない
+  （visual.css の読み込みの直後の <style>。保存済みの古い visual.css でも効くように index.html に書いた）。
 
 ===============================================================================
 -->
@@ -3779,6 +3783,21 @@ input[type="range"]::-webkit-slider-thumb{
 
 </style>
 <link rel="stylesheet" href="./visual.css?v=344">
+<style>
+/* v356：ホーム画面から開いたとき（standalone）は、iOS がステータスバーの下からページを置く
+   （apple-mobile-web-app-status-bar-style: black）。そこへ visual.css（v344）の「ステータスバーと重ならないための
+   上の余白（32px）」を足すと、ステータスバーの分が二重になり、上の黒い帯が倍の高さに見えていたので、standalone では
+   付けない（左右と同じ 6px だけ空ける。iOS がページを画面の端まで広げる場合も、safe-area の分を足して重ならないように）。
+   Safari・HTMLビューアーで開いたときは今まで通り。保存済みの visual.css が古いままでも効くよう、ここに書く。 */
+@media (orientation:portrait){
+  html.noah-ios.noah-ios-standalone::after{content:none;display:none;}
+  html.noah-ios.noah-ios-standalone #app{padding-top:calc(env(safe-area-inset-top,0px) + 6px);}
+  html.noah-ios.noah-ios-standalone #preGame{padding-top:max(10px, env(safe-area-inset-top));}
+  html.noah-ios.noah-ios-standalone #modalBg,
+  html.noah-ios.noah-ios-standalone #pauseBg{padding-top:max(14px, env(safe-area-inset-top));}
+  html.noah-ios.noah-ios-standalone #prePanel.titleScreenPanel.hasResume .titleSoundTestBtn{top:max(12px, env(safe-area-inset-top));}
+}
+</style>
 <link rel="preload" as="image" href="./img/brand/logo.webp">
 <script>
 // Some iOS viewports report no safe inset while browser glass still
@@ -4254,7 +4273,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v355',
+    currentPrototypeVersion:'v356',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
