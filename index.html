@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <!-- v344: iOSの上部UIは不透明な余白で保護する。ステータスバー設定はblackを維持し、ブラウザが返すsafe-areaが0でも最上段の操作を上端へ置かない。 -->
-<!-- v356: ただしホーム画面から開いたとき（standalone）は、iOS がステータスバーの下からページを置くので、その余白は付けない（visual.css の読み込みの直後の <style>）。 -->
+<!-- v356〜357: ただしホーム画面から開いたとき（standalone）は、iOS がステータスバーの下からページを置くので、その余白は付けず、iOS 26 の上端のぼかしを止める細い固定の帯（#noahEdgeBand）を置く（visual.css の読み込みの直後の <style>）。 -->
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <!-- v301: GitHub Pages / iOSホーム画面 / お気に入り用の外部アイコン指定。
      画像ファイルは index.html と同じ階層にある img/noah_icon.png を想定。
@@ -131,6 +131,9 @@ SAVE / CONTINUE（v336〜）：
 - v356〜：怪獣の足が地面に着くたびに足元から砂ぼこり、海底では炸裂の泡・ときどき昇る泡（noah3d.js の makeStageFx。
   3Dのみ）。ホーム画面から開いたとき（standalone）は、上の黒い余白（visual.css の v344 の余白）を付けない
   （visual.css の読み込みの直後の <style>。保存済みの古い visual.css でも効くように index.html に書いた）。
+- v357〜：standalone では、iOS 26 が上端をぼかすのを止めるため、ページと同じ色の 12px の固定の帯（#noahEdgeBand）を
+  一番上に置き、ステータスレールはその下から始める（固定・横幅いっぱい・高さ10px超・背景色ありの要素が上端にあると、
+  iOS はぼかさない、という他の開発者の報告による）。帯を透明にしたり backdrop-filter を付けたりすると効かなくなる。
 
 ===============================================================================
 -->
@@ -3784,18 +3787,34 @@ input[type="range"]::-webkit-slider-thumb{
 </style>
 <link rel="stylesheet" href="./visual.css?v=344">
 <style>
-/* v356：ホーム画面から開いたとき（standalone）は、iOS がステータスバーの下からページを置く
-   （apple-mobile-web-app-status-bar-style: black）。そこへ visual.css（v344）の「ステータスバーと重ならないための
-   上の余白（32px）」を足すと、ステータスバーの分が二重になり、上の黒い帯が倍の高さに見えていたので、standalone では
-   付けない（左右と同じ 6px だけ空ける。iOS がページを画面の端まで広げる場合も、safe-area の分を足して重ならないように）。
-   Safari・HTMLビューアーで開いたときは今まで通り。保存済みの visual.css が古いままでも効くよう、ここに書く。 */
+/* v356〜357：ホーム画面から開いたとき（standalone）の上端。
+   ・iOS はステータスバーの下からページを置く（apple-mobile-web-app-status-bar-style: black）。そこへ visual.css（v344）の
+     「上の余白（32px の黒い帯）」を足すと、ステータスバーの分が二重になって上の黒い部分が倍の高さに見えていたので、standalone では付けない。
+   ・ただし iOS 26 は、ページの上端の少し下までを、時計の下からにじむように「ぼかして暗く」する（scroll edge effect）。v344 の黒い帯は、
+     このぼかしの範囲を黒で埋めて、ステータスレールをその下に逃がしていた（v356 で帯を外したら、レールがぼやけた）。
+   ・他の開発者の報告では、上端（4px下・中央）に「固定（position:fixed）・横幅いっぱい・高さ10pxより大きい・背景色のある」要素があると、
+     iOS はぼかさずにその色で塗る。そこで v357 では、ページと同じ色の帯（#noahEdgeBand・12px）を一番上に固定し、
+     ステータスレールはその 2px 下から始める（上の黒い部分は v355 の 32px → 14px）。
+   ・Safari・HTMLビューアーで開いたときは今まで通り（visual.css の 32px の帯）。保存済みの visual.css が古いままでも効くよう、ここに書く。 */
+#noahEdgeBand{display:none;}
 @media (orientation:portrait){
   html.noah-ios.noah-ios-standalone::after{content:none;display:none;}
-  html.noah-ios.noah-ios-standalone #app{padding-top:calc(env(safe-area-inset-top,0px) + 6px);}
-  html.noah-ios.noah-ios-standalone #preGame{padding-top:max(10px, env(safe-area-inset-top));}
+  html.noah-ios.noah-ios-standalone #noahEdgeBand{
+    display:block;
+    position:fixed;
+    top:0;
+    left:0;
+    right:0;
+    width:100%;
+    height:calc(env(safe-area-inset-top,0px) + 12px);
+    z-index:2147483647;
+    background-color:#02050a;   /* ページの上端・ステータスバー（theme-color）と同じ色。ぼかし判定のため、透明や backdrop-filter にしない */
+  }
+  html.noah-ios.noah-ios-standalone #app{padding-top:calc(env(safe-area-inset-top,0px) + 14px);}
+  html.noah-ios.noah-ios-standalone #preGame{padding-top:calc(env(safe-area-inset-top,0px) + 16px);}
   html.noah-ios.noah-ios-standalone #modalBg,
-  html.noah-ios.noah-ios-standalone #pauseBg{padding-top:max(14px, env(safe-area-inset-top));}
-  html.noah-ios.noah-ios-standalone #prePanel.titleScreenPanel.hasResume .titleSoundTestBtn{top:max(12px, env(safe-area-inset-top));}
+  html.noah-ios.noah-ios-standalone #pauseBg{padding-top:calc(env(safe-area-inset-top,0px) + 16px);}
+  html.noah-ios.noah-ios-standalone #prePanel.titleScreenPanel.hasResume .titleSoundTestBtn{top:calc(env(safe-area-inset-top,0px) + 16px);}
 }
 </style>
 <link rel="preload" as="image" href="./img/brand/logo.webp">
@@ -3813,6 +3832,7 @@ input[type="range"]::-webkit-slider-thumb{
 
 </head>
 <body>
+<div id="noahEdgeBand" aria-hidden="true"></div>
 <div id="preGame"><div id="prePanel"><div id="preTitle"></div><div id="preBody"></div><div id="preActions"></div></div></div>
 <div id="app" class="preHidden">
   <header id="statusRail">
@@ -4273,7 +4293,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v356',
+    currentPrototypeVersion:'v357',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
