@@ -134,6 +134,10 @@ SAVE / CONTINUE（v336〜）：
 - v357〜：standalone では、iOS 26 が上端をぼかすのを止めるため、ページと同じ色の 12px の固定の帯（#noahEdgeBand）を
   一番上に置き、ステータスレールはその下から始める（固定・横幅いっぱい・高さ10px超・背景色ありの要素が上端にあると、
   iOS はぼかさない、という他の開発者の報告による）。帯を透明にしたり backdrop-filter を付けたりすると効かなくなる。
+- v358〜：機体（AA1〜AA5）を新しいモデルに差し替え（models/aa*-v358.js。v354 の機体ファイルは使わない）。
+  AA3 は縦に立っていたので寝かせた（tools/noah_glb_optimize.py の MODELS）。噴射の位置と太さは noah3d.js の AIRCRAFT_ENGINES。
+  2D の機体の絵（機体選択・2Dの盤面・ARTBOOK）も、新しいモデルを真上から撮った img/aircraft/aa*-v358.webp に替えた
+  （AIRCRAFT_IMG_SRCS・AIRCRAFT_IMAGE_BBOXES・img/asset-manifest.json。前の aa1〜aa5.webp は sw.js の RETIRED で端末から消す）。
 
 ===============================================================================
 -->
@@ -4293,7 +4297,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v357',
+    currentPrototypeVersion:'v358',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -4857,12 +4861,13 @@ function noahDrawKaijuGroundShadow(cell) {
 
   const DF_EMBLEM_SRC = './img/brand/order.webp';
 
+  // v358: 機体の絵は、新しい3Dモデル（models/aa*-v358.js）を真上から撮ったもの（前の絵の aa1〜aa5.webp は使わない）
   const AIRCRAFT_IMG_SRCS = [
-    './img/aircraft/aa1.webp',
-    './img/aircraft/aa2.webp',
-    './img/aircraft/aa3.webp',
-    './img/aircraft/aa4.webp',
-    './img/aircraft/aa5.webp'
+    './img/aircraft/aa1-v358.webp',
+    './img/aircraft/aa2-v358.webp',
+    './img/aircraft/aa3-v358.webp',
+    './img/aircraft/aa4-v358.webp',
+    './img/aircraft/aa5-v358.webp'
   ];
   const BOARD_BG_IMG_SRC = "./img/background/forest.webp";
   const kaijuImgs = [];
@@ -4890,7 +4895,7 @@ function noahDrawKaijuGroundShadow(cell) {
 
   // AA機画像の描画基準：透明余白を除いた本体外接矩形の縦方向を盤面1マスに合わせる。
   // 横幅は制限せず、横長機体はマスからはみ出してよい。
-  const AIRCRAFT_IMAGE_BBOXES = [{"x":3,"y":3,"w":634,"h":436,"imgW":640,"imgH":442},{"x":4,"y":4,"w":483,"h":632,"imgW":491,"imgH":640},{"x":4,"y":4,"w":632,"h":557,"imgW":640,"imgH":565},{"x":7,"y":0,"w":629,"h":472,"imgW":640,"imgH":472},{"x":4,"y":4,"w":632,"h":563,"imgW":640,"imgH":571}];
+  const AIRCRAFT_IMAGE_BBOXES = [{"x":4,"y":4,"w":598,"h":617,"imgW":606,"imgH":640},{"x":4,"y":4,"w":615,"h":626,"imgW":623,"imgH":640},{"x":3,"y":3,"w":634,"h":526,"imgW":640,"imgH":542},{"x":4,"y":4,"w":632,"h":621,"imgW":640,"imgH":632},{"x":4,"y":4,"w":617,"h":617,"imgW":625,"imgH":640}];
 
 
   function getAircraftRenderMetrics(visualIndex, img, cell, x, y){

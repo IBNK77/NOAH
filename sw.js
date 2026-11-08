@@ -30,11 +30,11 @@ const CORE_FILES = {
   './noah3d.js': 121000,                      // v352 3D表示（v356 で砂ぼこり・泡を足して少し大きくなった）
   './vendor/three-r170.min.js': 691000,          // 3D表示（three.js r170。v353〜は普通のスクリプト版。中身を変えるときはファイル名ごと変える）
   './vendor/three-r170-gltfloader.min.js': 47100, // v354 3Dモデル（GLB）の読み込み
-  './models/aa1-v354.js': 459345,
-  './models/aa2-v354.js': 337813,
-  './models/aa3-v354.js': 529941,
-  './models/aa4-v354.js': 527393,
-  './models/aa5-v354.js': 650973,
+  './models/aa1-v358.js': 373845,
+  './models/aa2-v358.js': 442789,
+  './models/aa3-v358.js': 476373,
+  './models/aa4-v358.js': 414629,
+  './models/aa5-v358.js': 451573,   // v358 機体を新しいモデルに差し替え
   './models/celevarn-v354.js': 1511679,
   './models/rock-v354.js': 479119,
   './models/tree-v354.js': 551063,   // v354 3Dの本番モデル
@@ -142,7 +142,11 @@ self.addEventListener('install', event => {
   })());
 });
 
-const RETIRED = ['./vendor/three-r170.module.min.js'].map(p => new URL(p, SCOPE).href);   // もう使わないファイル
+const RETIRED = [
+  './vendor/three-r170.module.min.js',
+  // v358：機体の絵を新しい3Dモデルから撮った aa*-v358.webp に替えたので、前の絵は消す
+  './img/aircraft/aa1.webp', './img/aircraft/aa2.webp', './img/aircraft/aa3.webp', './img/aircraft/aa4.webp', './img/aircraft/aa5.webp',
+].map(p => new URL(p, SCOPE).href);   // もう使わないファイル
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     for (const key of await caches.keys()) if (key.startsWith('noah-') && !KEEP.includes(key)) await caches.delete(key);

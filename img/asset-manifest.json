@@ -15,78 +15,78 @@
     }
   },
   "aircraft/aa1": {
-    "path": "./img/aircraft/aa1.webp",
-    "width": 640,
-    "height": 442,
-    "bytes": 54046,
-    "source_sha256": "f8bce928f39876678a42e0e9093ca618935cf49573a8d18bc1265798d72f02b7",
-    "bbox": {
-      "x": 3,
-      "y": 3,
-      "w": 634,
-      "h": 436,
-      "imgW": 640,
-      "imgH": 442
-    }
-  },
-  "aircraft/aa2": {
-    "path": "./img/aircraft/aa2.webp",
-    "width": 491,
+    "path": "./img/aircraft/aa1-v358.webp",
+    "width": 606,
     "height": 640,
-    "bytes": 72030,
-    "source_sha256": "a04963cd009494f34c398d5d5aae6221b3f3e6307b2cb979049eddabd1c55442",
+    "bytes": 49634,
+    "source_sha256": "e4382ff0a4ece86f33a4421747721bd21f7f56abecb0c54769fed9885558f50d",
     "bbox": {
       "x": 4,
       "y": 4,
-      "w": 483,
-      "h": 632,
-      "imgW": 491,
+      "w": 598,
+      "h": 617,
+      "imgW": 606,
+      "imgH": 640
+    }
+  },
+  "aircraft/aa2": {
+    "path": "./img/aircraft/aa2-v358.webp",
+    "width": 623,
+    "height": 640,
+    "bytes": 53288,
+    "source_sha256": "0c6d743ec7c2c15e6eb905ac9b938e03c4a2257099958c3db177d0ab965e42ee",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 615,
+      "h": 626,
+      "imgW": 623,
       "imgH": 640
     }
   },
   "aircraft/aa3": {
-    "path": "./img/aircraft/aa3.webp",
+    "path": "./img/aircraft/aa3-v358.webp",
     "width": 640,
-    "height": 565,
-    "bytes": 96470,
-    "source_sha256": "fa1ec8c55ecf24f196c035ce9c43ac397b9bc383700ec46bf0f1bb576e94d594",
+    "height": 542,
+    "bytes": 50126,
+    "source_sha256": "f12918a6b68916ba68a988e45d72f31b36f92ece4e758d4222bafc88d8dec3f6",
     "bbox": {
-      "x": 4,
-      "y": 4,
-      "w": 632,
-      "h": 557,
+      "x": 3,
+      "y": 3,
+      "w": 634,
+      "h": 526,
       "imgW": 640,
-      "imgH": 565
+      "imgH": 542
     }
   },
   "aircraft/aa4": {
-    "path": "./img/aircraft/aa4.webp",
+    "path": "./img/aircraft/aa4-v358.webp",
     "width": 640,
-    "height": 472,
-    "bytes": 124304,
-    "source_sha256": "3b75b709fc66b130bede441858c08a5edc4c687f1cd854f4c81eff4de5b1209d",
-    "bbox": {
-      "x": 7,
-      "y": 0,
-      "w": 629,
-      "h": 472,
-      "imgW": 640,
-      "imgH": 472
-    }
-  },
-  "aircraft/aa5": {
-    "path": "./img/aircraft/aa5.webp",
-    "width": 640,
-    "height": 571,
-    "bytes": 95120,
-    "source_sha256": "ce3f0456d50dac0d2519752a90cf6ba4f63727d03654a3d42e211d0f451d99c8",
+    "height": 632,
+    "bytes": 45840,
+    "source_sha256": "5e5b2aaf09bfeb25951089243c0f576eaa56f8a2a0d09418fd14a71380530720",
     "bbox": {
       "x": 4,
       "y": 4,
       "w": 632,
-      "h": 563,
+      "h": 621,
       "imgW": 640,
-      "imgH": 571
+      "imgH": 632
+    }
+  },
+  "aircraft/aa5": {
+    "path": "./img/aircraft/aa5-v358.webp",
+    "width": 625,
+    "height": 640,
+    "bytes": 58556,
+    "source_sha256": "7bfa57a137ddf9301e3300948949910f7b0bd9bd8ccee9eadf8f4c61742188ed",
+    "bbox": {
+      "x": 4,
+      "y": 4,
+      "w": 617,
+      "h": 617,
+      "imgW": 625,
+      "imgH": 640
     }
   },
   "background/forest": {

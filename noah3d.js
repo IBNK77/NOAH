@@ -495,14 +495,15 @@ function animateKaiju(k, t, walkPhase, walkAmp, jitterX, lunge) {
 }
 
 // -----------------------------------------------------------------------------
-// 仮モデル：機体（2Dの5機の形と色をなぞった簡単な形。機首は奥＝-Z）
+// 仮モデル：機体（v357 までの2Dの5機の形をなぞった簡単な形。機首は奥＝-Z。本番モデルが届くまでの間だけ出す）
 // -----------------------------------------------------------------------------
+// body・accent は、モデルを読み込むまでの間に出す仮の機体の色（v358 の機体の色に合わせた）。glow は噴射の色
 const AIRCRAFT_LOOKS = [
-  { body: 0xc9ced6, accent: 0x2f7377, glow: 0xffb35a },   // AA1 デルタ翼
-  { body: 0xe9ebe1, accent: 0x84b98f, glow: 0xa8ffd8 },   // AA2 針の胴と三日月の翼
-  { body: 0x5a606a, accent: 0xbb7446, glow: 0xffa24c },   // AA3 重ガンシップ
-  { body: 0xf0f0f0, accent: 0xc6363c, glow: 0xffd28c },   // AA4 矢じりの翼
-  { body: 0x7a3452, accent: 0xebe6dc, glow: 0xffe3a4 },   // AA5 円盤
+  { body: 0x2a4cc0, accent: 0xff7a2e, glow: 0xffb35a },   // AA1 青と橙の双発機
+  { body: 0x1fb0b4, accent: 0xff7a3c, glow: 0xa8ffd8 },   // AA2 青緑と橙の双発機
+  { body: 0xd2262b, accent: 0xf2c232, glow: 0xffa24c },   // AA3 赤と黄の四発ガンシップ
+  { body: 0x2f7fe0, accent: 0xffd23a, glow: 0xffd28c },   // AA4 青と黄の細身の機体
+  { body: 0x1f6a3c, accent: 0xe8742a, glow: 0xffe3a4 },   // AA5 緑と橙の双発機
 ];
 
 // XZ 平面の板（points は [x, z]。z は奥が負）
@@ -639,7 +640,7 @@ function makeProjectile(kind, glowTex) {
 const MODEL_DIR = './models/';
 // models/ のファイル名。中身を変えたときはファイル名ごと変える（端末に保存した古い版を使わないように）。
 const MODEL_FILES = {
-  celevarn: 'celevarn-v354', AA1: 'aa1-v354', AA2: 'aa2-v354', AA3: 'aa3-v354', AA4: 'aa4-v354', AA5: 'aa5-v354',
+  celevarn: 'celevarn-v354', AA1: 'aa1-v358', AA2: 'aa2-v358', AA3: 'aa3-v358', AA4: 'aa4-v358', AA5: 'aa5-v358',   // v358：機体を新しいモデルに
   tree: 'tree-v354', rock: 'rock-v354',
   // HTMLビューアー（file://）用の地面の画像（v355〜）。ふつうの画像は file:// では3Dに使えないため、文字にして埋め込んだもの
   'ground-forest': 'ground-forest-v355', 'ground-seafloor': 'ground-seafloor-v355',
@@ -924,12 +925,13 @@ function makeKaijuFromModel(gltf) {
 // -----------------------------------------------------------------------------
 // 本番の機体。噴射口の位置（機首 -Z・全幅1にそろえた座標）に、仮モデルと同じ揺らめく炎を付ける
 // -----------------------------------------------------------------------------
+// 噴射口の位置 [x, y, z, 太さ]（v358 の機体。後ろから正射影で撮って、噴射口の中心に合わせた。太さは 1 で半径 0.028）
 const AIRCRAFT_ENGINES = [
-  [[-0.072, -0.005, 0.385], [0.072, -0.005, 0.385]],                                     // AA1
-  [[-0.044, -0.023, 0.378], [0.044, -0.023, 0.378]],                                     // AA2
-  [[-0.21, 0.0, 0.41], [-0.09, 0.0, 0.42], [0.09, 0.0, 0.42], [0.21, 0.0, 0.41]],        // AA3
-  [[-0.03, 0.0, 0.44], [0.03, 0.0, 0.44]],                                               // AA4
-  [[-0.078, -0.02, 0.42], [0.078, -0.02, 0.42]],                                         // AA5
+  [[-0.093, 0.006, 0.44, 1.25], [0.093, 0.006, 0.44, 1.25]],                                              // AA1
+  [[-0.082, 0.058, 0.44, 0.85], [0.082, 0.058, 0.44, 0.85]],                                              // AA2
+  [[-0.187, 0.005, 0.395, 1.0], [-0.078, 0.005, 0.395, 1.0], [0.079, 0.005, 0.395, 1.0], [0.187, 0.005, 0.395, 1.0]],   // AA3
+  [[-0.031, 0.022, 0.44, 0.7], [0.029, 0.022, 0.44, 0.7]],                                                // AA4
+  [[-0.186, 0.004, 0.44, 1.25], [0.182, 0.004, 0.44, 1.25]],                                              // AA5
 ];
 function makeAircraftFromModel(template, type) {
   const look = AIRCRAFT_LOOKS[type] || AIRCRAFT_LOOKS[0];
@@ -942,10 +944,13 @@ function makeAircraftFromModel(template, type) {
   const glowMat = new THREE.MeshBasicMaterial({ color: look.glow, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   const flameGeo = new THREE.ConeGeometry(0.028, 0.15, 8, 1, true);
   const engines = [];
-  for (const [x, y, z] of (AIRCRAFT_ENGINES[type] || [])) {
+  for (const [x, y, z, r = 1] of (AIRCRAFT_ENGINES[type] || [])) {
     const flame = new THREE.Mesh(flameGeo, glowMat);
     flame.rotation.x = Math.PI / 2;     // 先端を後ろ（+Z）へ
-    flame.position.set(x, y, z + 0.075);
+    flame.userData.r = r;                 // 太さ（噴射口の大きさに合わせる）。長さも少しだけ合わせる
+    flame.userData.len = 0.75 + 0.25 * r;
+    flame.scale.set(r, flame.userData.len, r);
+    flame.position.set(x, y, z + 0.075 * flame.userData.len);
     flame.renderOrder = 4;
     g.add(flame); engines.push(flame);
   }
@@ -1799,7 +1804,7 @@ function start(bridge) {
       grp.rotation.set(Math.sin(phase * 0.7) * 0.03, 0, THREE.MathUtils.clamp(-dx * 0.9, -0.5, 0.5) + Math.sin(phase2) * 0.03);
       a.model.setAlpha(u.state === 'returning' ? 0.58 : 1);
       const flick = 0.85 + Math.sin(now / 37 + type) * 0.1 + Math.random() * 0.08;
-      a.model.engines.forEach(f => f.scale.set(1, flick, 1));
+      a.model.engines.forEach(f => { const r = f.userData.r || 1; f.scale.set(r, flick * (f.userData.len || 1), r); });
       // 追従ドローン
       const colors = bridge.followDroneColors(u);
       while (a.drones.length < colors.length) {
@@ -2237,5 +2242,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v356' };
+window.NOAH3D = { start, version: 'v358' };
 })();
