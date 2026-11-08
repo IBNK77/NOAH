@@ -42,11 +42,29 @@ function effectPlanePoint(bx, by, out = new THREE.Vector3()) {
   return out.set(bx - 3.5, FLY_Y + FX_K_Y * (FX_ROW - by), by - 3.5 + FX_K_Z * (FX_ROW - by));
 }
 
-// カメラの構え。elev は見下ろす角度（度）。
+// カメラの構え。elev は見下ろす角度（度）。fit は画面に必ず入れる点（ここから毎回カメラの距離を決める）。
+// v359：移動フェイズ（移動先・出撃先を選ぶ間も）は真上から（top）。それ以外は斜めから、v358 までより寄せて（oblique）、
+//       盤面の四隅ではなく「怪獣」と「機体の3×3のマス」が画面いっぱいに入るようにした。左上の視点ボタンは無くした。
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const CAMERA_POSES = {
-  oblique: { elev: 41, fov: 38, target: new THREE.Vector3(0, 1.0, 0.25) },
-  focus:   { elev: 62, fov: 38, target: new THREE.Vector3(0, 0.75, 0.75) },  // 移動先・出撃先を選ぶあいだ
-  top:     { elev: 88, fov: 34, target: new THREE.Vector3(0, 0.3, 0.0) },
+  oblique: {
+    name: 'oblique', elev: 42, fov: 36, target: V3(0, 1.15, 0.55),
+    fit: [
+      V3(-3.05, PANEL_Y, 0.45), V3(3.05, PANEL_Y, 0.45), V3(-3.05, PANEL_Y, 3.6), V3(3.05, PANEL_Y, 3.6),   // 機体のマス
+      V3(-2.0, PANEL_Y, 3.95), V3(2.0, PANEL_Y, 3.95),                                                   // 手前の機体のHPの札
+      V3(-2.7, FLY_Y + 0.2, 3.5), V3(2.7, FLY_Y + 0.2, 3.5),                                             // 手前の機体
+      V3(0, 3.75, KAIJU_Z - 0.5), V3(-1.75, 2.7, KAIJU_Z + 0.2), V3(1.75, 2.7, KAIJU_Z + 0.2),           // 怪獣の頭と腕の刃
+    ],
+  },
+  top: {
+    name: 'top', elev: 90, fov: 30, target: V3(0, PANEL_Y, 0.45),
+    fit: [
+      V3(-3.05, PANEL_Y, 0.45), V3(3.05, PANEL_Y, 0.45), V3(-3.05, PANEL_Y, 3.6), V3(3.05, PANEL_Y, 3.6),   // 機体のマス
+      V3(-2.0, PANEL_Y, 3.85), V3(2.0, PANEL_Y, 3.85),                                                   // 手前の機体のHPの札
+      V3(0, 3.4, KAIJU_Z - 0.5), V3(-1.6, 2.6, KAIJU_Z + 0.3), V3(1.6, 2.6, KAIJU_Z + 0.3),              // 怪獣（頭と腕）
+      V3(0, 2.6, KAIJU_Z - 1.15),                                                                        // 怪獣の背中
+    ],
+  },
 };
 
 // env … 映り込み用の空の明るさ（v354〜。機体と怪獣にだけ映す）
@@ -1519,12 +1537,8 @@ function start(bridge) {
   // ---------------------------------------------------------------------------
   // カメラ（盤面の四隅・手前の機体・怪獣の頭が画面に収まる距離を毎回求める）
   // ---------------------------------------------------------------------------
-  let camMode = 'oblique';
-  const cam = { elev: CAMERA_POSES.oblique.elev, fov: CAMERA_POSES.oblique.fov, target: CAMERA_POSES.oblique.target.clone(), dist: 14 };
-  const fitPts = [
-    [-3.5, 0, -3.5], [3.5, 0, -3.5], [-3.5, 0, 3.5], [3.5, 0, 3.5],
-    [-3.1, FLY_Y, 3.6], [3.1, FLY_Y, 3.6], [-1.6, 3.3, KAIJU_Z], [1.6, 3.3, KAIJU_Z], [0, 3.5, KAIJU_Z - 0.6],
-  ].map(p => new THREE.Vector3(...p));
+  const cam = { elev: CAMERA_POSES.oblique.elev, fov: CAMERA_POSES.oblique.fov, target: CAMERA_POSES.oblique.target.clone(), dist: 0 };
+  let camSettling = false;   // カメラが動いている途中（このあいだは毎秒60回描く）
   const tmpV = new THREE.Vector3();
   function placeCamera(elevDeg, dist, target, fov, aspect) {
     const el = THREE.MathUtils.degToRad(elevDeg);
@@ -1535,13 +1549,13 @@ function start(bridge) {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
   }
-  function fitDistance(elevDeg, target, fov, aspect) {
-    let lo = 4, hi = 90;
+  function fitDistance(elevDeg, target, fov, aspect, pts) {
+    let lo = 3, hi = 90;
     for (let i = 0; i < 22; i++) {
       const d = (lo + hi) / 2;
       placeCamera(elevDeg, d, target, fov, aspect);
       let ok = true;
-      for (const p of fitPts) {
+      for (const p of pts) {
         tmpV.copy(p).project(camera);
         if (Math.abs(tmpV.x) > 0.95 || Math.abs(tmpV.y) > 0.93 || tmpV.z > 1) { ok = false; break; }
       }
@@ -1549,10 +1563,31 @@ function start(bridge) {
     }
     return hi;
   }
+  // 構えの中心：入れる点の上下の真ん中が画面の真ん中に来るよう、target を奥・手前へずらしておく（画面の縦横比ごとに1回）
+  const poseFrames = new Map();
+  function poseTarget(pose, aspect) {
+    const key = pose.name + ':' + aspect.toFixed(3);
+    let t = poseFrames.get(key);
+    if (t) return t;
+    t = pose.target.clone();
+    for (let k = 0; k < 3; k++) {
+      placeCamera(pose.elev, fitDistance(pose.elev, t, pose.fov, aspect, pose.fit), t, pose.fov, aspect);
+      let lo = Infinity, hi = -Infinity;
+      for (const p of pose.fit) { tmpV.copy(p).project(camera); lo = Math.min(lo, tmpV.y); hi = Math.max(hi, tmpV.y); }
+      const y0 = tmpV.copy(t).project(camera).y;
+      const per = tmpV.set(t.x, t.y, t.z - 1).project(camera).y - y0;   // 点を奥へ1動かしたときの、画面の縦の動き
+      if (!(Math.abs(per) > 1e-6)) break;
+      t.z -= ((lo + hi) / 2) / per;
+    }
+    poseFrames.set(key, t);
+    return t;
+  }
   function choosingCell(g) { return !!(g && !g.gameOver && !g.introHideUnits && (g.mode === 'move' || g.mode === 'sortie')); }
+  // 移動フェイズ（と、移動先・出撃先を選んでいる間）は真上から。それ以外は斜めから
   function desiredPose(g) {
-    if (camMode === 'top') return CAMERA_POSES.top;
-    return choosingCell(g) ? CAMERA_POSES.focus : CAMERA_POSES.oblique;
+    if (choosingCell(g)) return CAMERA_POSES.top;
+    if (g && !g.gameOver && !g.introHideUnits && g.phase === 'move') return CAMERA_POSES.top;
+    return CAMERA_POSES.oblique;
   }
 
   // ---------------------------------------------------------------------------
@@ -1769,6 +1804,89 @@ function start(bridge) {
     a.model.dispose();
     a.drones.forEach(m => { scene.remove(m); m.material.dispose(); });
   }
+  // ---------------------------------------------------------------------------
+  // 機体のHP（v359）：盤面の上に重ねた小さな札。文字は HTML なので小さくてもくっきり読める。
+  // 機体の真下に付いて動き、HPが減ったときは一瞬赤く光る。アタックフェイズ（自分で操作できる間）だけ隠す（v277 の決まり）
+  // ---------------------------------------------------------------------------
+  const hpLayer = document.createElement('div');
+  hpLayer.className = 'noah3dHpLayer';
+  hpLayer.setAttribute('aria-hidden', 'true');
+  Object.assign(hpLayer.style, { position: 'absolute', left: '0', top: '0', right: '0', bottom: '0', overflow: 'hidden', pointerEvents: 'none', zIndex: '3' });
+  host.appendChild(hpLayer);
+  cleanups.push(() => hpLayer.remove());
+  const hpPlates = new Map();   // unit → 札
+  const HP_TONES = [[0.25, '#ff5b5b'], [0.5, '#ffd352'], [Infinity, '#57efbc']];   // 2D のHPバーと同じ色分け
+  function makeHpPlate() {
+    const el = document.createElement('div');
+    el.className = 'noah3dHpPlate';
+    el.style.cssText = 'position:absolute;left:0;top:0;display:flex;align-items:center;gap:4px;padding:2px 5px 2px 4px;border-radius:5px;' +
+      'background:rgba(4,9,16,.84);border:1px solid rgba(190,225,255,.42);box-shadow:0 1px 5px rgba(0,0,0,.6);' +
+      'font:700 11px/1 var(--f-hud,system-ui,sans-serif);color:#fff;white-space:nowrap;will-change:transform;visibility:hidden;' +
+      'transition:border-color .25s,box-shadow .25s;';
+    const label = document.createElement('span');
+    label.textContent = 'HP';
+    label.style.cssText = 'font-size:8.5px;letter-spacing:.06em;color:rgba(200,225,245,.78);';
+    const num = document.createElement('b');
+    num.style.cssText = 'min-width:13px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;';
+    const bar = document.createElement('span');
+    bar.style.cssText = 'position:relative;display:block;width:30px;height:5px;border-radius:3px;background:rgba(255,255,255,.16);overflow:hidden;';
+    const fill = document.createElement('i');
+    fill.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:3px;transition:width .4s ease,background-color .3s;';
+    bar.appendChild(fill);
+    el.append(label, num, bar);
+    hpLayer.appendChild(el);
+    return { el, num, fill, hp: null, max: null, w: 0, h: 0, flashUntil: 0, flashing: false, shown: false, x: 0, y: 0, opacity: '' };
+  }
+  const hpA = new THREE.Vector3(), hpB = new THREE.Vector3();
+  function updateHpPlates(g, now) {
+    const entering = typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1;
+    let hideAll = !!g.introHideUnits || entering || !!g.gameOver;
+    if (!hideAll && bridge.hpHidden) { try { hideAll = !!bridge.hpHidden(); } catch (e) {} }
+    const seen = new Set();
+    for (const [u, a] of aircraft) {
+      seen.add(u);
+      let p = hpPlates.get(u);
+      if (!p) { p = makeHpPlate(); hpPlates.set(u, p); }
+      if (hideAll) { if (p.shown) { p.el.style.visibility = 'hidden'; p.shown = false; } continue; }
+      const max = Math.max(1, Math.round(Number(u.maxHp) || 1));
+      const hp = Math.max(0, Math.min(max, Math.round(Number(u.hp) || 0)));
+      if (hp !== p.hp || max !== p.max) {
+        if (p.hp != null && hp < p.hp) p.flashUntil = now + 700;
+        p.hp = hp; p.max = max;
+        const r = hp / max;
+        p.num.textContent = String(hp);
+        p.fill.style.width = (r * 100).toFixed(1) + '%';
+        p.fill.style.backgroundColor = HP_TONES.find(t => r <= t[0])[1];
+        p.w = 0;   // 桁が変わったら大きさを測り直す
+      }
+      const flashing = now < p.flashUntil;
+      if (flashing !== p.flashing) {
+        p.flashing = flashing;
+        p.el.style.borderColor = flashing ? 'rgba(255,120,120,.98)' : 'rgba(190,225,255,.42)';
+        p.el.style.boxShadow = flashing ? '0 0 10px rgba(255,70,70,.75),0 1px 5px rgba(0,0,0,.6)' : '0 1px 5px rgba(0,0,0,.6)';
+      }
+      if (!p.w) { p.w = p.el.offsetWidth; p.h = p.el.offsetHeight; }
+      // 位置：機体の中心の真下で、マスの手前の縁をまたぐ（札の下の端が、手前のマスの1/4ほどまで）。
+      // 真上でも斜めでも、機体を隠しすぎず、手前のマスの攻撃予測（マスの真ん中）にも掛からない
+      const grp = a.model.group;
+      const c = toScreen(hpA.set(grp.position.x, grp.position.y, grp.position.z));
+      const edge = toScreen(hpB.set(grp.position.x, PANEL_Y, grp.position.z + 0.5)).y;
+      const back = toScreen(hpB.set(grp.position.x, PANEL_Y, grp.position.z - 0.5)).y;
+      const cellH = Math.max(8, edge - back);
+      let x = c.x - p.w / 2, y = Math.max(edge + cellH * 0.24 - p.h, c.y + 4);
+      x = Math.max(2, Math.min(W - p.w - 2, x));
+      y = Math.max(2, Math.min(H - p.h - 2, y));
+      if (Math.abs(x - p.x) > 0.25 || Math.abs(y - p.y) > 0.25 || !p.shown) {
+        p.x = x; p.y = y;
+        p.el.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0)`;
+      }
+      const opacity = u.state === 'returning' ? '0.6' : '1';
+      if (opacity !== p.opacity) { p.opacity = opacity; p.el.style.opacity = opacity; }
+      if (!p.shown) { p.el.style.visibility = 'visible'; p.shown = true; }
+    }
+    for (const [u, p] of hpPlates) if (!seen.has(u)) { p.el.remove(); hpPlates.delete(u); }
+  }
+
   function syncAircraft(g, now, dt) {
     const seen = new Set();
     const hide = !!g.introHideUnits;
@@ -1947,8 +2065,7 @@ function start(bridge) {
       // 半透明の怪獣（退場）と、研究URの網目
       if (transparent) { kaiju.setAlpha(0.5); scanMeshes.forEach(w => { w.visible = true; }); }
       const aspect = W / H;
-      cam.dist = fitDistance(cam.elev, cam.target, cam.fov, aspect);
-      placeCamera(cam.elev, cam.dist, cam.target, cam.fov, aspect);
+      placeCamera(cam.elev, fitDistance(cam.elev, cam.target, cam.fov, aspect, CAMERA_POSES.oblique.fit), cam.target, cam.fov, aspect);
       kaiju.root.updateMatrixWorld(true);
       renderer.render(scene, camera);
     } finally {
@@ -2036,7 +2153,7 @@ function start(bridge) {
     watchSpeed(now);
     // 動きの少ないときは毎秒30回ほどに抑えて電池を節約する
     const busy = g.effects.length > 0 || walkAmp > 0.02 || pressId !== null || lunge > 0.02 || charge > 0.02 || aircraftMoving ||
-      (typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1) || Math.abs(cam.elev - desiredPose(g).elev) > 0.3;
+      (typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1) || camSettling || Math.abs(cam.elev - desiredPose(g).elev) > 0.3;
     if (!busy && now - lastRender < 31) return;
     lastRender = now;
     try {
@@ -2118,14 +2235,20 @@ function start(bridge) {
     // カメラ
     const pose = desiredPose(g);
     const rate = 4.5;
+    const aspect = W / H;
+    const poseT = poseTarget(pose, aspect);
     cam.elev = smooth(cam.elev, pose.elev, rate, dt);
     cam.fov = smooth(cam.fov, pose.fov, rate, dt);
-    cam.target.x = smooth(cam.target.x, pose.target.x, rate, dt);
-    cam.target.y = smooth(cam.target.y, pose.target.y, rate, dt);
-    cam.target.z = smooth(cam.target.z, pose.target.z, rate, dt);
-    const aspect = W / H;
-    cam.dist = fitDistance(cam.elev, cam.target, cam.fov, aspect);
+    cam.target.x = smooth(cam.target.x, poseT.x, rate, dt);
+    cam.target.y = smooth(cam.target.y, poseT.y, rate, dt);
+    cam.target.z = smooth(cam.target.z, poseT.z, rate, dt);
+    // 距離：いまの角度で、この構えの点がすべて画面に入る距離へ、なめらかに寄せる（構えが変わったときに跳ばないように）
+    const wantDist = fitDistance(cam.elev, cam.target, cam.fov, aspect, pose.fit);
+    cam.dist = cam.dist > 0 ? smooth(cam.dist, wantDist, rate, dt) : wantDist;
+    camSettling = Math.abs(cam.dist - wantDist) > 0.01 || Math.abs(cam.elev - pose.elev) > 0.3 || Math.abs(cam.target.z - poseT.z) > 0.01;
     placeCamera(cam.elev, cam.dist, cam.target, cam.fov, aspect);
+    // 機体のHPの札（カメラが決まってから位置を合わせる）
+    updateHpPlates(g, now);
     // 左右の景色（カメラに映る分だけ）
     if (scenery) {
       viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -2195,9 +2318,9 @@ function start(bridge) {
 
   return {
     stop,
-    setCameraMode(mode) { camMode = mode === 'top' ? 'top' : 'oblique'; },
+    setCameraMode() {},   // v359：視点はフェイズで自動（移動フェイズは真上・それ以外は斜め）。古い呼び出しのために残す
     setQuality(q, lock) { qualityLocked = !!lock; quality = Math.max(0, Math.min(2, q | 0)); if (quality === 0) { renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); tacticalInterval = 100; } applyQuality(); },
-    get cameraMode() { return camMode; },
+    get cameraMode() { const g = bridge.game; return desiredPose(g) === CAMERA_POSES.top ? 'top' : 'oblique'; },
     stats() {
       return {
         frames: stats.frames,
@@ -2220,6 +2343,8 @@ function start(bridge) {
         },
         charge, warmMs: stats.warmMs == null ? null : stats.warmMs,
         fx: stageFx.count(),
+        cameraPose: desiredPose(bridge.game) === CAMERA_POSES.top ? 'top' : 'oblique',
+        hp: [...hpPlates.values()].map(p => ({ hp: p.hp, max: p.max, shown: p.shown, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h })),
       };
     },
     // テスト用：砂ぼこり・泡をすぐに出す（{ foot: [x, z] } / { burst: [bx, by, peak] } / { ambient: true }）
@@ -2242,5 +2367,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v358' };
+window.NOAH3D = { start, version: 'v359' };
 })();

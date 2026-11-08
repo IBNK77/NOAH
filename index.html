@@ -138,6 +138,10 @@ SAVE / CONTINUE（v336〜）：
   AA3 は縦に立っていたので寝かせた（tools/noah_glb_optimize.py の MODELS）。噴射の位置と太さは noah3d.js の AIRCRAFT_ENGINES。
   2D の機体の絵（機体選択・2Dの盤面・ARTBOOK）も、新しいモデルを真上から撮った img/aircraft/aa*-v358.webp に替えた
   （AIRCRAFT_IMG_SRCS・AIRCRAFT_IMAGE_BBOXES・img/asset-manifest.json。前の aa1〜aa5.webp は sw.js の RETIRED で端末から消す）。
+- v359〜：2D表示の切り替え（盤面左上の 3D/2D・視点のボタン）を無くし、いつも3D（3Dを始められない端末だけ自動で2D。?3d=0 で確かめ用の2D）。
+  視点はフェイズで自動：移動フェイズは真上（90°）、それ以外は斜め（42°）で怪獣と機体のマスが画面いっぱいに入る距離まで寄せる
+  （noah3d.js の CAMERA_POSES の fit）。機体のHPは、戦術パネルの細いバーをやめ、機体の下に付いて動く札（noah3d.js の updateHpPlates）。
+  怪獣のポップアップの絵は KAIJU_DEFS の popupArtPos で切り抜く位置を合わせる。アーティファクトの絵は切り抜かずに枠へ収める（.artifactArtImg）。
 
 ===============================================================================
 -->
@@ -778,21 +782,7 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
   animation:noahLamp 1.4s ease-in-out infinite;
 }
 .bzObs{ right:9px; }
-/* v352 3D表示：盤面左上の切り替えボタン（3D⇄2D・視点） */
-.bzViewCtl{ position:absolute; top:7px; left:9px; display:flex; gap:5px; pointer-events:auto; z-index:4; }
-.bzBtn{
-  position:relative;
-  appearance:none; -webkit-appearance:none;
-  margin:0; padding:4px 8px; min-height:21px;
-  border:1px solid var(--hair-3); border-radius:3px;
-  background:rgba(3,7,14,.62);
-  font-family:var(--f-hud); font-size:9px; font-weight:700; letter-spacing:.14em; line-height:1;
-  color:rgba(214,226,246,.86);
-  -webkit-tap-highlight-color:transparent;
-}
-.bzBtn::after{ content:""; position:absolute; inset:-7px -3px; }   /* 指で押しやすいように当たりを広げる */
-.bzBtn.on{ color:var(--noah-hi); border-color:rgba(120,230,255,.45); box-shadow:0 0 8px rgba(80,200,255,.18) inset; }
-.bzBtn:active{ transform:translateY(1px); }
+/* v352〜v358 の盤面左上の切り替えボタン（3D⇄2D・視点）は v359 で無くした（3Dのみ・視点はフェイズで自動） */
 
 /* 7 ───────────────────────────────────────────────────────── Command deck */
 /* 行動機の見出し */
@@ -1812,7 +1802,7 @@ body.criticalBgmTestRed::after{
   width:44px;
   height:44px;
   max-width:44px;
-  object-fit:cover;
+  object-fit:contain;
   border-radius:6px;
   image-rendering:pixelated;
 }
@@ -1879,7 +1869,7 @@ body.criticalBgmTestRed::after{
   margin:0 auto;
   aspect-ratio:1/1;
   border-radius:var(--r-m);
-  object-fit:cover;
+  object-fit:contain;
   border:1px solid var(--hair-2);
   background:var(--ink-3);
   image-rendering:pixelated;
@@ -2496,6 +2486,8 @@ input[type="range"]::-webkit-slider-thumb{
   display:block;
 }
 .cardArtWrap img{ object-fit:cover; object-position:center; image-rendering:pixelated; }
+/* v359: アーティファクトの絵（鉱石・結晶・共鳴核・原石）は形が縦長・横長なので、切り抜かずに枠の中へ全体を収める */
+.cardArtWrap > img.artifactArtImg{ object-fit:contain; padding:9%; box-sizing:border-box; }
 .cardEffectBox{
   width:100%;
   min-height:44px;
@@ -4297,7 +4289,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v358',
+    currentPrototypeVersion:'v359',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -5108,7 +5100,7 @@ function noahDrawKaijuGroundShadow(cell) {
     const d = artifactDef(id);
     const src = artifactArtSrc(id);
     const style = artifactArtStyle(id);
-    return src ? `<img src="${src}" alt="${escapeHtml(alt || d.name)}"${style}>` : '<div class="cardArtPlaceholder">NO IMAGE</div>';
+    return src ? `<img class="artifactArtImg" src="${src}" alt="${escapeHtml(alt || d.name)}"${style}>` : '<div class="cardArtPlaceholder">NO IMAGE</div>';
   }
   function allActiveCannonsMatch(unit, category){
     const slots = activeCannons(unit);
@@ -11435,7 +11427,7 @@ function getRandomExplosionCell(){
     return pool[Math.floor(Math.random() * pool.length)] || 'forest';
   }
 
-  const KAIJU_DEFS = [{"id":"bathynoma","title":"深響獣","name":"セレヴァーン","fullName":"深響獣 セレヴァーン","hp":150,"ep":260,"distance":120,"heightM":80,"text":"推定全高80m。甲殻と三日月状の前腕刃を持つ巨大な海生超動物。喉の共鳴器官から衝撃波を放ち、森林と海底を進む。","roarSe":"kaijuRoar_bathynoma","popupArt":"./img/brand/title.webp"}];
+  const KAIJU_DEFS = [{"id":"bathynoma","title":"深響獣","name":"セレヴァーン","fullName":"深響獣 セレヴァーン","hp":150,"ep":260,"distance":120,"heightM":80,"text":"推定全高80m。甲殻と三日月状の前腕刃を持つ巨大な海生超動物。喉の共鳴器官から衝撃波を放ち、森林と海底を進む。","roarSe":"kaijuRoar_bathynoma","popupArt":"./img/brand/title.webp","popupArtPos":"50% 73%"}];
   const ENDLESS_KAIJU_POOL = ["bathynoma"]; // v323: セレヴァーンをランダム選出。
   // -----------------------------------------------------------------------------
   // AIRCRAFT_DEFS: アサイラムアーク機体選択画面と機体ステータス。
@@ -12148,7 +12140,9 @@ function getRandomExplosionCell(){
     const showPrediction = !(game && game.gameOver);
     const prediction = showPrediction ? getKaijuPredictionData(k) : null;
     const trait = kaijuTraitDef(k.id);
-    const artHtml = k.popupArt ? `<img class="kaijuHeroImg" src="${k.popupArt}" alt="${escapeHtml(k.fullName)}">` : `<div class="kaijuHeroPlaceholder">NO IMAGE</div>`;
+    // v359: 縦長の絵を正方形の枠に切り抜くときの位置（popupArtPos。怪獣が枠の真ん中に来るように絵ごとに合わせる）
+    const artPos = k.popupArtPos ? ` style="object-position:${k.popupArtPos}"` : '';
+    const artHtml = k.popupArt ? `<img class="kaijuHeroImg" src="${k.popupArt}"${artPos} alt="${escapeHtml(k.fullName)}">` : `<div class="kaijuHeroPlaceholder">NO IMAGE</div>`;
     const heroHtml = trait
       ? `<div class="kaijuHeroWrap kaijuHeroButton" role="button" tabindex="0" data-open-note="1" aria-label="怪獣特性「${escapeHtml(trait.name)}」の詳細を開く">${artHtml}</div>`
       : `<div class="kaijuHeroWrap">${artHtml}</div>`;
@@ -17233,9 +17227,9 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   //   ルール・カード・UIは同じ。移動先・攻撃予測・HPバーは2Dで描いた絵を機体の高さのパネルに写し、
   //   カード演出は2Dのものを斜めの面に重ねて表示する（noah3dDrawTacticalLayer / noah3dDrawEffectsLayer）。
   // ・3D中は drawBoard() は何もせず戻る。タップは noah3d.js が一番近いマスに吸い付けて onBoardTap({noahCell}) へ。
-  // ・盤面左上のボタンで 3D⇄2D と視点（斜め⇄真上）を切り替える。設定は localStorage に保存。
-  //   URL に ?3d=0 / ?3d=1 を付けるとその回だけ強制できる。
-  // ・3Dを始められなかった（WebGL2が使えない・ファイルが読めない）ときは自動で2Dに戻る。
+  // ・v359〜：2D表示の切り替えは無くし、いつも3D。視点もボタンではなく、移動フェイズは真上・それ以外は斜め（noah3d.js）。
+  //   URL に ?3d=0 を付けると、確かめ用にその回だけ2Dで開ける（v358 までに保存した「2D」の設定は使わない）。
+  // ・3Dを始められなかった（WebGL2が使えない・ファイルが読めない）ときだけ、自動で2Dに戻る。
   // ・モデルを差し替えるときは tools/noah_glb_optimize.py で models/<名前>-<版>.js を作り直し、noah3d.js の MODEL_FILES と
   //   sw.js の CORE_FILES の名前を合わせる（ファイル名ごと変える。端末に保存した古い版は使われなくなる）。
   // ===========================================================================
@@ -17243,8 +17237,9 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   let noah3dHandle = null;
   let noah3dLoading = null;
   let noah3dWanted = false;
-  const NOAH_3D_PREF_KEY = 'noah_view3d_v1';
-  const NOAH_3D_CAM_KEY = 'noah_view3d_cam_v1';
+  const NOAH_3D_PREF_KEY = 'noah_view3d_v1';       // v358 までの 3D⇄2D の設定（v359 では使わない。残っていたら消す）
+  const NOAH_3D_CAM_KEY = 'noah_view3d_cam_v1';    // v358 までの視点の設定（同上）
+  try{ localStorage.removeItem(NOAH_3D_PREF_KEY); localStorage.removeItem(NOAH_3D_CAM_KEY); }catch(e){}
   const noah3dPreview = new URLSearchParams(location.search).get('preview') === 'effects';
   const noah3dSupported = (()=>{
     if(noah3dPreview) return false;
@@ -17258,18 +17253,9 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     }catch(e){ return false; }
   })();
   function noah3dReadPref(){
-    try{
-      const q = new URLSearchParams(location.search).get('3d');
-      if(q === '0' || q === '1') return q === '1';
-    }catch(e){}
-    try{
-      const v = localStorage.getItem(NOAH_3D_PREF_KEY);
-      if(v === '0') return false;
-      if(v === '1') return true;
-    }catch(e){}
-    return true;   // テスト版は最初から3D
+    try{ if(new URLSearchParams(location.search).get('3d') === '0') return false; }catch(e){}   // 確かめ用
+    return true;
   }
-  let noah3dCamMode = (()=>{ try{ return localStorage.getItem(NOAH_3D_CAM_KEY) === 'top' ? 'top' : 'oblique'; }catch(e){ return 'oblique'; } })();
 
   // 戦術パネル用：移動先・攻撃予測・HPバーだけを2Dで描く（地形・怪獣・機体・演出は描かない）
   function noah3dPrepareBoardCtx(geom){
@@ -17318,18 +17304,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       }
       drawKaijuBoardThreatCells(cell);
       drawSortieDamageForecastOverlays(cell);
-      const entering = typeof game.aircraftEntryProgress === 'number' && game.aircraftEntryProgress < 1;
-      if(!game.introHideUnits && !entering){
-        game.units.forEach(u=>{
-          if(!unitOccupiesBoard(u)) return;
-          const x=boardXForUnitCol(unitColOf(u))*cell+cell/2, y=u.row*cell+cell/2;
-          const visualIndex=aircraftImageIndex(u.aircraftId);
-          const img=aircraftImgs[visualIndex];
-          let bodyW=cell, bodyH=cell;
-          if(img && img.complete && img.naturalWidth){ const m=getAircraftRenderMetrics(visualIndex,img,cell,x,y); bodyW=m.bodyW; bodyH=m.bodyH; }
-          drawAircraftHpBar(u, x, y, bodyW, bodyH, cell, size);
-        });
-      }
+      // v359: 機体のHPは、パネルの上の細いバーではなく、noah3d.js が機体の下に出す札で見せる（ここでは描かない）
       drawKaijuBoardThreatDamage(cell);
     }finally{
       boardCtx.setTransform(1,0,0,1,0,0);
@@ -17337,15 +17312,13 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     }
     return true;
   }
-  // 戦術パネルに何を出すか：0 なし / 1 HPバーだけ（ほぼ静止）/ 2 移動先・攻撃予測など動きのある表示
+  // 戦術パネルに何を出すか：0 なし / 2 移動先・攻撃予測など動きのある表示（v359〜 HPは札で出すので、HPだけの段は無い）
   function noah3dTacticalLevel(){
     if(!gameStarted || !game) return 0;
     if((game.mode==='move' || game.mode==='sortie') && !game.gameOver) return 2;
     if(game.phase!=='attack'){
       try{ if(getKaijuBoardThreatCells().some(c=>c.danger || c.damage!=null)) return 2; }catch(e){ return 2; }
     }
-    const entering = typeof game.aircraftEntryProgress === 'number' && game.aircraftEntryProgress < 1;
-    if(!game.introHideUnits && !entering && !shouldHideAircraftHpHud() && game.units.some(u=>unitOccupiesBoard(u))) return 1;
     return 0;
   }
   // 演出用：カード演出・攻撃演出を2Dのまま、1つずつ3Dの位置に合わせて「画面に平行に」描く（v353〜）。
@@ -17470,26 +17443,14 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     drawEffects: proj=>noah3dDrawEffectsLayer(proj),
     kaijuScan: ()=>noah3dKaijuScan(),
     inputLocked: ()=>!!game.inputLocked,
+    hpHidden: ()=>shouldHideAircraftHpHud(),   // v359: 機体のHPの札を隠すとき（自分で操作できるアタックフェイズの間）
     boardVisible: ()=>gameStarted && !ui.app.classList.contains('preHidden') && !document.hidden,
     tap: cell=>onBoardTap({ noahCell:cell }),
     onFatal: err=>noah3dFail(err),
   };
 
-  const noah3dCtl = document.createElement('span');
-  noah3dCtl.className = 'bzViewCtl';
-  noah3dCtl.innerHTML = '<button type="button" class="bzBtn" id="view3dBtn" aria-label="3D表示と2D表示の切り替え"></button><button type="button" class="bzBtn" id="viewCamBtn" aria-label="3D表示の視点の切り替え"></button>';
-  const noah3dBezel = ui.boardWrap.querySelector('.bezel');
-  if(noah3dSupported && noah3dBezel) noah3dBezel.appendChild(noah3dCtl);
-  const noah3dBtn = noah3dCtl.querySelector('#view3dBtn');
-  const noah3dCamBtn = noah3dCtl.querySelector('#viewCamBtn');
-  function noah3dUpdateChips(){
-    const on = noah3dWanted;
-    noah3dBtn.textContent = on ? '3D' : '2D';
-    noah3dBtn.classList.toggle('on', on);
-    noah3dBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    noah3dCamBtn.hidden = !on;
-    noah3dCamBtn.textContent = noah3dCamMode === 'top' ? '真上' : '斜め';
-  }
+  // v359: 盤面左上の 3D⇄2D・視点のボタンは無くした（いつも3D。視点はフェイズで自動）
+  function noah3dUpdateChips(){}
   // three.js と noah3d.js は普通のスクリプトとして読み込む（ESモジュールはHTMLビューアーの file:// で読めないため。v353〜）
   function noah3dLoadScript(src){
     return new Promise((resolve, reject)=>{
@@ -17519,7 +17480,6 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
         if(!noah3dWanted || noah3dHandle) return;
         noah3dHandle = mod.start(noah3dBridge);
         noah3dActive = true;
-        noah3dHandle.setCameraMode(noah3dCamMode);
       })
       .catch(err=>{ console.warn('[N.O.A.H. 3D] 3D表示を開始できませんでした', err); noah3dFail(err); })
       .finally(()=>{ noah3dLoading = null; noah3dUpdateChips(); resizeBoard(); });
@@ -17538,20 +17498,11 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     noah3dUpdateChips();
     if(wasWanted) showToast('3D表示を開始できませんでした。2D表示で続けます', 3000);
   }
-  function noah3dSetWanted(on, save){
+  function noah3dSetWanted(on){
     noah3dWanted = !!on && noah3dSupported;
-    if(save){ try{ localStorage.setItem(NOAH_3D_PREF_KEY, on ? '1' : '0'); }catch(e){} }
     if(noah3dWanted) noah3dStart(); else noah3dStop();
     noah3dUpdateChips();
   }
-  noah3dBtn.addEventListener('click', ()=>{ playTapSound(); noah3dSetWanted(!noah3dWanted, true); });
-  noah3dCamBtn.addEventListener('click', ()=>{
-    playTapSound();
-    noah3dCamMode = noah3dCamMode === 'top' ? 'oblique' : 'top';
-    try{ localStorage.setItem(NOAH_3D_CAM_KEY, noah3dCamMode); }catch(e){}
-    if(noah3dHandle) noah3dHandle.setCameraMode(noah3dCamMode);
-    noah3dUpdateChips();
-  });
   if(noah3dSupported) noah3dSetWanted(noah3dReadPref(), false);
   else noah3dUpdateChips();
 
