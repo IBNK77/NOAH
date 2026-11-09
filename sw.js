@@ -27,7 +27,7 @@ const CORE_FILES = {
   './font/noah-hud.woff': 72000,
   './img/brand/icon.png': 385000,
   './img/asset-manifest.json': 30000,
-  './noah3d.js': 121000,                      // v352 3D表示（v356 で砂ぼこり・泡を足して少し大きくなった）
+  './noah3d.js': 128000,                      // v352 3D表示（v356 で砂ぼこり・泡、v359 でHPの札、v360 で怪獣の重みの直しを足した）
   './vendor/three-r170.min.js': 691000,          // 3D表示（three.js r170。v353〜は普通のスクリプト版。中身を変えるときはファイル名ごと変える）
   './vendor/three-r170-gltfloader.min.js': 47100, // v354 3Dモデル（GLB）の読み込み
   './models/aa1-v358.js': 373845,
@@ -35,9 +35,8 @@ const CORE_FILES = {
   './models/aa3-v358.js': 476373,
   './models/aa4-v358.js': 414629,
   './models/aa5-v358.js': 451573,   // v358 機体を新しいモデルに差し替え
-  './models/celevarn-v354.js': 1511679,
-  './models/rock-v354.js': 479119,
-  './models/tree-v354.js': 551063,   // v354 3Dの本番モデル
+  './models/celevarn-v354.js': 1511679,   // v354 3Dの本番モデル
+  // v360：森林の木・海底の岩山（tree-v354.js・rock-v354.js）は使わなくなったので外した（端末に保存した分は、下の activate で消える）
 };
 const CORE = Object.keys(CORE_FILES).map(p => new URL(p, SCOPE).href);
 const CORE_SIZE = new Map(Object.entries(CORE_FILES).map(([p, bytes]) => [new URL(p, SCOPE).href, bytes]));

@@ -142,6 +142,10 @@ SAVE / CONTINUE（v336〜）：
   視点はフェイズで自動：移動フェイズは真上（90°）、それ以外は斜め（42°）で怪獣と機体のマスが画面いっぱいに入る距離まで寄せる
   （noah3d.js の CAMERA_POSES の fit）。機体のHPは、戦術パネルの細いバーをやめ、機体の下に付いて動く札（noah3d.js の updateHpPlates）。
   怪獣のポップアップの絵は KAIJU_DEFS の popupArtPos で切り抜く位置を合わせる。アーティファクトの絵は切り抜かずに枠へ収める（.artifactArtImg）。
+- v360〜：機体のHPの札に、次の怪獣の攻撃で減る分を赤く点滅（大破しうるときは札ごと赤く点滅）。予測は 3D側への窓口の hpForecast（盤面の DMG と同じ数字）。
+  森林の木・海底の岩山の3Dモデルは無くした（地面の画像だけ。models/tree-v354.js・rock-v354.js は使わない）。
+  必殺技の溜めで怪獣の爪が伸びていたのは、爪の先が脚の骨にも引っぱられていたため。noah3d.js の separateArmLegWeights で読み込むときに直す。
+  続きから（CONTINUE）でも閉じる前と同じBGM：セーブに曲の id（bgmTrackId）を入れ、prepareExternalBattleBgmForMission({ trackId }) で選び直す。
 
 ===============================================================================
 -->
@@ -4289,7 +4293,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v359',
+    currentPrototypeVersion:'v360',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -6079,7 +6083,20 @@ function noahDrawKaijuGroundShadow(cell) {
   function prepareExternalBattleBgmForMission(options={}){
     const avoidIndex = options.avoidCurrent ? externalBattleBgmCurrentTrackIndex : -1;
     stopExternalBattleBgm(true, true);
-    chooseExternalBattleBgmTrack(avoidIndex);
+    // v360: 続きから再開するときは、閉じる前に流れていた曲（セーブの bgmTrackId）をそのまま使う
+    if(!restoreExternalBattleBgmTrack(options.trackId)) chooseExternalBattleBgmTrack(avoidIndex);
+  }
+  // 曲の id（'bgmN3' など）から選び直す。戦闘用の曲として使えない id なら何もしない（false）
+  function restoreExternalBattleBgmTrack(trackId){
+    if(typeof trackId !== 'string' || !trackId) return false;
+    const index = EXTERNAL_BATTLE_BGM_TRACKS.findIndex(t=>t && t.id === trackId);
+    if(!validExternalBattleBgmTrackIndex(index)) return false;
+    externalBattleBgmCurrentTrackIndex = index;
+    externalBattleBgmErrorShown = false;
+    return true;
+  }
+  function currentExternalBattleBgmTrackId(){
+    return validExternalBattleBgmTrackIndex(externalBattleBgmCurrentTrackIndex) ? EXTERNAL_BATTLE_BGM_TRACKS[externalBattleBgmCurrentTrackIndex].id : '';
   }
 
   function externalBattleBgmVolume(){
@@ -16673,6 +16690,7 @@ function showCardEnchantChoice(unit,item){
   //   新しい作戦を開始したとき（beginSelectedGame）。
   // ・保存しないもの：関数（進行待ちのコールバック）、演出用の一時データ（NOAH_SAVE_SKIP_KEYS）。
   // ・怪獣ごとの最高記録と前回結果は NOAH_RECORDS_KEY に別に保存する。
+  // ・v360〜：作戦中に流れている曲の id（bgmTrackId）も保存し、続きからは同じ曲を流す（古いセーブには無いので、そのときは今まで通り選び直す）。
   // ===========================================================================
   const NOAH_SAVE_KEY = 'noah_save_v1';
   const NOAH_RECORDS_KEY = 'noah_records_v1';
@@ -16727,6 +16745,7 @@ function showCardEnchantChoice(unit,item){
         setupState:{ kaiju:setupState.kaiju, endlessMode:!!setupState.endlessMode, aircraft:(setupState.aircraft || []).slice() },
         supply:Array.isArray(SUPPLY) ? SUPPLY.slice() : ALL_SUPPLY.slice(),
         summary:noahSaveSummary(kind),
+        bgmTrackId:currentExternalBattleBgmTrackId(),   // v360: 続きからでも同じ曲を流すため
         game
       };
       const core = JSON.stringify(coreObj, noahSaveReplacer);
@@ -16900,6 +16919,7 @@ function showCardEnchantChoice(unit,item){
     const kind = core.kind;
     if(kind === 'intermission' || kind === 'endlessResult'){
       stopExternalBattleBgm(true, true);
+      restoreExternalBattleBgmTrack(core.bgmTrackId);   // v360: 次の怪獣で「前と違う曲」を選べるように、前の曲を覚えておく
       stopBgm();
       playBgm('victory');
       addLog('作戦再開：幕間基地');
@@ -16908,7 +16928,7 @@ function showCardEnchantChoice(unit,item){
       else { game.endlessIntermission = true; showEndlessIntermissionMenu(); }
       return;
     }
-    prepareExternalBattleBgmForMission({ avoidCurrent:false });
+    prepareExternalBattleBgmForMission({ avoidCurrent:false, trackId:core.bgmTrackId });   // v360: 閉じる前と同じ曲
     stopBgm();
     primeExternalBattleBgmFromGesture();
     setTimeout(()=>{
@@ -17444,6 +17464,22 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     kaijuScan: ()=>noah3dKaijuScan(),
     inputLocked: ()=>!!game.inputLocked,
     hpHidden: ()=>shouldHideAircraftHpHud(),   // v359: 機体のHPの札を隠すとき（自分で操作できるアタックフェイズの間）
+    // v360: 怪獣の次の攻撃で各機が受けるダメージの予測（盤面のマスの DMG と同じ数字）。HPの札で、減る分を赤く点滅させる
+    hpForecast: ()=>{
+      const out = new Map();
+      try{
+        const cells = getKaijuBoardThreatCells();
+        if(!cells.length) return out;
+        const byKey = new Map(cells.map(c=>[kaijuThreatKey(c.col, c.row), c]));
+        game.units.forEach(u=>{
+          if(!unitOccupiesBoard(u)) return;
+          const c = byKey.get(kaijuThreatKey(kaijuThreatUnitCol(u), kaijuThreatRowIndex(u.row)));
+          const dmg = c && c.danger && c.damage!=null ? Number(c.damage) : 0;
+          if(dmg > 0) out.set(u, { damage:dmg, breakRisk:!!c.breakRisk });
+        });
+      }catch(e){}
+      return out;
+    },
     boardVisible: ()=>gameStarted && !ui.app.classList.contains('preHidden') && !document.hidden,
     tap: cell=>onBoardTap({ noahCell:cell }),
     onFatal: err=>noah3dFail(err),

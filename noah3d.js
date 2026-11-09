@@ -659,7 +659,7 @@ const MODEL_DIR = './models/';
 // models/ のファイル名。中身を変えたときはファイル名ごと変える（端末に保存した古い版を使わないように）。
 const MODEL_FILES = {
   celevarn: 'celevarn-v354', AA1: 'aa1-v358', AA2: 'aa2-v358', AA3: 'aa3-v358', AA4: 'aa4-v358', AA5: 'aa5-v358',   // v358：機体を新しいモデルに
-  tree: 'tree-v354', rock: 'rock-v354',
+
   // HTMLビューアー（file://）用の地面の画像（v355〜）。ふつうの画像は file:// では3Dに使えないため、文字にして埋め込んだもの
   'ground-forest': 'ground-forest-v355', 'ground-seafloor': 'ground-seafloor-v355',
 };
@@ -830,6 +830,93 @@ const KAIJU_MODEL = {
   },
 };
 
+// v360：腕（手・爪）と脚（太もも・ひざ）の両方に重みが付いている頂点を、どちらか一方にそろえる。
+// Meshy の自動の骨入れで、太ももに触れている爪の先が脚にも引っぱられていて、必殺技の溜めで腕を広げると
+// 爪が手からひざまで長く伸びて見えていた（歩くときも少し伸びていた）。モデルのファイルは変えず、読み込んだときに直す。
+// どちらにそろえるかは、メッシュの表面をたどった距離で、重みが「腕だけ」の所と「脚だけ」の所のどちらに近いかで決める
+//（爪の先は爪をたどれば手に着くが、脚へは肩・胴を回らないと着かない。太ももの頂点はその逆）。
+// そろえたあとも爪の先と太ももを直接つないでいる三角形（9枚）は、腕を広げると細長く伸びるので消す（接している所なので、穴は見えない）。
+function separateArmLegWeights(meshes, byName, bones) {
+  const subtree = name => { const set = new Set(); const b = byName[name]; if (b) b.traverse(o => { if (o.isBone) set.add(o); }); return set; };
+  const arm = new Set(), leg = new Set();
+  bones.arms.forEach(chain => subtree(chain[0]).forEach(b => arm.add(b)));
+  bones.legs.forEach(chain => subtree(chain[0]).forEach(b => leg.add(b)));
+  const out = { mixed: 0, toArm: 0, toLeg: 0, cut: 0 };
+  for (const m of meshes) {
+    const g = m.geometry, sk = m.skeleton;
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, pos = g.attributes.position, idx = g.index;
+    if (!sk || !si || !sw || !pos || !idx) continue;
+    const kind = sk.bones.map(b => arm.has(b) ? 1 : leg.has(b) ? 2 : 0);   // 1 腕 / 2 脚 / 0 そのほか
+    const n = pos.count;
+    const wa = new Float32Array(n), wl = new Float32Array(n);
+    for (let v = 0; v < n; v++) for (let c = 0; c < 4; c++) {
+      const k = kind[si.getComponent(v, c)], w = sw.getComponent(v, c);
+      if (k === 1) wa[v] += w; else if (k === 2) wl[v] += w;
+    }
+    const mixed = [];
+    for (let v = 0; v < n; v++) if (wa[v] > 0.02 && wl[v] > 0.02) mixed.push(v);
+    out.mixed += mixed.length;
+    if (!mixed.length) continue;
+    // 位置が同じ頂点（UV の継ぎ目で分かれたもの）を1つの点にまとめる
+    const keyOf = v => Math.round(pos.getX(v) * 1e5) + ',' + Math.round(pos.getY(v) * 1e5) + ',' + Math.round(pos.getZ(v) * 1e5);
+    const nodeOf = new Int32Array(n), keys = new Map();
+    for (let v = 0; v < n; v++) { const k = keyOf(v); let id = keys.get(k); if (id === undefined) { id = keys.size; keys.set(k, id); } nodeOf[v] = id; }
+    const N = keys.size, px = new Float32Array(N * 3), label = new Uint8Array(N);
+    for (let v = 0; v < n; v++) {
+      const id = nodeOf[v]; px[id * 3] = pos.getX(v); px[id * 3 + 1] = pos.getY(v); px[id * 3 + 2] = pos.getZ(v);
+      if (wa[v] >= 0.98) label[id] = 1; else if (wl[v] >= 0.98) label[id] = 2;
+    }
+    // 辺のつながり
+    const adj = Array.from({ length: N }, () => []);
+    const ia = idx.array;
+    const link = (a, b) => { if (a !== b) { adj[a].push(b); adj[b].push(a); } };
+    for (let t = 0; t < ia.length; t += 3) { const a = nodeOf[ia[t]], b = nodeOf[ia[t + 1]], c = nodeOf[ia[t + 2]]; link(a, b); link(b, c); link(c, a); }
+    // 「腕だけ」「脚だけ」の点から同時に広げる（最短の道のり）
+    const dist = new Float64Array(N).fill(Infinity), lab = new Uint8Array(N);
+    const heap = [];   // [d, id]
+    const push = (d, id) => { heap.push([d, id]); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let s = i; if (l < heap.length && heap[l][0] < heap[s][0]) s = l; if (r < heap.length && heap[r][0] < heap[s][0]) s = r; if (s === i) break; [heap[s], heap[i]] = [heap[i], heap[s]]; i = s; } } return top; };
+    for (let id = 0; id < N; id++) if (label[id]) { dist[id] = 0; lab[id] = label[id]; push(0, id); }
+    while (heap.length) {
+      const [d, id] = pop();
+      if (d > dist[id]) continue;
+      for (const nb of adj[id]) {
+        const dx = px[id * 3] - px[nb * 3], dy = px[id * 3 + 1] - px[nb * 3 + 1], dz = px[id * 3 + 2] - px[nb * 3 + 2];
+        const nd = d + Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (nd < dist[nb]) { dist[nb] = nd; lab[nb] = lab[id]; push(nd, nb); }
+      }
+    }
+    // 重みを移す
+    for (const v of mixed) {
+      const keep = lab[nodeOf[v]] || (wa[v] >= wl[v] ? 1 : 2), drop = 3 - keep;
+      const J = [0, 1, 2, 3].map(c => si.getComponent(v, c)), W = [0, 1, 2, 3].map(c => sw.getComponent(v, c));
+      let top = -1;
+      for (let c = 0; c < 4; c++) if (kind[J[c]] === keep && W[c] > 0 && (top < 0 || W[c] > W[top])) top = c;
+      if (top < 0) continue;
+      for (let c = 0; c < 4; c++) if (kind[J[c]] === drop) { W[top] += W[c]; W[c] = 0; }
+      for (let c = 0; c < 4; c++) sw.setComponent(v, c, W[c]);
+      if (keep === 1) out.toArm++; else out.toLeg++;
+    }
+    sw.needsUpdate = true;
+    // それでも爪の先と太ももを直接つないでいる三角形（もとのモデルで接していた所。腕を広げると細長く伸びる）は消す
+    if (!g.groups.length) {
+      const side = new Uint8Array(n);
+      for (let v = 0; v < n; v++) {
+        let a = 0, l = 0;
+        for (let c = 0; c < 4; c++) { const k = kind[si.getComponent(v, c)], w = sw.getComponent(v, c); if (k === 1) a += w; else if (k === 2) l += w; }
+        side[v] = a > 0.5 ? 1 : l > 0.5 ? 2 : 0;
+      }
+      const kept = [];
+      for (let t = 0; t < ia.length; t += 3) {
+        if ((side[ia[t]] | side[ia[t + 1]] | side[ia[t + 2]]) === 3) { out.cut++; continue; }
+        kept.push(ia[t], ia[t + 1], ia[t + 2]);
+      }
+      if (kept.length < ia.length) g.setIndex(new THREE.BufferAttribute(new (ia.constructor)(kept), 1));
+    }
+  }
+  return out;
+}
+
 function makeKaijuFromModel(gltf) {
   const model = gltf.scene;
   const skinned = [];
@@ -847,6 +934,7 @@ function makeKaijuFromModel(gltf) {
   const byName = {};
   model.traverse(o => { if (o.isBone) byName[o.name] = o; });
   const BN = KAIJU_MODEL.bones;
+  const weightFix = separateArmLegWeights(skinned, byName, BN);
   // 原点：左右は腰と両足首の真ん中、前後は両足首の真ん中、高さは足の裏
   const box = new THREE.Box3().setFromObject(holder);
   let cx = (box.min.x + box.max.x) / 2, cz = (box.min.z + box.max.z) / 2;
@@ -934,7 +1022,7 @@ function makeKaijuFromModel(gltf) {
   //（前へ歩くとき。後ろへ下がるときは左右が入れ替わる）。砂ぼこりはそこに出す（v356〜）
   const feet = BN.ankles.map(n => byName[n] || null);
   return {
-    real: true, root, body, head, localBox, mats, skinned, animate, feet,
+    real: true, root, body, head, localBox, mats, skinned, animate, feet, weightFix,
     setAlpha: a => { fader.set(a); skinned.forEach(m => { m.castShadow = a > 0.35; }); },
     dispose() { fader.dispose(); disposeObject(root); },
   };
@@ -1008,183 +1096,8 @@ function makeEnvironment(renderer, look) {
   return rt;
 }
 
-// -----------------------------------------------------------------------------
-// 左右の景色（森林：木／海底：岩山）。地形と一緒にスクロールする
-// -----------------------------------------------------------------------------
-const SCENERY_ZMIN = -24, SCENERY_PERIOD = 34;
-
-// 木・岩山は数が多く画面の左右を広く覆うので、光の計算の軽い材質にする（ざらざらした物なので見た目はほぼ同じ）
-function toLambert(root) {
-  root.traverse(o => {
-    if (!o.isMesh || o.material.isMeshLambertMaterial) return;
-    const src = o.material;
-    const lam = new THREE.MeshLambertMaterial({
-      map: src.map || null, normalMap: src.normalMap || null, color: src.color ? src.color.clone() : 0xffffff,
-      side: src.side, alphaTest: src.alphaTest || 0, transparent: false,
-    });
-    if (src.normalScale) lam.normalScale.copy(src.normalScale);
-    if (lam.alphaTest > 0) lam.alphaToCoverage = true;     // 葉の縁を滑らかに（マルチサンプル）
-    o.material = lam;
-    src.dispose();
-  });
-}
-
-// 本番モデルのメッシュ（1つ）から、並べる用の形と材質を取り出す
-function sceneryParts(template) {
-  let mesh = null;
-  template.traverse(o => { if (o.isMesh && !mesh) mesh = o; });
-  if (!mesh) return null;
-  template.updateMatrixWorld(true);
-  // tools/noah_glb_optimize.py の出力は位置・向きを頂点に焼き込んであるので、そのまま使える（形と材質は元のモデルと共有）
-  if (!mesh.matrixWorld.equals(new THREE.Matrix4())) return null;
-  return { geometry: mesh.geometry, material: mesh.material };
-}
-
-function buildScenery(stage, templates = {}) {
-  const real = stage === 'seafloor' ? templates.rock : templates.tree;
-  if (real) {
-    const parts = sceneryParts(real);
-    if (parts) return buildRealScenery(stage, parts);
-  }
-  const group = new THREE.Group();
-  const items = [];
-  const r = rng(stage === 'seafloor' ? 917 : 331);
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pos = new THREE.Vector3(), scl = new THREE.Vector3();
-  let meshes = [];
-  const col = new THREE.Color();
-  if (stage === 'seafloor') {
-    const N = 240;
-    const rocks = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0.02, flatShading: true }), N);
-    rocks.castShadow = true; rocks.receiveShadow = true;
-    for (let i = 0; i < N; i++) {
-      const side = r() < 0.5 ? -1 : 1;
-      const ax = 2.0 + Math.pow(r(), 0.8) * 9;            // 道の中心からの距離
-      // 道に近いほど小さく、外側ほど大きな岩山に（道へはみ出さない）
-      const maxR = Math.min(1.6, (ax - 1.9) * 0.55);
-      const rad = Math.max(0.08, maxR * (0.35 + r() * 0.65));
-      const tall = Math.min(2.2, 0.3 + (ax - 2) * 0.32) * (0.55 + r() * 0.45);
-      items.push({ mesh: rocks, i, x: side * ax, z0: SCENERY_ZMIN + r() * SCENERY_PERIOD, y: tall * 0.3, s: [rad, tall, rad * (0.8 + r() * 0.4)], rot: [r() * 0.4, r() * Math.PI * 2, r() * 0.4] });
-      col.setHSL(0.5 + r() * 0.05, 0.16 + r() * 0.12, 0.2 + r() * 0.13);
-      rocks.setColorAt(i, col);
-    }
-    meshes = [rocks];
-  } else {
-    const N = 320;
-    const trunkGeo = new THREE.CylinderGeometry(0.035, 0.05, 1, 5); trunkGeo.translate(0, 0.5, 0);
-    const crownGeo = new THREE.ConeGeometry(1, 1, 7); crownGeo.translate(0, 0.5, 0);
-    const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 1, flatShading: true }), N);
-    const crowns = new THREE.InstancedMesh(crownGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), N);
-    crowns.castShadow = true; crowns.receiveShadow = true; trunks.castShadow = true;
-    for (let i = 0; i < N; i++) {
-      const side = r() < 0.5 ? -1 : 1;
-      const x = side * (2.15 + Math.pow(r(), 0.9) * 8.3);
-      const h = 0.5 + r() * 0.36;
-      const rad = 0.2 + r() * 0.14;
-      const z0 = SCENERY_ZMIN + r() * SCENERY_PERIOD;
-      const yaw = r() * Math.PI * 2;
-      items.push({ mesh: trunks, i, x, z0, y: 0, s: [1, h * 0.38, 1], rot: [0, yaw, 0] });
-      items.push({ mesh: crowns, i, x, z0, y: h * 0.25, s: [rad, h * 0.8, rad], rot: [0, yaw, 0] });
-      col.setHSL(0.27 + r() * 0.08, 0.42 + r() * 0.2, 0.17 + r() * 0.12);
-      crowns.setColorAt(i, col);
-    }
-    meshes = [trunks, crowns];
-  }
-  meshes.forEach(m => { m.frustumCulled = false; group.add(m); if (m.instanceColor) m.instanceColor.needsUpdate = true; });
-  let lastScroll = NaN;
-  function update(scroll) {
-    if (scroll === lastScroll) return;
-    lastScroll = scroll;
-    for (const it of items) {
-      let z = it.z0 - scroll;
-      z = ((z - SCENERY_ZMIN) % SCENERY_PERIOD + SCENERY_PERIOD) % SCENERY_PERIOD + SCENERY_ZMIN;
-      pos.set(it.x, it.y, z);
-      e.set(it.rot[0], it.rot[1], it.rot[2]); q.setFromEuler(e);
-      scl.set(it.s[0], it.s[1], it.s[2]);
-      m4.compose(pos, q, scl);
-      it.mesh.setMatrixAt(it.i, m4);
-    }
-    meshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
-  }
-  function dispose() { meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); m.dispose(); }); }
-  return { group, update, dispose, real: false };
-}
-
-// 本番モデルの木（森林）・岩山（海底）。同じ形を、大きさ・向き・色を少しずつ変えて並べる（InstancedMesh）。
-// 本数が多いので、カメラに映る分（と影が映りそうな少し外側）だけを毎回選んで描く。
-function buildRealScenery(stage, parts) {
-  const sea = stage === 'seafloor';
-  const group = new THREE.Group();
-  const items = [];
-  const r = rng(sea ? 917 : 331);
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pos = new THREE.Vector3(), scl = new THREE.Vector3();
-  const N = sea ? 110 : 150;
-  const mesh = new THREE.InstancedMesh(parts.geometry, parts.material, N);
-  // 影は怪獣と機体だけにする（木・岩山の影まで毎回描くと重いため。v355〜）
-  mesh.castShadow = false;
-  mesh.receiveShadow = false;
-  mesh.frustumCulled = false;
-  mesh.count = 0;
-  for (let i = 0; i < N; i++) {
-    const side = r() < 0.5 ? -1 : 1;
-    const color = new THREE.Color();
-    if (sea) {
-      // 道に近いほど小さく、外側ほど大きな岩山に（道へはみ出さない）。仮モデルと同じ並べ方
-      const ax = 2.0 + Math.pow(r(), 0.85) * 7.2;
-      const maxR = Math.min(1.6, (ax - 1.9) * 0.55);
-      const rad = Math.max(0.08, maxR * (0.35 + r() * 0.65));
-      const tall = Math.min(2.2, 0.3 + (ax - 2) * 0.32) * (0.55 + r() * 0.45);
-      const sy = tall * 1.3, sxz = rad * 1.8;
-      const s = [sxz * (0.85 + r() * 0.3), sy, sxz * (0.85 + r() * 0.3)];
-      items.push({ x: side * ax, z0: SCENERY_ZMIN + r() * SCENERY_PERIOD, y: -0.05 * sy, s, rot: [(r() - 0.5) * 0.16, r() * Math.PI * 2, (r() - 0.5) * 0.16], cy: sy * 0.45, rad: Math.max(s[0], s[2]) * 0.6 + sy * 0.3, color });
-      const k = 0.78 + r() * 0.3;
-      color.setRGB(k * (0.94 + r() * 0.08), k, k * (0.96 + r() * 0.08));
-    } else {
-      const x = side * (2.25 + Math.pow(r(), 1.2) * 5.7);
-      const h = 0.58 + r() * 0.46;
-      items.push({ x, z0: SCENERY_ZMIN + r() * SCENERY_PERIOD, y: -0.02, s: [h * (0.88 + r() * 0.24), h, h * (0.88 + r() * 0.24)], rot: [(r() - 0.5) * 0.08, r() * Math.PI * 2, (r() - 0.5) * 0.08], cy: h * 0.5, rad: h * 0.6, color });
-      const k = 0.8 + r() * 0.28, warm = r();
-      color.setRGB(k * (0.92 + warm * 0.12), k, k * (0.9 + (1 - warm) * 0.1));
-    }
-  }
-  group.add(mesh);
-  const sphere = new THREE.Sphere();
-  let lastScroll = NaN, lastVisible = '', lite = false;
-  // scroll … 地形の流れた量（マス）。frustum … カメラに映る範囲（無ければ全部描く）
-  function update(scroll, frustum) {
-    if (scroll !== lastScroll) {
-      lastScroll = scroll; lastVisible = '';
-      for (const it of items) {
-        let z = it.z0 - scroll;
-        it.z = ((z - SCENERY_ZMIN) % SCENERY_PERIOD + SCENERY_PERIOD) % SCENERY_PERIOD + SCENERY_ZMIN;
-      }
-    }
-    const vis = [];
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      sphere.center.set(it.x, it.cy, it.z); sphere.radius = it.rad + 1.2;
-      if (!frustum || frustum.intersectsSphere(sphere)) vis.push(i);
-    }
-    const key = vis.join(',');
-    if (key === lastVisible) return;
-    lastVisible = key;
-    vis.forEach((idx, k) => {
-      const it = items[idx];
-      pos.set(it.x, it.y, it.z);
-      e.set(it.rot[0], it.rot[1], it.rot[2]); q.setFromEuler(e);
-      scl.set(it.s[0], it.s[1], it.s[2]);
-      m4.compose(pos, q, scl);
-      mesh.setMatrixAt(k, m4);
-      mesh.setColorAt(k, it.color);
-    });
-    mesh.count = vis.length;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }
-  // 形と材質は本番モデルのものを共有しているので、ここでは並べた分だけ片付ける
-  function dispose() { mesh.dispose(); }
-  // いちばん軽い段では木・岩山を出さない（地面の画像だけでも左右の森・岩場は見える）
-  return { group, update, dispose, real: true, meshes: [mesh], visibleCount: () => (group.visible ? mesh.count : 0), total: N, setLite(on) { lite = !!on; group.visible = !lite; } };
-}
+// v360：左右の景色（森林の木・海底の岩山）の3Dモデルは無くした。地面の画像に描かれた森・岩場だけで十分立体的に見えるため
+//（v354〜v359 の buildScenery・toLambert・tree-v354.js・rock-v354.js は使わない）
 
 // =============================================================================
 // 本体
@@ -1295,7 +1208,6 @@ function start(bridge) {
     return c;
   }
 
-  let scenery = null;
 
   // ---------------------------------------------------------------------------
   // 本番モデル（裏で読み込み、届いたら仮モデルと差し替える。読めなければ仮モデルのまま）
@@ -1357,16 +1269,14 @@ function start(bridge) {
     requested.set(name, p);
     return p;
   }
-  // 機体・木・岩山：読み込みを頼み、届いていればその元を返す（まだなら null）
+  // 機体：読み込みを頼み、届いていればその元を返す（まだなら null）
   function templateFor(name) {
     if (templates[name]) return templates[name];
     if (!requested.has(name)) {
-      const isScenery = name === 'tree' || name === 'rock';
       requestModel(name, async gltf => {
-        if (isScenery) toLambert(gltf.scene);
-        await prepareObject(gltf.scene, !isScenery);
+        await prepareObject(gltf.scene, true);
         if (running) templates[name] = gltf.scene;
-      }).then(() => { if (running && isScenery) rebuildScenery(); }).catch(() => {});
+      }).catch(() => {});
     }
     return null;
   }
@@ -1474,8 +1384,6 @@ function start(bridge) {
     const g0 = bridge.game;
     const names = new Set();
     if (g0 && g0.units) g0.units.forEach(u => names.add(AIRCRAFT_MODEL_NAMES[bridge.aircraftIndex(u)] || AIRCRAFT_MODEL_NAMES[0]));
-    names.add(bridge.stageId() === 'seafloor' ? 'rock' : 'tree');
-    names.add('tree'); names.add('rock');
     for (const n of names) { templateFor(n); if (requested.has(n)) preload.push(requested.get(n).catch(() => {})); }
     if (location.protocol === 'file:') for (const st of ['forest', 'seafloor']) preload.push(enqueue(() => loadSafeGround(st)).catch(() => {}));
   } catch (e) {}
@@ -1784,16 +1692,6 @@ function start(bridge) {
       if (envRT) envRT.dispose();
       envRT = next;
     } catch (e) { console.warn('[N.O.A.H. 3D] 映り込みの空を作れませんでした', e); }
-    rebuildScenery();
-  }
-  function rebuildScenery() {
-    if (!lookStage) return;
-    const sea = lookStage === 'seafloor';
-    templateFor(sea ? 'rock' : 'tree');     // 読み込みを頼む（届いたらもう一度ここに来る）
-    if (scenery) { scene.remove(scenery.group); scenery.dispose(); }
-    scenery = buildScenery(sea ? 'seafloor' : 'forest', templates);
-    if (scenery.setLite) scenery.setLite(quality >= 2);
-    scene.add(scenery.group);
   }
 
   // ---------------------------------------------------------------------------
@@ -1816,6 +1714,15 @@ function start(bridge) {
   cleanups.push(() => hpLayer.remove());
   const hpPlates = new Map();   // unit → 札
   const HP_TONES = [[0.25, '#ff5b5b'], [0.5, '#ffd352'], [Infinity, '#57efbc']];   // 2D のHPバーと同じ色分け
+  // v360：次の怪獣の攻撃で減る分のHPを赤く点滅（バーの右端）。大破しうるときは札の枠ごと赤く点滅（盤面の DMG の点滅と同じ速さ）
+  const hpStyle = document.createElement('style');
+  hpStyle.textContent =
+    '@keyframes noahHpLossBlink{0%,100%{opacity:1}50%{opacity:.18}}' +
+    '@keyframes noahHpBreakBlink{0%,100%{border-color:rgba(255,96,96,1);background-color:rgba(132,14,20,.93);box-shadow:0 0 12px rgba(255,50,50,.9),0 1px 5px rgba(0,0,0,.6)}' +
+    '50%{border-color:rgba(255,96,96,.35);background-color:rgba(4,9,16,.84);box-shadow:0 1px 5px rgba(0,0,0,.6)}}';
+  document.head.appendChild(hpStyle);
+  cleanups.push(() => hpStyle.remove());
+  let hpForecast = null, hpForecastAt = -1e9;
   function makeHpPlate() {
     const el = document.createElement('div');
     el.className = 'noah3dHpPlate';
@@ -1832,10 +1739,13 @@ function start(bridge) {
     bar.style.cssText = 'position:relative;display:block;width:30px;height:5px;border-radius:3px;background:rgba(255,255,255,.16);overflow:hidden;';
     const fill = document.createElement('i');
     fill.style.cssText = 'position:absolute;left:0;top:0;bottom:0;width:100%;border-radius:3px;transition:width .4s ease,background-color .3s;';
-    bar.appendChild(fill);
+    const loss = document.createElement('i');   // 次の攻撃で減る分
+    loss.style.cssText = 'position:absolute;top:0;bottom:0;left:0;width:0;display:none;background:#ff2f2f;box-shadow:0 0 4px rgba(255,60,60,.9);' +
+      'animation:noahHpLossBlink .9s ease-in-out infinite;transition:left .4s ease,width .4s ease;';
+    bar.append(fill, loss);
     el.append(label, num, bar);
     hpLayer.appendChild(el);
-    return { el, num, fill, hp: null, max: null, w: 0, h: 0, flashUntil: 0, flashing: false, shown: false, x: 0, y: 0, opacity: '' };
+    return { el, num, fill, loss, hp: null, max: null, dmg: 0, brk: false, w: 0, h: 0, flashUntil: 0, flashing: false, shown: false, x: 0, y: 0, opacity: '' };
   }
   const hpA = new THREE.Vector3(), hpB = new THREE.Vector3();
   function updateHpPlates(g, now) {
@@ -1843,6 +1753,10 @@ function start(bridge) {
     let hideAll = !!g.introHideUnits || entering || !!g.gameOver;
     if (!hideAll && bridge.hpHidden) { try { hideAll = !!bridge.hpHidden(); } catch (e) {} }
     const seen = new Set();
+    if (!hideAll && now - hpForecastAt > 120) {
+      hpForecastAt = now;
+      try { hpForecast = bridge.hpForecast ? bridge.hpForecast() : null; } catch (e) { hpForecast = null; }
+    }
     for (const [u, a] of aircraft) {
       seen.add(u);
       let p = hpPlates.get(u);
@@ -1858,7 +1772,17 @@ function start(bridge) {
         p.fill.style.width = (r * 100).toFixed(1) + '%';
         p.fill.style.backgroundColor = HP_TONES.find(t => r <= t[0])[1];
         p.w = 0;   // 桁が変わったら大きさを測り直す
+        p.dmg = -1;   // 減る分の位置も合わせ直す
       }
+      // 次の攻撃で減る分（無ければ隠す）
+      const f = hpForecast && hpForecast.get(u);
+      const dmg = f ? Math.min(hp, Math.max(0, Math.round(f.damage))) : 0, brk = !!(f && f.breakRisk);
+      if (dmg !== p.dmg) {
+        p.dmg = dmg;
+        p.loss.style.display = dmg > 0 ? 'block' : 'none';
+        if (dmg > 0) { p.loss.style.left = ((hp - dmg) / max * 100).toFixed(1) + '%'; p.loss.style.width = (dmg / max * 100).toFixed(1) + '%'; }
+      }
+      if (brk !== p.brk) { p.brk = brk; p.el.style.animation = brk ? 'noahHpBreakBlink .9s ease-in-out infinite' : ''; }
       const flashing = now < p.flashUntil;
       if (flashing !== p.flashing) {
         p.flashing = flashing;
@@ -2022,16 +1946,6 @@ function start(bridge) {
     const show = o => { if (o && !o.visible) { o.visible = true; shown.push(o); } };
     try {
       if (!transparent) {
-        // 森林の木・海底の岩山の材質（1本ずつ）
-        for (const nm of ['tree', 'rock']) {
-          const parts = templates[nm] && sceneryParts(templates[nm]);
-          if (!parts) continue;
-          const im = new THREE.InstancedMesh(parts.geometry, parts.material, 1);
-          im.setMatrixAt(0, new THREE.Matrix4());
-          im.frustumCulled = false;
-          scene.add(im);
-          temps.push({ obj: im, dispose: () => im.dispose() });
-        }
         // ミサイル・麻酔弾と軌跡、追従ドローン
         for (const kind of ['fire', 'support']) {
           const pm = makeProjectile(kind, glowTex);
@@ -2097,7 +2011,6 @@ function start(bridge) {
   // ---------------------------------------------------------------------------
   let raf = 0, last = performance.now(), running = true, lastRender = 0, errors = 0;
   let walkAmp = 0, lastScroll = null, lunge = 0, charge = 0, aircraftMoving = false;
-  const viewProj = new THREE.Matrix4(), viewFrustum = new THREE.Frustum();
   let debugPose = null;   // テスト用：怪獣の姿勢を固定する（{ walk, scroll, lunge, charge, t }）
   const stats = { frames: 0, renderMs: 0, frameMs: 0, tacticalMs: 0, tacticalDraws: 0, effectsMs: 0 };
   // 端末が追いつかない（4秒間、画面の更新が毎秒38回を下回る）ときは、解像度などを1段ずつ下げる
@@ -2112,8 +2025,7 @@ function start(bridge) {
       sun.shadow.mapSize.set(512, 512);
       if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
     }
-    // いちばん軽い段では、左右の木・岩山を出さない（砂ぼこり・泡も少なめに）
-    if (scenery && scenery.setLite) scenery.setLite(quality >= 2);
+    // いちばん軽い段では、砂ぼこり・泡を少なめに
     stageFx.setLite(quality >= 2);
     resize();
   }
@@ -2249,12 +2161,6 @@ function start(bridge) {
     placeCamera(cam.elev, cam.dist, cam.target, cam.fov, aspect);
     // 機体のHPの札（カメラが決まってから位置を合わせる）
     updateHpPlates(g, now);
-    // 左右の景色（カメラに映る分だけ）
-    if (scenery) {
-      viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-      viewFrustum.setFromProjectionMatrix(viewProj);
-      scenery.update(scroll, viewFrustum);
-    }
     // 砂ぼこり・泡
     blastBubbles(g, now);
     stageFx.update(now, scroll, camera);
@@ -2297,7 +2203,6 @@ function start(bridge) {
     for (const a of aircraft.values()) removeAircraft(a);
     aircraft.clear();
     if (ghost) { scene.remove(ghost.model.group); ghost.model.dispose(); ghost = null; }
-    if (scenery) { scene.remove(scenery.group); scenery.dispose(); scenery = null; }
     scene.remove(stageFx.group); stageFx.dispose();
     scanMeshes.forEach(w => { if (w.parent) w.parent.remove(w); });
     scene.remove(kaiju.root);
@@ -2335,16 +2240,16 @@ function start(bridge) {
         running, contextLost, errors, visible: bridge.boardVisible(), quality,
         models: {
           kaiju: kaiju.real ? 'real' : 'placeholder',
+          kaijuWeightFix: kaiju.weightFix || null,
           aircraftReal: [...aircraft.values()].filter(a => a.model.real).length,
-          scenery: scenery ? (scenery.real ? 'real' : 'placeholder') : 'none',
-          sceneryDrawn: scenery && scenery.visibleCount ? scenery.visibleCount() + '/' + scenery.total : '',
+          scenery: 'none',   // v360〜 木・岩山は出さない
           loaded: Object.keys(templates).concat(kaiju.real ? [KAIJU_MODEL_NAME] : []),
           errors: Object.assign({}, modelErrors),
         },
         charge, warmMs: stats.warmMs == null ? null : stats.warmMs,
         fx: stageFx.count(),
         cameraPose: desiredPose(bridge.game) === CAMERA_POSES.top ? 'top' : 'oblique',
-        hp: [...hpPlates.values()].map(p => ({ hp: p.hp, max: p.max, shown: p.shown, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h })),
+        hp: [...hpPlates.entries()].map(([u, p]) => ({ unit: bridge.game && bridge.game.units ? bridge.game.units.indexOf(u) : -1, hp: p.hp, max: p.max, dmg: p.dmg, breakRisk: p.brk, shown: p.shown, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h })),
       };
     },
     // テスト用：砂ぼこり・泡をすぐに出す（{ foot: [x, z] } / { burst: [bx, by, peak] } / { ambient: true }）
@@ -2357,7 +2262,7 @@ function start(bridge) {
     // テスト用：怪獣の姿勢を固定する（null で元に戻す）
     debugKaijuPose(p) { debugPose = p || null; },
     // テスト用：場面の中身（重さの内訳を調べるときに一部を隠す）
-    debugParts() { return { scene, kaiju: kaiju.root, scenery: scenery && scenery.group, ground, aircraft: [...aircraft.values()].map(a => a.model.group), sun }; },
+    debugParts() { return { scene, kaiju: kaiju.root, ground, aircraft: [...aircraft.values()].map(a => a.model.group), sun }; },
     // テスト用：盤面の位置（x, y）が画面のどこに映っているか（host 内の CSS px）
     screenOfCell(bx, by, y) { return toScreen(new THREE.Vector3(bx - 3.5, y == null ? PANEL_Y : y, by - 3.5)); },
     screenOfKaiju() { return toScreen(new THREE.Vector3(0, 1.6, KAIJU_Z)); },
@@ -2367,5 +2272,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v359' };
+window.NOAH3D = { start, version: 'v360' };
 })();
