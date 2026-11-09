@@ -146,6 +146,11 @@ SAVE / CONTINUE（v336〜）：
   森林の木・海底の岩山の3Dモデルは無くした（地面の画像だけ。models/tree-v354.js・rock-v354.js は使わない）。
   必殺技の溜めで怪獣の爪が伸びていたのは、爪の先が脚の骨にも引っぱられていたため。noah3d.js の separateArmLegWeights で読み込むときに直す。
   続きから（CONTINUE）でも閉じる前と同じBGM：セーブに曲の id（bgmTrackId）を入れ、prepareExternalBattleBgmForMission({ trackId }) で選び直す。
+- v361〜：盤面（メイン画面）の縦横比を、どの端末でも iPhone SE3 と同じ 363:389 に固定（CSS の --board-ar・--board-fit-w。#app の説明を参照）。
+  3Dの構図を変えた：怪獣を 1.9 倍に大きく・機体とマスを高高度に（FLY_Y 1.1 → 3.0）・斜めの視点を低く（42° → 30°）。数字は noah3d.js の先頭。
+  怪獣に当たる演出の位置・大きさも怪獣に合わせて広げる（effectPlanePoint）。DMG の札は、斜めでつぶれる分だけ縦に伸ばして描く（noah3dBadgeStretch）。
+  観測HUD（noah3d.js の makeHud・CSS の .noahHud）：左に高度スケール（体高・機体の高度）、右上に生体モニター（EP で波が荒れ、VSP が下がると途切れる）と
+  行動予測、左上に環境の数字（飾り）。出す数字は 3D側への窓口の hud()。FIELD の札は上辺の中央から左上へ移した。機体の下には地面へ下ろす光の線。
 
 ===============================================================================
 -->
@@ -266,7 +271,14 @@ SAVE / CONTINUE（v336〜）：
   --row-unit:20px;
   --row-hand:54px;
   --row-action:56px;
+  --row-gap:6px;
+  /* v361：メイン画面（盤面）の縦横比。iPhone SE3（ホーム画面から開いたとき）の 363×389 に、どの端末でも固定する */
+  --board-ar:363 / 389;
+  --app-pad-top:max(6px, env(safe-area-inset-top));
+  --app-pad-bottom:max(6px, env(safe-area-inset-bottom));
+  --vh100:100vh;
 }
+@supports (height:100svh){ :root{ --vh100:100svh; } }
 
 /* 2 ───────────────────────────────────────────────────────── Base */
 *,*::before,*::after{
@@ -396,16 +408,24 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
   height:100vh;
   height:100svh;
   margin:0 auto;
+  /* v361：盤面の縦横比を固定。画面の高さから「盤面に使える高さ」を出し、そこから盤面の横幅（--board-fit-w）を決める。
+     ・縦に余る端末（縦長のスマホ）：盤面は横幅いっぱい。余った高さは上下に均等に空ける
+     ・縦が足りない端末（Safari のバーがあるとき・横長のタブレット）：盤面を高さに合わせて細くし、中央に置く
+     ・大きな画面（iPad など）：盤面に合わせて全体の横幅を 600px まで広げる */
+  --fixed-h:calc(var(--row-rail) + var(--row-metrics) + var(--row-unit) + var(--row-hand) + var(--row-action) + var(--row-gap) * 5 + var(--app-pad-top) + var(--app-pad-bottom));
+  --board-fit-w:calc((var(--vh100) - var(--fixed-h)) * var(--board-ar));
+  width:min(100vw, max(440px, min(600px, calc(var(--board-fit-w) + 12px))));
   padding:
-    max(6px, env(safe-area-inset-top))
+    var(--app-pad-top)
     max(6px, env(safe-area-inset-right))
-    max(6px, env(safe-area-inset-bottom))
+    var(--app-pad-bottom)
     max(6px, env(safe-area-inset-left));
   display:grid;
   grid-template-columns:minmax(0,1fr);
-  grid-template-rows:var(--row-rail) var(--row-metrics) minmax(0,1fr) var(--row-unit) var(--row-hand) var(--row-action);
+  grid-template-rows:var(--row-rail) var(--row-metrics) auto var(--row-unit) var(--row-hand) var(--row-action);
   grid-template-areas:"rail" "metrics" "board" "unit" "hand" "action";
-  row-gap:6px;
+  row-gap:var(--row-gap);
+  align-content:center;
 }
 #app.preHidden{ visibility:hidden; }
 /* 出撃時の立ち上がり（#boardWrap 自体は揺れ演出に使うので、中身の #boardHost を動かす） */
@@ -637,6 +657,9 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
   grid-area:board;
   position:relative;
   min-height:0;
+  width:min(100%, max(200px, var(--board-fit-w)));
+  aspect-ratio:var(--board-ar);
+  justify-self:center;
   border-radius:6px;
   border:1px solid var(--hair-3);
   background:var(--ink-1);
@@ -787,6 +810,73 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
 }
 .bzObs{ right:9px; }
 /* v352〜v358 の盤面左上の切り替えボタン（3D⇄2D・視点）は v359 で無くした（3Dのみ・視点はフェイズで自動） */
+
+/* v361 観測HUD（noah3d.js の makeHud が #boardHost に置く）。盤面の上の飾りと計器。タップは通す */
+.bzPlate{ left:24px; transform:none; padding:0 14px 0 10px; clip-path:polygon(0 0,100% 0,calc(100% - 9px) 100%,0 100%); -webkit-clip-path:polygon(0 0,100% 0,calc(100% - 9px) 100%,0 100%); }
+.bzPlate::before{ left:0; }
+.noahHud{
+  position:absolute; inset:0; z-index:3; overflow:hidden; pointer-events:none;
+  font-family:var(--f-hud); color:rgba(214,230,250,.86);
+  transition:opacity .5s ease;
+  text-shadow:0 1px 2px rgba(0,6,14,.9);
+}
+.noahHud .nhEnv{
+  position:absolute; left:26px; top:23px;
+  font-size:7.5px; font-weight:600; letter-spacing:.12em; white-space:nowrap;
+  color:rgba(196,216,240,.62); font-variant-numeric:tabular-nums;
+}
+/* 高度スケール */
+.nhRuler{ position:absolute; left:7px; top:0; bottom:0; width:70px; transition:opacity .2s linear; }
+.nhAxis{ position:absolute; left:0; top:0; width:1px; background:linear-gradient(180deg,rgba(200,225,255,.75),rgba(200,225,255,.28)); box-shadow:0 0 4px rgba(120,180,255,.5); }
+.nhTick{ position:absolute; left:0; top:0; height:0; display:flex; align-items:center; will-change:transform; }
+.nhTick i{ display:block; width:4px; height:1px; background:rgba(200,225,255,.55); }
+.nhTick.major i{ width:8px; background:rgba(226,240,255,.92); }
+.nhTick span{ margin-left:3px; font-size:7.5px; font-weight:600; letter-spacing:.04em; color:rgba(206,224,246,.72); font-variant-numeric:tabular-nums; }
+.nhMark{ position:absolute; left:0; top:0; height:0; display:flex; align-items:center; gap:4px; white-space:nowrap; will-change:transform; }
+.nhMark::before{ content:""; width:13px; height:1.5px; background:currentColor; box-shadow:0 0 5px currentColor; }
+.nhMark b{ font-size:10.5px; font-weight:700; letter-spacing:.03em; font-variant-numeric:tabular-nums; }
+.nhMark span{ font-family:var(--f-ui); font-size:7.5px; font-weight:700; letter-spacing:.1em; opacity:.8; }
+.nhMarkTop{ color:var(--plat); }
+.nhMarkAlt{ color:var(--noah-hi); }
+.nhMarkAlt span{ font-family:var(--f-hud); letter-spacing:.14em; }
+/* 頭の輪と線 */
+.nhLink{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; filter:drop-shadow(0 0 1.5px rgba(0,22,60,.95)) drop-shadow(0 0 3px rgba(60,140,255,.55)); }
+.nhRing{ fill:rgba(120,190,255,.08); stroke:#eef7ff; stroke-width:1.25; }
+.nhRing2{ fill:none; stroke:#dcefff; stroke-width:1.75; stroke-dasharray:5 10.7; }
+.nhLine{ fill:none; stroke:#e4f2ff; stroke-width:1.1; }
+.noahHud[data-tone="alert"] .nhRing,.noahHud[data-tone="alert"] .nhRing2,.noahHud[data-tone="alert"] .nhLine{ stroke:rgba(255,110,125,.95); }
+/* 生体モニター */
+.nhBio{
+  position:absolute; right:7px; top:8px; width:106px; padding:4px 6px 5px;
+  background:linear-gradient(180deg,rgba(4,10,20,.62),rgba(4,10,20,.34));
+  border-top:1px solid rgba(214,226,246,.5);
+  -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
+}
+.nhBio::before,.nhBio::after{ content:""; position:absolute; top:-1px; width:5px; height:5px; border-top:1.5px solid var(--plat); }
+.nhBio::before{ left:0; border-left:1.5px solid var(--plat); }
+.nhBio::after{ right:0; border-right:1.5px solid var(--plat); }
+.nhBioHead{ display:flex; align-items:center; gap:4px; font-size:7.5px; font-weight:700; letter-spacing:.2em; color:var(--noah-hi); }
+.nhLamp{ width:4px; height:4px; border-radius:50%; background:var(--ep); box-shadow:0 0 5px var(--ep); animation:noahLamp 1.4s ease-in-out infinite; }
+.nhSig{ margin-left:auto; display:flex; align-items:flex-end; gap:1.5px; height:7px; }
+.nhSig i{ width:2px; background:rgba(214,230,250,.25); }
+.nhSig i:nth-child(1){ height:2px; } .nhSig i:nth-child(2){ height:3.5px; } .nhSig i:nth-child(3){ height:5px; } .nhSig i:nth-child(4){ height:7px; }
+.nhSig[data-n="1"] i:nth-child(-n+1),.nhSig[data-n="2"] i:nth-child(-n+2),.nhSig[data-n="3"] i:nth-child(-n+3),.nhSig[data-n="4"] i{ background:rgba(226,242,255,.92); }
+.nhWave{ display:block; width:100%; height:24px; margin:2px 0 2px; }
+.nhRow,.nhAct{ display:flex; align-items:baseline; gap:5px; font-size:9px; line-height:1.45; white-space:nowrap; }
+.nhRow .k,.nhAct .k{ font-family:var(--f-ui); font-size:7.5px; font-weight:700; letter-spacing:.08em; color:rgba(190,208,232,.7); }
+.nhRow b,.nhAct b{ font-family:var(--f-ui); font-size:9.5px; font-weight:800; letter-spacing:.04em; color:var(--plat); }
+.nhRow em{ margin-left:auto; font-style:normal; font-size:9px; font-weight:600; color:rgba(206,224,246,.78); font-variant-numeric:tabular-nums; }
+.nhRow[data-tone="warn"] b{ color:var(--warn); }
+.nhRow[data-tone="bad"] b{ color:var(--order); }
+.nhAct{ display:block; margin-top:3px; padding-top:3px; border-top:1px solid rgba(168,190,226,.22); line-height:1.3; }
+.nhAct .k{ display:block; }
+.nhAct b{ display:block; overflow:hidden; text-overflow:ellipsis; font-size:10px; color:#ffd9a0; }
+.nhAct.alert b{ color:#ff9aa5; animation:noahLamp .9s ease-in-out infinite; }
+.noahHud[data-tone="alert"] .nhBio{ border-top-color:rgba(var(--order-rgb),.85); }
+.noahHud[data-tone="alert"] .nhLamp{ background:var(--order); box-shadow:0 0 6px var(--order); }
+.nhBio{ transform-origin:100% 0; }
+.noahHud.compact .nhEnv,.noahHud.compact .nhMark span{ display:none; }
+@media (prefers-reduced-motion:reduce){ .nhLamp,.nhAct.alert b{ animation:none; } }
 
 /* 7 ───────────────────────────────────────────────────────── Command deck */
 /* 行動機の見出し */
@@ -3700,8 +3790,8 @@ input[type="range"]::-webkit-slider-thumb{
     --row-unit:22px;
     --row-hand:60px;
     --row-action:62px;
+    --row-gap:7px;
   }
-  #app{ row-gap:7px; }
   .metric .value{ font-size:25px; }
 }
 @media (min-height:840px){
@@ -3712,8 +3802,7 @@ input[type="range"]::-webkit-slider-thumb{
   .metric .value{ font-size:27px; }
 }
 @media (max-height:600px) and (orientation:portrait){
-  :root{ --row-rail:26px; --row-metrics:46px; --row-unit:18px; --row-hand:48px; --row-action:50px; }
-  #app{ row-gap:5px; }
+  :root{ --row-rail:26px; --row-metrics:46px; --row-unit:18px; --row-hand:48px; --row-action:50px; --row-gap:5px; }
   .metric .value{ font-size:20px; }
 }
 /* 横持ち：盤面を左、操作を右へ */
@@ -3732,7 +3821,10 @@ input[type="range"]::-webkit-slider-thumb{
       "board action";
     column-gap:10px;
     row-gap:6px;
+    align-content:stretch;
   }
+  /* 横持ちでも盤面の縦横比は同じ。高さいっぱいに置き、左の列の中央に寄せる */
+  #boardWrap{ width:min(100%, calc((var(--vh100) - var(--app-pad-top) - var(--app-pad-bottom)) * var(--board-ar))); align-self:center; }
   :root{ --row-rail:28px; --row-metrics:50px; --row-unit:20px; --row-hand:56px; --row-action:58px; }
   #modal,#pausePanel{ max-height:92svh; }
   .metric .jp{ display:none; }
@@ -3811,6 +3903,9 @@ input[type="range"]::-webkit-slider-thumb{
     background-color:#02050a;   /* ページの上端・ステータスバー（theme-color）と同じ色。ぼかし判定のため、透明や backdrop-filter にしない */
   }
   html.noah-ios.noah-ios-standalone #app{padding-top:calc(env(safe-area-inset-top,0px) + 14px);}
+  /* v361：盤面の縦横比の計算に使う「上の余白」も同じ値にそろえる（visual.css の v344 の余白 ／ standalone の余白） */
+  html.noah-ios{--app-pad-top:calc(max(env(safe-area-inset-top,0px),20px) + 12px);}
+  html.noah-ios.noah-ios-standalone{--app-pad-top:calc(env(safe-area-inset-top,0px) + 14px);}
   html.noah-ios.noah-ios-standalone #preGame{padding-top:calc(env(safe-area-inset-top,0px) + 16px);}
   html.noah-ios.noah-ios-standalone #modalBg,
   html.noah-ios.noah-ios-standalone #pauseBg{padding-top:calc(env(safe-area-inset-top,0px) + 16px);}
@@ -4293,7 +4388,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v360',
+    currentPrototypeVersion:'v361',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -7775,6 +7870,9 @@ function noahDrawKaijuGroundShadow(cell) {
     const y=rect.cy-badgeH/2;
     const label=breakRisk ? `DMG ${damage}!` : `DMG ${Math.max(0,damage)}`;
     boardCtx.save();
+    // v361：3Dで斜めから見るとマスの奥行きがつぶれるので、その分だけ札を縦に伸ばして描く（道路の文字と同じ。画面では元の形に見える）
+    const stretch=Math.max(1, Math.min(noah3dBadgeStretch || 1, rect.h*.82/badgeH));
+    if(stretch>1.01){ boardCtx.translate(0, rect.cy); boardCtx.scale(1, stretch); boardCtx.translate(0, -rect.cy); }
     boardCtx.globalAlpha=alpha;
     boardCtx.globalCompositeOperation='source-over';
     boardRoundRectPath(x,y,badgeW,badgeH,badgeH*.34);
@@ -17254,6 +17352,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   //   sw.js の CORE_FILES の名前を合わせる（ファイル名ごと変える。端末に保存した古い版は使われなくなる）。
   // ===========================================================================
   var noah3dActive = false;   // drawBoard から先に参照されても false になるよう var で宣言
+  var noah3dBadgeStretch = 1; // v361：戦術パネルの DMG の札を縦に伸ばす倍率（noah3d.js が視点の角度から決める。描いている間だけ 1 以外）
   let noah3dHandle = null;
   let noah3dLoading = null;
   let noah3dWanted = false;
@@ -17293,8 +17392,9 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   // 戦術パネル：盤面の正方形を target（noah3d.js の 512×512 のキャンバス）いっぱいに描く。
   // 描画関数はどれも boardCtx に描くので、この間だけ boardCtx を target のものに差し替える。
   // target には画像を描かないので、HTMLビューアー（file://）でもWebGLへ渡せる。
-  function noah3dDrawTacticalLayer(target){
+  function noah3dDrawTacticalLayer(target, opt){
     if(!target || !target.getContext) return false;
+    noah3dBadgeStretch = Math.max(1, Math.min(2.2, Number(opt && opt.stretch) || 1));
     const geom = getBoardGeom();
     const {size, cell} = geom;
     const main = boardCtx;
@@ -17329,6 +17429,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     }finally{
       boardCtx.setTransform(1,0,0,1,0,0);
       boardCtx = main;
+      noah3dBadgeStretch = 1;
     }
     return true;
   }
@@ -17458,7 +17559,19 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     kaijuHeightCells: ()=>activeKaijuVisualSetId === 'gaiadran' ? 4 : 3,
     kaijuCharging: ()=>{ try{ return !!isBathynomaSpecialCharging(); }catch(e){ return false; } },
     geom: ()=>getBoardGeom(),
-    drawTactical: target=>noah3dDrawTacticalLayer(target),
+    drawTactical: (target, opt)=>noah3dDrawTacticalLayer(target, opt),
+    // v361：観測HUD（高度スケール・生体モニター・行動予測）に出す数字。行動予測は、盤面の攻撃予測と同じくアタックフェイズの間は出さない
+    hud: ()=>{
+      if(!gameStarted || !game) return null;
+      const k = game.selectedKaiju || {};
+      let action = null;
+      try{
+        if(!game.gameOver && !game.introHideUnits && game.phase!=='attack'){ const a = currentKaijuAction(); if(a && a.name) action = { name:a.name }; }
+      }catch(e){}
+      let alert = false;
+      try{ alert = !!isBathynomaSpecialCharging(); }catch(e){}
+      return { ep:game.ep, epMax:game.epMax, hp:game.kaijuHp, hpMax:game.kaijuHpMax, heightM:Number(k.heightM)||0, stage:currentStageDef().id, action, alert };
+    },
     tacticalLevel: ()=>noah3dTacticalLevel(),
     drawEffects: proj=>noah3dDrawEffectsLayer(proj),
     kaijuScan: ()=>noah3dKaijuScan(),

@@ -26,20 +26,24 @@
 const THREE = window.THREE;
 if (!THREE) throw new Error('three.js（vendor/three-r170.min.js）が読み込まれていません');
 
-const FLY_Y = 1.1;              // 機体の飛行高度
+// v361：怪獣を大きく・機体とマスを高高度に・カメラを低く（見上げ気味）にした。数字を変えるときはこの4つと CAMERA_POSES の elev / fov。
+const KAIJU_SCALE = 1.9;        // 怪獣を大きく見せる倍率（ゲーム上の大きさ＝3マスは変えない。見た目だけ）
+const FLY_Y = 3.0;              // 機体の飛行高度（v360 までは 1.1）
 const PANEL_Y = FLY_Y - 0.12;   // 戦術パネルの高さ（機体の少し下）
-const KAIJU_Z = -2;             // 怪獣の足元の中心（3×3マスの中心 y=1.5）
+const KAIJU_Z = -2.8;           // 怪獣の足元の中心（v360 までは -2。体が大きくなった分だけ奥へ）
 const TILE_W = 16.8;            // 地形画像1枚の横幅（2Dの「盤面の横幅の2.4倍」表示と同じ縮尺）
 const TACTICAL_TEX = 512;       // 戦術パネルの絵の解像度
 const UNIT_BOARD_COLS = [1, 3, 5];
 const TACTICAL_ROWS = [4, 5, 6];
 
 // 演出の面：盤面の y=5.5（中列の機体）では機体の高さ、y=1.7（2Dでミサイルが当たる所）では怪獣の胸の前を通る
-const FX_ROW = 5.5, FX_HIT_ROW = 1.7, FX_HIT_Y = 2.0, FX_HIT_Z = KAIJU_Z + 0.9;
+const FX_ROW = 5.5, FX_HIT_ROW = 1.7, FX_HIT_Y = 2.0 * KAIJU_SCALE, FX_HIT_Z = KAIJU_Z + 0.9 * KAIJU_SCALE;
 const FX_K_Y = (FX_HIT_Y - FLY_Y) / (FX_ROW - FX_HIT_ROW);
 const FX_K_Z = (FX_HIT_Z - (FX_HIT_ROW - 3.5)) / (FX_ROW - FX_HIT_ROW);
 function effectPlanePoint(bx, by, out = new THREE.Vector3()) {
-  return out.set(bx - 3.5, FLY_Y + FX_K_Y * (FX_ROW - by), by - 3.5 + FX_K_Z * (FX_ROW - by));
+  // 左右の広がりは、怪獣に近いほど怪獣の大きさに合わせて広げる（怪獣に当たる演出が、大きくなった体に合うように）
+  const k = 1 + (KAIJU_SCALE - 1) * Math.max(0, Math.min(1.3, (FX_ROW - by) / (FX_ROW - FX_HIT_ROW)));
+  return out.set((bx - 3.5) * k, FLY_Y + FX_K_Y * (FX_ROW - by), by - 3.5 + FX_K_Z * (FX_ROW - by));
 }
 
 // カメラの構え。elev は見下ろす角度（度）。fit は画面に必ず入れる点（ここから毎回カメラの距離を決める）。
@@ -48,12 +52,12 @@ function effectPlanePoint(bx, by, out = new THREE.Vector3()) {
 const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
 const CAMERA_POSES = {
   oblique: {
-    name: 'oblique', elev: 42, fov: 36, target: V3(0, 1.15, 0.55),
+    name: 'oblique', elev: 30, fov: 32, target: V3(0, FLY_Y, 0.55),
     fit: [
       V3(-3.05, PANEL_Y, 0.45), V3(3.05, PANEL_Y, 0.45), V3(-3.05, PANEL_Y, 3.6), V3(3.05, PANEL_Y, 3.6),   // 機体のマス
       V3(-2.0, PANEL_Y, 3.95), V3(2.0, PANEL_Y, 3.95),                                                   // 手前の機体のHPの札
       V3(-2.7, FLY_Y + 0.2, 3.5), V3(2.7, FLY_Y + 0.2, 3.5),                                             // 手前の機体
-      V3(0, 3.75, KAIJU_Z - 0.5), V3(-1.75, 2.7, KAIJU_Z + 0.2), V3(1.75, 2.7, KAIJU_Z + 0.2),           // 怪獣の頭と腕の刃
+      V3(0, 3.75 * KAIJU_SCALE, KAIJU_Z - 0.5 * KAIJU_SCALE), V3(-1.75 * KAIJU_SCALE, 2.7 * KAIJU_SCALE, KAIJU_Z + 0.2 * KAIJU_SCALE), V3(1.75 * KAIJU_SCALE, 2.7 * KAIJU_SCALE, KAIJU_Z + 0.2 * KAIJU_SCALE),   // 怪獣の頭と腕の刃
     ],
   },
   top: {
@@ -61,8 +65,8 @@ const CAMERA_POSES = {
     fit: [
       V3(-3.05, PANEL_Y, 0.45), V3(3.05, PANEL_Y, 0.45), V3(-3.05, PANEL_Y, 3.6), V3(3.05, PANEL_Y, 3.6),   // 機体のマス
       V3(-2.0, PANEL_Y, 3.85), V3(2.0, PANEL_Y, 3.85),                                                   // 手前の機体のHPの札
-      V3(0, 3.4, KAIJU_Z - 0.5), V3(-1.6, 2.6, KAIJU_Z + 0.3), V3(1.6, 2.6, KAIJU_Z + 0.3),              // 怪獣（頭と腕）
-      V3(0, 2.6, KAIJU_Z - 1.15),                                                                        // 怪獣の背中
+      V3(0, 3.4 * KAIJU_SCALE, KAIJU_Z - 0.5 * KAIJU_SCALE), V3(-1.6 * KAIJU_SCALE, 2.6 * KAIJU_SCALE, KAIJU_Z + 0.3 * KAIJU_SCALE), V3(1.6 * KAIJU_SCALE, 2.6 * KAIJU_SCALE, KAIJU_Z + 0.3 * KAIJU_SCALE),   // 怪獣（頭と腕）
+      V3(0, 2.6 * KAIJU_SCALE, KAIJU_Z - 1.15 * KAIJU_SCALE),                                              // 怪獣の背中
     ],
   },
 };
@@ -268,15 +272,15 @@ function makeStageFx() {
     }
   }
   // 怪獣の足が地面に着いた（x, z は足首の真下）
-  function footfall(x, z) {
+  function footfall(x, z, scale = 1) {
     const D = sea ? FX_DUST.seafloor : FX_DUST.forest;
     const n = Math.round(D.n * (lite ? 0.5 : 1));
     for (let i = 0; i < n && dust.length < dustL.max; i++) {
       const a = Math.random() * Math.PI * 2, sp = lerpRange(D.speed), r0 = 0.1 + Math.random() * 0.14;
-      const s0 = lerpRange(D.size);
+      const s0 = lerpRange(D.size) * scale;
       dust.push({
-        x: x + Math.cos(a) * r0, y: 0, z: z + Math.sin(a) * r0 * 0.8,
-        vx: Math.cos(a) * sp, vy: lerpRange(D.up), vz: Math.sin(a) * sp * 0.8,
+        x: x + Math.cos(a) * r0 * scale, y: 0, z: z + Math.sin(a) * r0 * 0.8 * scale,
+        vx: Math.cos(a) * sp * scale, vy: lerpRange(D.up), vz: Math.sin(a) * sp * 0.8,
         age: 0, life: lerpRange(D.life), s0, s1: s0 * D.grow, a: D.alpha * (0.7 + Math.random() * 0.3),
         rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 0.9, c: sea ? dustColor.seafloor : dustColor.forest,
         drag: D.drag, buoy: D.rise, maxUp: 0.45, lift: 0.32, wob: 0, fin: 0.07, fout: 0.5,
@@ -820,7 +824,7 @@ function makeFader(meshes, order) {
 const KAIJU_MODEL = {
   yawDeg: 12,          // 顔を正面へ
   height: 3.0,         // 3マス（2Dの絵と同じ「見えている体の高さ＝3マス」）
-  stepsPerCell: 1,     // 地形が1マス流れる間に1歩（足が地面に対して滑らない歩幅）
+  stepsPerCell: 1 / KAIJU_SCALE,   // 地形が1マス流れる間の歩数（体が大きい分だけ歩幅も広い。足が地面に対して滑らない歩幅）
   bones: {
     hips: 'Bone_000', spine: ['Bone_004', 'Bone_003', 'Bone_002'], head: 'Bone_024', jaw: 'Bone_042',
     legs: [['Bone_009', 'Bone_008', 'Bone_007'], ['Bone_014', 'Bone_013', 'Bone_012']],     // 太もも・すね・足首（-X 側, +X 側）
@@ -1096,6 +1100,144 @@ function makeEnvironment(renderer, look) {
   return rt;
 }
 
+// -----------------------------------------------------------------------------
+// 観測HUD（v361〜）：盤面の上に重ねる飾りと計器。見た目は index.html の CSS（.noahHud〜）。
+//   ・左の端：高度スケール（怪獣の足元 0m 〜 頭の高さ。怪獣の奥行きでの高さを画面に写したもの）と、機体の飛行高度の印
+//   ・右上：生体モニター（興奮値で波が荒れ、生命安定が下がると信号が途切れる）＋行動予測。怪獣の頭の輪と線でつなぐ
+//   ・左上：ステージの環境の数字（飾り）
+//   真上の視点（移動フェイズ）では、高度スケールと頭の輪は消す。
+// -----------------------------------------------------------------------------
+function makeHud(host) {
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const root = el('div', 'noahHud');
+  root.setAttribute('aria-hidden', 'true');
+  // 高度スケール
+  const ruler = el('div', 'nhRuler');
+  const axis = el('i', 'nhAxis');
+  ruler.appendChild(axis);
+  const ticks = [];
+  const topMark = el('div', 'nhMark nhMarkTop'); topMark.append(el('b', '', ''), el('span', '', '体高'));
+  const altMark = el('div', 'nhMark nhMarkAlt'); altMark.append(el('b', '', ''), el('span', '', 'AA ALT'));
+  ruler.append(topMark, altMark);
+  // 頭の輪と、生体モニターへの線
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('class', 'nhLink');
+  const ring = document.createElementNS(NS, 'circle'); ring.setAttribute('class', 'nhRing'); ring.setAttribute('r', '11');
+  const ring2 = document.createElementNS(NS, 'circle'); ring2.setAttribute('class', 'nhRing2'); ring2.setAttribute('r', '15');
+  const line = document.createElementNS(NS, 'polyline'); line.setAttribute('class', 'nhLine');
+  svg.append(line, ring2, ring);
+  // 生体モニター
+  const bio = el('div', 'nhBio');
+  const head = el('div', 'nhBioHead'); head.append(el('i', 'nhLamp'), el('span', '', 'BIO-SIGNAL'));
+  const sig = el('span', 'nhSig'); for (let i = 0; i < 4; i++) sig.appendChild(el('i')); head.appendChild(sig);
+  const wave = el('canvas', 'nhWave'); wave.width = 208; wave.height = 52;
+  const rowA = el('div', 'nhRow'); const aKey = el('span', 'k', '興奮'), aVal = el('b', '', ''), aPct = el('em', '', ''); rowA.append(aKey, aVal, aPct);
+  const rowV = el('div', 'nhRow'); const vKey = el('span', 'k', '生命'), vVal = el('b', '', ''), vPct = el('em', '', ''); rowV.append(vKey, vVal, vPct);
+  const act = el('div', 'nhAct'); const actKey = el('span', 'k', '行動予測'), actVal = el('b', '', ''); act.append(actKey, actVal);
+  bio.append(head, wave, rowA, rowV, act);
+  const env = el('div', 'nhEnv');
+  root.append(ruler, svg, bio, env);
+  host.appendChild(root);
+  const g2 = wave.getContext('2d');
+  const set = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+  let scale = 1, lastWave = 0, lastEnv = 0, agit = 1, vital = 1, hit = 0, rulerOn = null, linkOn = null, actKeyNow = '', tone = '';
+  const AGIT = [[0.66, '激昂', '#ff8a5c'], [0.33, '興奮', '#ffd24f'], [0.001, '鎮静傾向', '#3fe0a3'], [-1, '沈静', '#3fe0a3']];
+  const VITAL = [[0.5, '安定', ''], [0.25, '低下', 'warn'], [-1, '危険', 'bad']];
+  function drawWave(t, color) {
+    const w = wave.width, h = wave.height, mid = h / 2;
+    g2.clearRect(0, 0, w, h);
+    g2.strokeStyle = 'rgba(190,220,255,.13)'; g2.lineWidth = 1;
+    g2.beginPath(); g2.moveTo(0, mid + 0.5); g2.lineTo(w, mid + 0.5); g2.stroke();
+    const amp = (0.16 + 0.34 * agit) * h * (1 + hit * 0.8), f = 0.035 + 0.05 * agit;
+    g2.strokeStyle = color; g2.lineWidth = 2.2; g2.lineJoin = 'round'; g2.shadowColor = color; g2.shadowBlur = 6;
+    g2.beginPath();
+    let pen = false;
+    for (let x = 0; x <= w; x += 2) {
+      // 生命安定が低いと、信号がところどころ途切れる
+      const gap = vital < 0.5 && Math.sin(x * 0.045 + t * 1.7) > 0.25 + vital * 1.5;
+      if (gap) { pen = false; continue; }
+      const envl = 0.35 + 0.65 * Math.pow(Math.abs(Math.sin(x * 0.013 - t * 0.9)), 1.5);
+      const y = mid + amp * envl * (Math.sin(x * f + t * 5.2) * 0.62 + Math.sin(x * f * 2.7 - t * 8.1) * 0.28 * (0.3 + agit) + (hit > 0.05 ? (Math.random() - 0.5) * hit : 0));
+      if (pen) g2.lineTo(x, y); else { g2.moveTo(x, y); pen = true; }
+    }
+    g2.stroke(); g2.shadowBlur = 0;
+  }
+  // info … { ep, epMax, hp, hpMax, heightM, stage, action, alert, hit }。view … 画面の位置など（start の中で作る）
+  function update(now, info, view) {
+    const t = now / 1000;
+    const on = !!info && view.kaijuAlpha > 0.5 && !view.hidden;
+    root.style.opacity = on ? '1' : '0';
+    if (!on) return;
+    // 盤面の横幅に合わせて生体モニターを拡大・縮小する（基準は iPhone SE3 の 359px）。狭い盤面では飾りの文字を省く
+    const k = Math.max(0.78, Math.min(1.4, view.W / 359));
+    if (Math.abs(k - scale) > 0.005) { scale = k; bio.style.transform = `scale(${k.toFixed(3)})`; root.classList.toggle('compact', view.W < 315); }
+    agit = Math.max(0, Math.min(1, info.epMax > 0 ? info.ep / info.epMax : 0));
+    vital = Math.max(0, Math.min(1, info.hpMax > 0 ? info.hp / info.hpMax : 0));
+    hit += ((info.hit ? 1 : 0) - hit) * 0.25;
+    const A = AGIT.find(a => agit >= a[0]), V = VITAL.find(v => vital >= v[0]);
+    set(aVal, A[1]); set(aPct, Math.round(agit * 100) + '%'); aVal.style.color = A[2];
+    set(vVal, V[1]); set(vPct, Math.round(vital * 100) + '%'); if (rowV.dataset.tone !== V[2]) rowV.dataset.tone = V[2];
+    const key = info.action ? info.action.name + (info.alert ? '!' : '') : '';
+    if (key !== actKeyNow) { actKeyNow = key; act.style.display = info.action ? '' : 'none'; if (info.action) set(actVal, info.action.name); act.classList.toggle('alert', !!info.alert); }
+    const nextTone = info.alert ? 'alert' : '';
+    if (nextTone !== tone) { tone = nextTone; root.dataset.tone = tone; }
+    if (now - lastWave > 66) { lastWave = now; drawWave(t, info.alert ? '#ff5a6e' : A[2]); const bars = hit > 0.3 ? 1 : vital < 0.25 ? 2 : vital < 0.5 ? 3 : 4; if (sig.dataset.n !== String(bars)) sig.dataset.n = String(bars); }
+    if (now - lastEnv > 900) {
+      lastEnv = now;
+      const j = (base, amp, sp) => base + Math.sin(t * sp) * amp + Math.sin(t * sp * 2.7 + 1) * amp * 0.4;
+      set(env, info.stage === 'seafloor'
+        ? `DEPTH ${Math.round(j(3812, 3, 0.21)).toLocaleString('en-US')}m · ${j(2.1, 0.05, 0.13).toFixed(1)}℃ · ${j(38.4, 0.05, 0.17).toFixed(1)}MPa`
+        : `WIND ${j(4.2, 0.9, 0.31).toFixed(1)}m/s · ${j(17.6, 0.15, 0.11).toFixed(1)}℃ · ${Math.round(j(64, 1.5, 0.09))}%RH`);
+    }
+    // 高度スケール：0m から頭の高さまで 10m きざみ（20m ごとに数字）
+    const showRuler = view.oblique > 0.02 && view.heightM > 0;
+    if (showRuler !== rulerOn) { rulerOn = showRuler; ruler.style.display = showRuler ? '' : 'none'; }
+    if (showRuler) {
+      ruler.style.opacity = view.oblique.toFixed(2);
+      const n = Math.floor(view.heightM / 10) + 1;
+      while (ticks.length < n) { const tk = el('div', 'nhTick'); tk.append(el('i'), el('span')); ruler.appendChild(tk); ticks.push(tk); }
+      const yTop = view.yOfMetres(view.heightM), y0 = view.yOfMetres(0), lo = 36, hi = view.H - 20;
+      const yMarkTop = Math.max(lo, view.yHead), yAlt = view.yOfMetres(view.altM);
+      for (let i = 0; i < ticks.length; i++) {
+        const tk = ticks[i], m = i * 10, y = view.yOfMetres(m);
+        const vis = i < n && y > lo && y < hi;
+        tk.style.display = vis ? '' : 'none';
+        if (!vis) continue;
+        const major = m % 20 === 0;
+        if (tk.dataset.m !== String(m)) { tk.dataset.m = String(m); tk.classList.toggle('major', major); tk.lastChild.textContent = major ? String(m) : ''; }
+        tk.style.transform = `translate3d(0,${y.toFixed(1)}px,0)`;
+        // 「体高」「AA ALT」の印と重なる数字は隠す
+        const clash = Math.abs(y - yMarkTop) < 10 || Math.abs(y - yAlt) < 10;
+        if (tk.lastChild.style.visibility !== (clash ? 'hidden' : '')) tk.lastChild.style.visibility = clash ? 'hidden' : '';
+      }
+      const a0 = Math.max(lo, yTop), a1 = Math.min(hi, y0);
+      axis.style.transform = `translate3d(0,${a0.toFixed(1)}px,0)`; axis.style.height = Math.max(0, a1 - a0).toFixed(1) + 'px';
+      set(topMark.firstChild, Math.round(view.heightM) + 'm');
+      topMark.style.transform = `translate3d(0,${yMarkTop.toFixed(1)}px,0)`;
+      altMark.style.display = yAlt > lo && yAlt < hi ? '' : 'none';
+      set(altMark.firstChild, Math.round(view.altM) + 'm');
+      altMark.style.transform = `translate3d(0,${yAlt.toFixed(1)}px,0)`;
+    }
+    // 頭の輪 → 生体モニター
+    const showLink = view.oblique > 0.5 && !!view.head && view.head.y > 30 && view.head.y < view.H - 30;
+    if (showLink !== linkOn) { linkOn = showLink; svg.style.display = showLink ? '' : 'none'; }
+    if (showLink) {
+      const hx = view.head.x, hy = view.head.y;
+      const bw = bio.offsetWidth * scale, bx = bio.offsetLeft + bio.offsetWidth - bw, by = bio.offsetTop + bio.offsetHeight * scale - 1;
+      ring.setAttribute('cx', hx.toFixed(1)); ring.setAttribute('cy', hy.toFixed(1));
+      ring2.setAttribute('cx', hx.toFixed(1)); ring2.setAttribute('cy', hy.toFixed(1));
+      ring2.setAttribute('stroke-dashoffset', (-t * 14).toFixed(1));
+      // 輪の右上から斜めに出て、モニターの下の線へ
+      const sx = hx + 10.6, sy = hy - 10.6;
+      const rise = sy - by, kx = sx + rise;
+      const ok = rise > 3 && kx < bx + bw - 8;
+      line.style.display = ok ? '' : 'none';
+      if (ok) line.setAttribute('points', `${sx.toFixed(1)},${sy.toFixed(1)} ${kx.toFixed(1)},${by.toFixed(1)} ${(bx + bw).toFixed(1)},${by.toFixed(1)}`);
+    }
+  }
+  return { update, dispose() { root.remove(); } };
+}
+
 // v360：左右の景色（森林の木・海底の岩山）の3Dモデルは無くした。地面の画像に描かれた森・岩場だけで十分立体的に見えるため
 //（v354〜v359 の buildScenery・toLambert・tree-v354.js・rock-v354.js は使わない）
 
@@ -1313,7 +1455,7 @@ function start(bridge) {
       const bone = kaiju.feet[leg];
       if (!bone) continue;
       bone.getWorldPosition(tmpFoot);
-      stageFx.footfall(tmpFoot.x, tmpFoot.z + 0.08 * kaiju.root.scale.z);
+      stageFx.footfall(tmpFoot.x, tmpFoot.z + 0.08 * kaiju.root.scale.z, KAIJU_SCALE);
     }
   }
   // 炸裂の泡（海底）：演出が始まった瞬間に1回だけ
@@ -1426,6 +1568,7 @@ function start(bridge) {
   const pickRing = new THREE.Mesh(new THREE.RingGeometry(1.55, 1.72, 48), new THREE.MeshBasicMaterial({ color: 0xffd0a0, transparent: true, opacity: 0.8, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
   pickRing.rotation.x = -Math.PI / 2;
   pickRing.position.set(0, 0.04, KAIJU_Z);
+  pickRing.scale.setScalar(KAIJU_SCALE);
   pickRing.renderOrder = 8;
   pickRing.visible = false;
   scene.add(pickRing);
@@ -1441,6 +1584,12 @@ function start(bridge) {
   const aircraft = new Map();     // unit → { model, type, pos, drones }
   const projectiles = new Map();  // effect → { model, history, start, end, side }
   const droneGeo = new THREE.OctahedronGeometry(0.06, 0);
+  // v361：機体から地面へ下ろす細い光の線（上が明るく、下へ行くほど消える）。高い所を飛んでいるのが分かるように
+  const tetherGeo = new THREE.BufferGeometry();
+  tetherGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, -0.16, 0, 0, -FLY_Y * 0.55, 0, 0, -FLY_Y, 0], 3));
+  tetherGeo.setAttribute('color', new THREE.Float32BufferAttribute([0.55, 0.95, 1, 0.16, 0.3, 0.34, 0, 0, 0], 3));
+  const tetherMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false });
+  cleanups.push(() => { tetherGeo.dispose(); tetherMat.dispose(); });
 
   // ---------------------------------------------------------------------------
   // カメラ（盤面の四隅・手前の機体・怪獣の頭が画面に収まる距離を毎回求める）
@@ -1633,10 +1782,10 @@ function start(bridge) {
   //   standing(x, y) … 怪獣の前に立てた面（研究の演出用）。盤面の y=0 が怪獣の頭の上、y=3 が足元
   // ---------------------------------------------------------------------------
   const EP = new THREE.Vector3();
-  const STAND_Z = KAIJU_Z + 1.0, STAND_H = 1.1;
+  const STAND_Z = KAIJU_Z + 1.0 * KAIJU_SCALE, STAND_H = 1.1 * KAIJU_SCALE;
   const fxProject = {
     plane(bx, by) { const s = toScreen(effectPlanePoint(bx, by, EP)); return { x: s.x, y: s.y }; },
-    standing(bx, by) { const s = toScreen(EP.set(bx - 3.5, (3 - by) * STAND_H, STAND_Z)); return { x: s.x, y: s.y }; },
+    standing(bx, by) { const s = toScreen(EP.set((bx - 3.5) * KAIJU_SCALE, (3 - by) * STAND_H, STAND_Z)); return { x: s.x, y: s.y }; },
   };
 
   // 爆発・着弾の光：演出に合わせて、その場所で一瞬だけ3Dの光をともし、怪獣や機体を照らす
@@ -1700,6 +1849,7 @@ function start(bridge) {
   function removeAircraft(a) {
     scene.remove(a.model.group);
     a.model.dispose();
+    if (a.tether) scene.remove(a.tether);
     a.drones.forEach(m => { scene.remove(m); m.material.dispose(); });
   }
   // ---------------------------------------------------------------------------
@@ -1712,6 +1862,9 @@ function start(bridge) {
   Object.assign(hpLayer.style, { position: 'absolute', left: '0', top: '0', right: '0', bottom: '0', overflow: 'hidden', pointerEvents: 'none', zIndex: '3' });
   host.appendChild(hpLayer);
   cleanups.push(() => hpLayer.remove());
+  const hud = makeHud(host);   // v361 観測HUD（札より下に重ねる）
+  host.insertBefore(host.lastChild, hpLayer);
+  cleanups.push(() => hud.dispose());
   const hpPlates = new Map();   // unit → 札
   const HP_TONES = [[0.25, '#ff5b5b'], [0.5, '#ffd352'], [Infinity, '#57efbc']];   // 2D のHPバーと同じ色分け
   // v360：次の怪獣の攻撃で減る分のHPを赤く点滅（バーの右端）。大破しうるときは札の枠ごと赤く点滅（盤面の DMG の点滅と同じ速さ）
@@ -1811,6 +1964,33 @@ function start(bridge) {
     for (const [u, p] of hpPlates) if (!seen.has(u)) { p.el.remove(); hpPlates.delete(u); }
   }
 
+  const hudV = new THREE.Vector3();
+  const hudView = { H: 1, W: 1, oblique: 1, kaijuAlpha: 1, hidden: false, heightM: 0, altM: 0, yHead: 0, head: null, yOfMetres: null };
+  let hudUnit = 1;   // 1m あたりの3Dの長さ
+  hudView.yOfMetres = m => toScreen(hudV.set(0, m * hudUnit, KAIJU_Z)).y;
+  function updateHud(g, now, kAlpha, attacking) {
+    let info = null;
+    try { info = bridge.hud ? bridge.hud() : null; } catch (e) { info = null; }
+    hudView.W = W; hudView.H = H;
+    hudView.kaijuAlpha = kAlpha;
+    hudView.hidden = !!g.introHideUnits || !!g.gameOver;
+    hudView.oblique = clamp01((72 - cam.elev) / 24);
+    if (info) {
+      const top = kaiju.localBox.max.y * kaiju.root.scale.y;
+      hudView.heightM = Number(info.heightM) || 0;
+      hudUnit = hudView.heightM > 0 ? top / hudView.heightM : 1;
+      hudView.altM = FLY_Y / hudUnit;
+      hudView.yHead = toScreen(hudV.set(0, top, KAIJU_Z)).y;
+      // 輪は喉〜胸の光る器官（頭の骨の少し下・前）に合わせる
+      kaiju.head.getWorldPosition(hudV);
+      hudV.y -= 0.4 * kaiju.root.scale.y; hudV.z += 0.22 * kaiju.root.scale.z;
+      const hs = toScreen(hudV);
+      hudView.head = hs.behind ? null : { x: hs.x, y: hs.y };
+      info.hit = attacking;
+    }
+    hud.update(now, info, hudView);
+  }
+
   function syncAircraft(g, now, dt) {
     const seen = new Set();
     const hide = !!g.introHideUnits;
@@ -1845,6 +2025,8 @@ function start(bridge) {
       grp.position.set(a.pos.x + Math.cos(phase2) * 0.012, a.pos.y + bob, a.pos.z);
       grp.rotation.set(Math.sin(phase * 0.7) * 0.03, 0, THREE.MathUtils.clamp(-dx * 0.9, -0.5, 0.5) + Math.sin(phase2) * 0.03);
       a.model.setAlpha(u.state === 'returning' ? 0.58 : 1);
+      if (!a.tether) { a.tether = new THREE.Line(tetherGeo, tetherMat); a.tether.renderOrder = 2; a.tether.frustumCulled = false; scene.add(a.tether); }
+      a.tether.position.copy(grp.position);
       const flick = 0.85 + Math.sin(now / 37 + type) * 0.1 + Math.random() * 0.08;
       a.model.engines.forEach(f => { const r = f.userData.r || 1; f.scale.set(r, flick * (f.userData.len || 1), r); });
       // 追従ドローン
@@ -2123,15 +2305,15 @@ function start(bridge) {
     else kaiju.animate(t, scroll, walkAmp, (jitter.x || 0) / cellPx, lunge, charge);
     kaiju.root.visible = kAlpha > 0.01;
     kaiju.setAlpha(kAlpha);
-    kaiju.root.scale.setScalar(bridge.kaijuHeightCells() / 3);
+    kaiju.root.scale.setScalar(bridge.kaijuHeightCells() / 3 * KAIJU_SCALE);
     kaiju.root.updateMatrixWorld(true);
     if (!debugPose) kaijuFootfalls(prevScroll, scroll, kAlpha);
     warnSprite.visible = charging;
     if (warnSprite.visible) {
       kaiju.head.getWorldPosition(tmpHead);
       const pulse = 0.5 + 0.5 * Math.sin(now / 180);
-      warnSprite.position.set(tmpHead.x, tmpHead.y + 0.95, tmpHead.z);
-      warnSprite.scale.setScalar(0.82 + pulse * 0.1);
+      warnSprite.position.set(tmpHead.x, tmpHead.y + 0.95 * KAIJU_SCALE, tmpHead.z);
+      warnSprite.scale.setScalar((0.82 + pulse * 0.1) * (0.5 + 0.5 * KAIJU_SCALE));
     }
 
     // 機体・ミサイル・目印
@@ -2161,6 +2343,8 @@ function start(bridge) {
     placeCamera(cam.elev, cam.dist, cam.target, cam.fov, aspect);
     // 機体のHPの札（カメラが決まってから位置を合わせる）
     updateHpPlates(g, now);
+    // 観測HUD
+    updateHud(g, now, kAlpha, attacking);
     // 砂ぼこり・泡
     blastBubbles(g, now);
     stageFx.update(now, scroll, camera);
@@ -2171,7 +2355,8 @@ function start(bridge) {
     if (level > 0 && (level !== lastTacticalLevel || now - lastTacticalDraw > (level >= 2 ? tacticalInterval : 250))) {
       const t0 = performance.now();
       lastTacticalDraw = now;
-      bridge.drawTactical(tacticalCanvas);   // 盤面の正方形をそのまま 512×512 に描いてもらう
+      // 盤面の正方形をそのまま 512×512 に描いてもらう。斜めから見ると奥行きがつぶれるので、DMG の札はその分だけ縦に伸ばして描いてもらう
+      bridge.drawTactical(tacticalCanvas, { stretch: Math.max(1, Math.min(2.1, 1 / Math.max(0.2, Math.sin(THREE.MathUtils.degToRad(cam.elev))))) });
       tacticalTex.needsUpdate = true;
       stats.tacticalMs += performance.now() - t0; stats.tacticalDraws++;
     }
@@ -2265,12 +2450,12 @@ function start(bridge) {
     debugParts() { return { scene, kaiju: kaiju.root, ground, aircraft: [...aircraft.values()].map(a => a.model.group), sun }; },
     // テスト用：盤面の位置（x, y）が画面のどこに映っているか（host 内の CSS px）
     screenOfCell(bx, by, y) { return toScreen(new THREE.Vector3(bx - 3.5, y == null ? PANEL_Y : y, by - 3.5)); },
-    screenOfKaiju() { return toScreen(new THREE.Vector3(0, 1.6, KAIJU_Z)); },
+    screenOfKaiju() { return toScreen(new THREE.Vector3(0, 1.6 * KAIJU_SCALE, KAIJU_Z)); },
     screenOfEffectPoint(bx, by) { return toScreen(effectPlanePoint(bx, by)); },
     debugProjectiles() { return [...projectiles.values()].map(pr => { const p = pr.model.group.position; const s = toScreen(p); return { pos: [p.x, p.y, p.z].map(v => +v.toFixed(2)), screen: [Math.round(s.x), Math.round(s.y)], visible: pr.model.group.visible, inScene: !!pr.model.group.parent }; }); },
   };
   }
 }
 
-window.NOAH3D = { start, version: 'v360' };
+window.NOAH3D = { start, version: 'v361' };
 })();

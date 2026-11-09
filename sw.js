@@ -27,7 +27,7 @@ const CORE_FILES = {
   './font/noah-hud.woff': 72000,
   './img/brand/icon.png': 385000,
   './img/asset-manifest.json': 30000,
-  './noah3d.js': 128000,                      // v352 3D表示（v356 で砂ぼこり・泡、v359 でHPの札、v360 で怪獣の重みの直しを足した）
+  './noah3d.js': 141000,                      // v352 3D表示（v356 で砂ぼこり・泡、v359 でHPの札、v360 で怪獣の重みの直し、v361 で観測HUD・構図の変更を足した）
   './vendor/three-r170.min.js': 691000,          // 3D表示（three.js r170。v353〜は普通のスクリプト版。中身を変えるときはファイル名ごと変える）
   './vendor/three-r170-gltfloader.min.js': 47100, // v354 3Dモデル（GLB）の読み込み
   './models/aa1-v358.js': 373845,
