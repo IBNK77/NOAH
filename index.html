@@ -182,6 +182,23 @@ SAVE / CONTINUE（v336〜）：
   ・にじむ光（明るい所がふわっと光る）：描いた画面を写し取って小さくぼかして足す。使えない端末では自動で無しになる
   ・重い端末では段階的に減らす（1段目：にじむ光を止める／2段目：光の筋・群れ・火花・揺れを止め、霧と粒を減らす）
   ・数字を変える所：noah3d.js の STAGE_LOOK（光）・ATMOS（空気）・BLOOM_LOOK（にじむ光）・KAIJU_MODEL.glow（胸の光）
+- v366〜：3Dの見た目の強化 その2（ルール・カードの効果・2D表示は変えていない）。
+  ・地面の起伏：地面の絵の明るさから高さを作り、森・岩場を本当に盛り上げる（道は平ら）。光の当たり方も起伏に合わせる。
+    地形が流れるときは網ごと動かす（起伏が泳がない）。noah3d.js の RELIEF（高さ・細かさ）。いちばん軽い段では平らに戻す
+  ・怪獣：自分の体の影を受ける（影の解像度 2048）。足あとが残る。腕を速く振ると爪の先に光の軌跡（KAIJU_MODEL.claws）。
+    輪郭の光は、森林ではふだん無し（STAGE_LOOK の rimKaiju＝0）。海底・必殺技の溜め・炸裂の光・機体は今まで通り
+  ・戦術パネル（ダメージのマス目）：3Dでは新しい見た目（drawTacticalHoloCell / drawTacticalHoloDamage。角を落とした枠・走査線・
+    横切る光・撃墜の恐れの縞と BREAK・脅威の段）。機体がいるマスの DMG は左上に小さく。描く範囲は機体のマス 6×3 だけにして解像度を上げた
+    （noah3d.js の TACTICAL_VIEW・TACTICAL_TEX。bridge.drawTactical の opt.view / opt.style）。2D表示は前の見た目のまま
+  ・着弾点：ミサイル・麻酔弾の着弾する所を発射のときに決め（noahPlanAmmoImpact → game.noahAmmoImpact、セーブしない）、
+    爆発・霧の1発目を同じ所に出す（noahTakeAmmoImpact）。連発（誘導R/SR/UR）の2発目からは、その近くの体の上に散らす。
+    顔を狙う演出（誘導LR・麻酔弾UR）は弾も顔へ飛ぶ（ef.impactFace）
+  ・観測HUD：行動予測の下に「進撃予測 DDP −4〜−6 残114」（bridge.hud().advance＝kaijuDistanceRange。実際は ±1 の変動がある）
+  ・v367：戦術パネルの DMG・文字は、斜めから見るときも縦に伸ばさない（真上から見るときと同じ大きさ・配置。地面と平行）
+  ・v368：機体がいるマスの DMG も「DMG 数字」を横に並べる（上下に重ねると文字どうしが重なっていた）
+  ・v369：機体がいるマスの小さな DMG だけ、別の板（noah3d.js の tagPlane・TAG_LIFT）に描いて少し浮かせる（黄色い輪より上。地面と平行のまま）
+  ・v370：DMG の板の中に「DMG」と数字が必ず収まるよう、幅を測って文字の大きさ・間隔を合わせる
+  ・テスト用：bridge.debugAmmoFx(cardId)・bridge.debugFxPlacement(effect)・handle.debugBone(name)
 
 ===============================================================================
 -->
@@ -905,6 +922,15 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
 .nhAct .k{ display:block; }
 .nhAct b{ display:block; overflow:hidden; text-overflow:ellipsis; font-size:10px; color:#ffd9a0; }
 .nhAct.alert b{ color:#ff9aa5; animation:noahLamp .9s ease-in-out infinite; }
+/* v366 進撃予測（このラウンドに減るDDPの幅と、進んだあとの残り） */
+.nhAdv{ display:flex; flex-wrap:wrap; align-items:baseline; gap:0 4px; margin-top:3px; padding-top:3px; border-top:1px dashed rgba(168,190,226,.2); white-space:nowrap; }
+.nhAct .nhAdv .k{ display:block; flex:0 0 100%; }
+.nhAdv .u{ font-family:var(--f-hud); font-size:8px; font-weight:700; letter-spacing:.08em; color:rgba(var(--ddp-rgb),.85); }
+.nhAct .nhAdv b{ display:inline; overflow:visible; font-family:var(--f-hud); font-size:11.5px; font-weight:800; letter-spacing:.02em; color:var(--ddp); text-shadow:0 0 8px rgba(var(--ddp-rgb),.45); }
+.nhAdv em{ margin-left:auto; font-style:normal; font-size:8px; font-weight:600; color:rgba(206,224,246,.72); font-variant-numeric:tabular-nums; }
+.nhAct.alert .nhAdv b{ color:var(--ddp); animation:none; }
+.nhAdv[data-tone="warn"] b{ color:var(--warn); }
+.nhAdv[data-tone="bad"] b,.nhAdv[data-tone="bad"] em{ color:var(--order); }
 .noahHud[data-tone="alert"] .nhBio{ border-top-color:rgba(var(--order-rgb),.85); box-shadow:0 0 18px rgba(var(--order-rgb),.16); }
 .noahHud[data-tone="alert"] .nhBio::before,.noahHud[data-tone="alert"] .nhBio::after{ border-color:#ff8d9a; }
 .noahHud[data-tone="alert"] .nhBioHead{ color:#ff8d9a; }
@@ -4462,7 +4488,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v365',
+    currentPrototypeVersion:'v370',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -4956,11 +4982,32 @@ noahOperationEffect=function(cardId,unit) {
 };
 const noahAmmoSprites={};
 for(const key of ['guidance','sedation']){const image=new Image();image.src='./img/projectile/'+key+'.webp';noahAmmoSprites[key]=image;}
+// v366：ミサイル・麻酔弾が着弾する所を、発射のときに決める。このあと出る爆発・霧（1発目）は同じ所に出す（noahTakeAmmoImpact）。
+//       前は、弾はいつも胸の前へ飛び、爆発は別に決めた所に出ていたので、ずれて見えることがあった。
+//       face … 顔を狙う演出（誘導LR・麻酔弾UR。v364）。3Dでは弾も顔へ飛ぶ
+function noahPlanAmmoImpact(cardId,cell){
+ const g=guidanceVariantForCard(cardId), s=supportVariantForCard(cardId);
+ let p, face=false;
+ if(g==='lr'){ p={x:3.5,y:2.5}; face=true; }
+ else if(s==='ur'){ p={x:3.5,y:2.32}; face=true; }
+ else if(s==='lr'){ p={x:3.5,y:2.32}; }
+ else if(g || s){ p=guidanceFxRandomVisibleKaijuPoint(cell); }
+ else { const c=getRandomExplosionCell(); p={x:c.x+.5,y:c.y+.5}; }
+ game.noahAmmoImpact={ cardId, p, face, at:performance.now(), used:false };
+ return game.noahAmmoImpact;
+}
+function noahTakeAmmoImpact(cardId){
+ const m=game && game.noahAmmoImpact;
+ if(!m || m.used || m.cardId!==cardId || performance.now()-m.at>2600) return null;
+ m.used=true;
+ return m.p;
+}
 function noahLaunchAmmo(cardId,unit) {
  const d=def(cardId);if(!d?.ammo)return;
  const cell=getBoardGeom().cell,index=game.units.indexOf(unit),visualIndex=aircraftImageIndex(unit.aircraftId);
  const hover=getAircraftHoverState(visualIndex,performance.now()+index*37,cell);
- game.effects.push({type:'cardProjectile',cardId,start:performance.now(),duration:480,startCell:{x:boardXForUnitCol(unitColOf(unit))+.5+hover.driftX/cell,y:unit.row+.24+hover.bobY/cell},endCell:{x:3.5,y:1.7}});drawBoard();
+ const hit=noahPlanAmmoImpact(cardId,cell);
+ game.effects.push({type:'cardProjectile',cardId,start:performance.now(),duration:480,startCell:{x:boardXForUnitCol(unitColOf(unit))+.5+hover.driftX/cell,y:unit.row+.24+hover.bobY/cell},endCell:{x:hit.p.x,y:hit.p.y},impact:hit.p,impactFace:hit.face});drawBoard();
 }
 function noahDrawAmmoProjectile(effect,cell,p) {
  if(noah3dActive)return true; // v352: 3D表示中はミサイル・麻酔弾を3Dで描く
@@ -7826,6 +7873,11 @@ function noahDrawKaijuGroundShadow(cell) {
     const lineAlpha=areaThreat
       ? ((threat.breakRisk ? .88 : .72) + pulse*(threat.breakRisk ? .10 : .08))
       : (current ? .82 : .58);
+    if(noah3dTacticalHolo){   // v366：3Dでは新しい見た目
+      drawTacticalHoloCell(r,{ rgb:baseColor, glow:glowColor, fill:fillAlpha*.95, line:Math.min(1,lineAlpha+.08), strong:current,
+        hazard:areaThreat && !!threat.breakRisk, phase:unitCol*.21+row*.13, tag:current ? 'NOW' : (isMove ? 'MOVE' : 'DEPLOY'), tagAlpha:current ? .9 : .7 });
+      return;
+    }
     boardCtx.save();
     boardRoundRectPath(x,y,w,h,Math.max(5,cellSize*.075));
     boardCtx.globalCompositeOperation='source-over';
@@ -7875,6 +7927,186 @@ function noahDrawKaijuGroundShadow(cell) {
     boardCtx.fillText(tag, r.x+r.w-cellSize*.12, r.y+cellSize*.11);
     boardCtx.restore();
   }
+
+  // ---------------------------------------------------------------------------
+  // v366：3Dの戦術パネルの新しい見た目（ホログラムの板）。2D表示は今まで通り（上の drawTactical〜 をそのまま使う）。
+  //   マス … 角を落とした枠＋上が濃い塗り＋細い走査線＋ゆっくり横切る光。撃墜の恐れがあるマスは下に流れる警告の縞
+  //   DMG … 暗い小さな板に「DMG」と大きな数字、その下に脅威の段（3つの印）。機体がいるマスでは左に寄せて、機体に隠れないようにする
+  //   斜めから見ると奥行きがつぶれるので、文字はその分だけ縦に伸ばして描く（noah3dBadgeStretch）
+  // ---------------------------------------------------------------------------
+  function tacticalHoloPath(x,y,w,h,c){
+    boardCtx.beginPath();
+    boardCtx.moveTo(x+c,y); boardCtx.lineTo(x+w-c,y); boardCtx.lineTo(x+w,y+c); boardCtx.lineTo(x+w,y+h-c);
+    boardCtx.lineTo(x+w-c,y+h); boardCtx.lineTo(x+c,y+h); boardCtx.lineTo(x,y+h-c); boardCtx.lineTo(x,y+c);
+    boardCtx.closePath();
+  }
+  function tacticalHoloTier(damage, breakRisk){ return breakRisk || damage>=6 ? 3 : damage>=3 ? 2 : damage>0 ? 1 : 0; }
+  // o … { rgb, glow, fill（塗りの濃さ）, line（線の濃さ）, alpha, hazard（警告の縞）, phase（光が横切るタイミングのずれ）, tag, tagAlpha, strong }
+  function drawTacticalHoloCell(rect,o={}){
+    const ctx=boardCtx, H=rect.h, now=performance.now();
+    const pad=H*.05, x=rect.x+pad, y=rect.y+pad, w=rect.w-pad*2, h=rect.h-pad*2, c=H*.13;
+    const rgb=o.rgb||'108,238,218', a=o.alpha ?? 1, fill=o.fill ?? .1, line=o.line ?? .7;
+    ctx.save();
+    ctx.globalAlpha=a;
+    ctx.globalCompositeOperation='source-over';
+    tacticalHoloPath(x,y,w,h,c);
+    ctx.fillStyle='rgba(4,10,18,.20)';
+    ctx.fill();
+    const g=ctx.createLinearGradient(0,y,0,y+h);
+    g.addColorStop(0,`rgba(${rgb},${(fill*1.7).toFixed(3)})`);
+    g.addColorStop(.55,`rgba(${rgb},${(fill*.75).toFixed(3)})`);
+    g.addColorStop(1,`rgba(${rgb},${(fill*.5).toFixed(3)})`);
+    ctx.fillStyle=g;
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    // 細い走査線
+    ctx.fillStyle=`rgba(${rgb},.075)`;
+    const lh=Math.max(1,H*.013);
+    for(let sy=y+H*.04; sy<y+h; sy+=H*.078) ctx.fillRect(x,sy,w,lh);
+    // ゆっくり横切る光
+    const sp=((now/2600)+(o.phase||0))%1, sx=x-w*.35+w*1.7*sp;
+    const sg=ctx.createLinearGradient(sx-w*.2,0,sx+w*.2,0);
+    sg.addColorStop(0,`rgba(${rgb},0)`); sg.addColorStop(.5,`rgba(${rgb},${(o.strong ? .2 : .12).toFixed(3)})`); sg.addColorStop(1,`rgba(${rgb},0)`);
+    ctx.fillStyle=sg;
+    ctx.fillRect(x,y,w,h);
+    // 撃墜の恐れ：下の辺に、流れる警告の縞
+    if(o.hazard){
+      const bh=h*.15, st=H*.26, off=(now/45)%st;
+      ctx.fillStyle=`rgba(${rgb},.62)`;
+      for(let hx=x-st*2+off; hx<x+w+st; hx+=st){
+        ctx.beginPath();
+        ctx.moveTo(hx,y+h); ctx.lineTo(hx+st*.5,y+h); ctx.lineTo(hx+st*.5+bh,y+h-bh); ctx.lineTo(hx+bh,y+h-bh);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.fillStyle=`rgba(${rgb},.75)`;
+      ctx.fillRect(x,y+h-bh-Math.max(1,H*.012),w,Math.max(1,H*.012));
+    }
+    ctx.restore();
+    // 枠
+    ctx.globalCompositeOperation='screen';
+    tacticalHoloPath(x,y,w,h,c);
+    ctx.strokeStyle=`rgba(${rgb},${line.toFixed(3)})`;
+    ctx.lineWidth=Math.max(1.2,H*.014);
+    ctx.shadowColor=o.glow || `rgba(${rgb},.6)`;
+    ctx.shadowBlur=H*(o.strong ? .15 : .09);
+    ctx.stroke();
+    // 四隅の太い線と、上下の辺のまん中の小さな目印
+    const e=H*.2, t=Math.max(2.2,H*.036);
+    ctx.lineWidth=t; ctx.lineCap='butt'; ctx.lineJoin='miter';
+    ctx.strokeStyle=`rgba(${rgb},${Math.min(1,line+.2).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.moveTo(x,y+c+e); ctx.lineTo(x,y+c); ctx.lineTo(x+c,y); ctx.lineTo(x+c+e,y);
+    ctx.moveTo(x+w-c-e,y); ctx.lineTo(x+w-c,y); ctx.lineTo(x+w,y+c); ctx.lineTo(x+w,y+c+e);
+    ctx.moveTo(x+w,y+h-c-e); ctx.lineTo(x+w,y+h-c); ctx.lineTo(x+w-c,y+h); ctx.lineTo(x+w-c-e,y+h);
+    ctx.moveTo(x+c+e,y+h); ctx.lineTo(x+c,y+h); ctx.lineTo(x,y+h-c); ctx.lineTo(x,y+h-c-e);
+    ctx.stroke();
+    ctx.shadowBlur=0;
+    ctx.fillStyle=`rgba(${rgb},${Math.min(1,line+.1).toFixed(3)})`;
+    const nw=H*.16, nh=Math.max(1.5,H*.03);
+    ctx.fillRect(rect.cx-nw/2,y-nh*.2,nw,nh);
+    ctx.fillRect(rect.cx-nw/2,y+h-nh*.8,nw,nh);
+    // 右上の小さな文字（MOVE / DEPLOY など）
+    if(o.tag){
+      const st=Math.max(1, Math.min(noah3dBadgeStretch || 1, 1.9));
+      ctx.globalCompositeOperation='source-over';
+      ctx.globalAlpha=a*(o.tagAlpha ?? .8);
+      ctx.fillStyle=`rgba(${rgb},.95)`;
+      ctx.textAlign='right'; ctx.textBaseline='top';
+      ctx.font=`700 ${Math.max(7,Math.floor(H*.1))}px NoahHUD, system-ui, -apple-system, sans-serif`;
+      try{ ctx.letterSpacing='0.1em'; }catch(err){}
+      ctx.translate(x+w-H*.16, y+H*.07); ctx.scale(1, st);
+      ctx.fillText(o.tag, 0, 0);
+    }
+    ctx.restore();
+  }
+  // DMG の表示。o … { breakRisk, alpha, occupied（機体がいるマス。左に寄せる） }
+  function drawTacticalHoloDamage(rect, damage, o={}){
+    const ctx=boardCtx, H=rect.h, now=performance.now();
+    const breakRisk=!!o.breakRisk, tone=tacticalThreatTone(damage,breakRisk), tier=tacticalHoloTier(damage,breakRisk);
+    const pulse=(Math.sin(now/150)+1)/2, alpha=o.alpha ?? 1, occ=!!o.occupied;
+    // 機体がいるマスでは、機体とHPの札に隠れないよう、小さめにして左上の角に寄せる
+    const bw=H*(occ ? (damage>=10 ? .54 : .46) : (damage>=10 ? 1.06 : .94)), bh=H*(occ ? .29 : .42);
+    const st=Math.max(1, Math.min(noah3dBadgeStretch || 1, .86/.42));
+    const big=st<1.3 ? 1.32 : 1;   // 真上から見るとき（縦に伸ばさないとき）は、その分だけ全体を大きく
+    const cx=occ ? rect.x+H*.085+bw/2 : rect.cx, cy=occ ? rect.y+H*.095+bh*st/2 : rect.cy;
+    ctx.save();
+    ctx.translate(occ ? cx+bw*(big-1)/2 : cx, occ ? cy+bh*(big-1)/2 : cy); ctx.scale(big,st*big);
+    ctx.globalAlpha=alpha;
+    // 暗い板
+    ctx.globalCompositeOperation='source-over';
+    tacticalHoloPath(-bw/2,-bh/2,bw,bh,bh*.2);
+    ctx.fillStyle=`rgba(5,9,15,${(.78+.06*pulse).toFixed(3)})`;
+    ctx.fill();
+    ctx.globalCompositeOperation='screen';
+    ctx.strokeStyle=`rgba(${tone.rgb},${(.62+.28*pulse*(breakRisk?1:.5)).toFixed(3)})`;
+    ctx.lineWidth=Math.max(1.2,H*.014);
+    ctx.shadowColor=tone.glow; ctx.shadowBlur=H*(breakRisk ? .14 : .08);
+    ctx.stroke();
+    ctx.shadowBlur=0;
+    // 左の辺の太い線（脅威の色）
+    ctx.fillStyle=`rgba(${tone.rgb},.95)`;
+    ctx.fillRect(-bw/2, -bh/2+bh*.2, Math.max(2,H*.03), bh*.6);
+    // 文字
+    let numPx=Math.max(11,Math.floor(H*(occ ? .2 : .30))), labPx=Math.max(7,Math.floor(H*(occ ? .066 : .105)));
+    const numText=String(Math.max(0,damage));
+    ctx.textBaseline='alphabetic';
+    try{ ctx.letterSpacing='0.06em'; }catch(err){}
+    const baseY=bh*.5-bh*.30;
+    {
+      // v368：機体がいるマスも、空きマスと同じく「DMG」と数字を横に並べる（上下に重ねると、小さい板では文字どうしが重なっていた）
+      // v370：板の中に「DMG」と数字が必ず収まるように、幅を測って、はみ出すときは文字を小さくする（小さい板では文字の間隔も詰める）
+      const labSpace=occ ? '0.02em' : '0.06em', gapK=occ ? .022 : .07;
+      const inner=bw-H*(occ ? .1 : .16);   // 左の太い線と、左右の余白を引いた幅
+      let nw=0, lw=0, gap=0, total=0;
+      for(let pass=0; pass<3; pass++){
+        ctx.font=`800 ${numPx}px NoahHUD, system-ui, -apple-system, sans-serif`;
+        try{ ctx.letterSpacing='0em'; }catch(err){}
+        nw=ctx.measureText(numText).width;
+        ctx.font=`700 ${labPx}px NoahHUD, system-ui, -apple-system, sans-serif`;
+        try{ ctx.letterSpacing=labSpace; }catch(err){}
+        lw=ctx.measureText('DMG').width; gap=H*gapK; total=lw+gap+nw;
+        if(total<=inner) break;
+        const f=Math.max(.6, inner/total*.98);
+        numPx=Math.max(8,numPx*f); labPx=Math.max(6,labPx*f);
+      }
+      const x0=-total/2+Math.max(2,H*.03)/2+H*.004;
+      ctx.textAlign='left';
+      ctx.fillStyle=tone.pale;
+      ctx.fillText('DMG', x0, baseY-numPx*.08);
+      try{ ctx.letterSpacing='0em'; }catch(err){}
+      ctx.font=`800 ${numPx}px NoahHUD, system-ui, -apple-system, sans-serif`;
+      ctx.fillStyle=tone.text; ctx.shadowColor=tone.glow; ctx.shadowBlur=H*.07;
+      ctx.fillText(numText, x0+lw+gap, baseY);
+    }
+    ctx.shadowBlur=0;
+    // 脅威の段（3つの印。撃墜の恐れがあるときは点滅）
+    const pw=bw*.16, ph=Math.max(2,bh*.085), pg=bw*.045, px0=-(pw*3+pg*2)/2+H*.015, py=bh/2-ph-bh*.085;
+    for(let i=0;i<3;i++){
+      const on=i<tier;
+      ctx.globalAlpha=alpha*(on ? (breakRisk ? .55+.45*pulse : .95) : .22);
+      ctx.fillStyle=on ? tone.text : tone.pale;
+      const xx=px0+i*(pw+pg), sk=ph*.6;
+      ctx.beginPath();
+      ctx.moveTo(xx+sk,py); ctx.lineTo(xx+pw+sk,py); ctx.lineTo(xx+pw,py+ph); ctx.lineTo(xx,py+ph);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    // 撃墜の恐れ：マスの右上に「BREAK」
+    if(breakRisk){
+      ctx.save();
+      const st2=Math.max(1, Math.min(noah3dBadgeStretch || 1, 1.9));
+      ctx.globalAlpha=alpha*(.6+.4*pulse);
+      ctx.fillStyle=tone.text;
+      ctx.textAlign='right'; ctx.textBaseline='top';
+      ctx.font=`800 ${Math.max(7,Math.floor(H*.105))}px NoahHUD, system-ui, -apple-system, sans-serif`;
+      try{ ctx.letterSpacing='0.1em'; }catch(err){}
+      ctx.shadowColor=tone.glow; ctx.shadowBlur=H*.06;
+      ctx.translate(rect.x+rect.w-H*.2, rect.y+H*.115); ctx.scale(1, st2);
+      ctx.fillText('BREAK', 0, 0);
+      ctx.restore();
+    }
+  }
   function tacticalThreatTone(damage=0, breakRisk=false){
     if(breakRisk || damage>=6) return { rgb:'255,50,62', text:'rgb(255,105,112)', glow:'rgba(255,42,55,.82)', pale:'rgba(255,205,205,.92)' };
     if(damage>=3) return { rgb:'255,112,56', text:'rgb(255,156,104)', glow:'rgba(255,112,56,.64)', pale:'rgba(255,222,184,.88)' };
@@ -7891,6 +8123,11 @@ function noahDrawKaijuGroundShadow(cell) {
     const activeAlpha=seqActive ? 1 : .34;
     const fillAlpha=(danger ? .120 : .080) + pulse*(danger ? .075 : .050);
     const lineAlpha=(danger ? .82 : .64) + pulse*(danger ? .14 : .10);
+    if(noah3dTacticalHolo){   // v366：3Dでは新しい見た目
+      drawTacticalHoloCell(rect,{ rgb:tone.rgb, glow:tone.glow, fill:fillAlpha*1.05, line:Math.min(1,lineAlpha+.06), alpha:seqActive ? 1 : .36,
+        hazard:danger, strong:danger, phase:(rect.x+rect.y*1.7)/(rect.h*9) });
+      return;
+    }
     boardCtx.save();
     boardCtx.globalCompositeOperation='source-over';
     boardRoundRectPath(x,y,w,h,Math.max(5,rect.h*.075));
@@ -7943,6 +8180,7 @@ function noahDrawKaijuGroundShadow(cell) {
     const x=rect.cx-badgeW/2;
     const y=rect.cy-badgeH/2;
     const label=breakRisk ? `DMG ${damage}!` : `DMG ${Math.max(0,damage)}`;
+    if(noah3dTacticalHolo){ drawTacticalHoloDamage(rect, damage, { breakRisk, alpha, occupied:!!opt.occupied }); return; }   // v366：3Dでは新しい見た目
     boardCtx.save();
     // v361：3Dで斜めから見るとマスの奥行きがつぶれるので、その分だけ札を縦に伸ばして描く（道路の文字と同じ。画面では元の形に見える）
     const stretch=Math.max(1, Math.min(noah3dBadgeStretch || 1, rect.h*.82/badgeH));
@@ -8062,7 +8300,12 @@ function noahDrawKaijuGroundShadow(cell) {
       const r=kaijuThreatBoardCellRect(cellSize, c);
       const seqActive = c.seqCount>1 ? ((Math.floor(now/1020)%c.seqCount)===c.seqIndex) : true;
       const alpha = c.seqCount>1 ? (seqActive ? 1 : 0.22 + pulse*0.10) : (0.86 + pulse*0.14);
-      drawTacticalDamageBadge(r, Number(c.damage)||0, { breakRisk:!!c.breakRisk, alpha });
+      // v366：機体がいるマスでは、機体に隠れないよう左に寄せる（3Dの新しい見た目だけ）
+      const occupied=noah3dTacticalHolo && isGridOccupied(c.col, KAIJU_THREAT_ROWS[c.row] ?? 5, null);
+      // v369：機体がいるマスの小さな DMG は、少し浮かせた別の板に描く（機体を選んだときの黄色い輪より上）
+      if(noah3dTacticalPart==='base' && occupied) return;
+      if(noah3dTacticalPart==='tags'){ if(!occupied) return; noah3dTacticalTagCount++; }
+      drawTacticalDamageBadge(r, Number(c.damage)||0, { breakRisk:!!c.breakRisk, alpha, occupied });
     });
     boardCtx.restore();
   }
@@ -8071,7 +8314,14 @@ function getRandomExplosionCell(){
     return cells[Math.floor(Math.random()*cells.length)];
   }
   function spawnExplosionEffect(kind='fire', delayMs=0, forcedCell=null, options={}){
-    const cell = forcedCell || getRandomExplosionCell();
+    let cell = forcedCell || null;
+    // v366：カードの弾の爆発は、弾が着弾した所に出す
+    const hitP = (!cell && options.cardId) ? noahTakeAmmoImpact(options.cardId) : null;
+    if(hitP){
+      cell = { x:Math.floor(hitP.x), y:Math.floor(hitP.y) };
+      options = Object.assign({}, options, { offsetX:hitP.x-cell.x-.5, offsetY:hitP.y-cell.y-.5 });
+    }
+    if(!cell) cell = getRandomExplosionCell();
     const bgOffsetStart = (typeof game.bgVisualOffsetCells === 'number') ? game.bgVisualOffsetCells : game.bgOffsetCells;
     game.effects.push({
       type:'explosion',
@@ -9349,11 +9599,23 @@ function getRandomExplosionCell(){
       setTimeout(stopGuidanceFxJitter,205);
     }
 
+    let firstHit=null;
     for(let i=0;i<cfg.count;i++){
       setTimeout(()=>{
-        const point=variant==='lr'
-          ? {x:3.5,y:2.5}
-          : guidanceFxRandomVisibleKaijuPoint(cell);
+        // v366：1発目は、弾が着弾した所に出す。2発目からは、その近くの体の上に散らす（何か所か試して、いちばん近い所）
+        let point;
+        if(variant==='lr') point={x:3.5,y:2.5};
+        else if(i===0){ point=noahTakeAmmoImpact(cardId) || guidanceFxRandomVisibleKaijuPoint(cell); firstHit=point; }
+        else{
+          point=guidanceFxRandomVisibleKaijuPoint(cell);
+          if(firstHit){
+            let best=Math.hypot(point.x-firstHit.x, point.y-firstHit.y);
+            for(let n=0;n<7;n++){
+              const q=guidanceFxRandomVisibleKaijuPoint(cell), dq=Math.hypot(q.x-firstHit.x, q.y-firstHit.y);
+              if(dq>=.28 && (dq<best || best<.28)){ best=dq; point=q; }
+            }
+          }
+        }
         guidanceFxPushEffect({
           type:variant==='lr' ? 'guidanceFxLR' : 'guidanceFxExplosion',
           cardId,
@@ -9964,7 +10226,7 @@ function getRandomExplosionCell(){
     };
     const cfg=cfgMap[variant];
     const duration=supportEffectDurationForVariant(variant);
-    const point=cfg.fixed ? cfg.point : guidanceFxRandomVisibleKaijuPoint(cell);
+    const point=cfg.fixed ? cfg.point : (noahTakeAmmoImpact(cardId) || guidanceFxRandomVisibleKaijuPoint(cell));   // v366：弾が着弾した所に出す
     const now=performance.now();
     guidanceFxPushEffect({
       type:'supportFx',
@@ -16942,7 +17204,7 @@ function showCardEnchantChoice(unit,item){
     'selectedKaiju','effects','cannonAnim','pendingProgress','pendingDiscard','pendingDeckToBase','pendingBaseToDeck','pendingBaseToTopDeck',
     'inputLocked','kaijuAttackJitterUntil','kaijuAttackJitterScale','sedationShakeUntil','sedationShakeStart','sedationShakeScale',
     'researchFxUntil','researchFxLockToken','bgAnimToken','bgVisualOffsetCells','aircraftEntryProgress','introHideUnits','kaijuFadeProgress','metricSnapshot',
-    'kaijuMotion'   // v363 攻撃の動き（演出用）
+    'noahAmmoImpact','kaijuMotion'   // v363 攻撃の動き（演出用）
   ]);
   const NOAH_AUTOSAVE_DELAY_MS = 350;
   let noahAutosaveTimer = null;
@@ -17448,7 +17710,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   if(g)await runGuidanceCardEffect(cardId,still?0:-1);
   else if(s)await runSupportCardEffect(cardId);
   else if(d.category==='research'&&!d.followDrone){const ms=spawnResearchEffectForCard(cardId);await wait(ms+70);}
-  else if(d.ammo){spawnExplosionEffect(d.category==='fire'?'fire':'support',0,{x:3,y:1},{cardId});await wait(GENERATED_EXPLOSION_TOTAL_MS+80);}
+  else if(d.ammo){spawnExplosionEffect(d.category==='fire'?'fire':'support',0,still?{x:3,y:1}:null,{cardId});await wait(GENERATED_EXPLOSION_TOTAL_MS+80);}   // v366：着弾した所に出す
   else{noahOperationEffect(cardId,unit);await wait(cardId==='trial_operation_lr'?1320:1080);}
   if(still){
    game.effects.length=0;const now=performance.now(),base={cardId,start:now-240000,duration:600000};
@@ -17497,6 +17759,8 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   //   sw.js の CORE_FILES の名前を合わせる（ファイル名ごと変える。端末に保存した古い版は使われなくなる）。
   // ===========================================================================
   var noah3dActive = false;   // drawBoard から先に参照されても false になるよう var で宣言
+  var noah3dTacticalPart = '', noah3dTacticalTagCount = 0; // v369
+  var noah3dTacticalHolo = false; // v366：3Dの戦術パネルを描いている間だけ true（新しい見た目のマス・DMG表示にする）
   var noah3dBadgeStretch = 1; // v361：戦術パネルの DMG の札を縦に伸ばす倍率（noah3d.js が視点の角度から決める。描いている間だけ 1 以外）
   let noah3dHandle = null;
   let noah3dLoading = null;
@@ -17540,6 +17804,11 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   function noah3dDrawTacticalLayer(target, opt){
     if(!target || !target.getContext) return false;
     noah3dBadgeStretch = Math.max(1, Math.min(2.2, Number(opt && opt.stretch) || 1));
+    noah3dTacticalHolo = !!(opt && opt.style==='holo');   // v366：3Dの戦術パネルは新しい見た目で描く
+    noah3dTacticalPart = (noah3dTacticalHolo && opt.part) || '';   // v369：'base'＝機体がいるマスの小さな DMG 以外／'tags'＝それだけ（少し浮かせた板に描く）
+    noah3dTacticalTagCount = 0;
+    if(noah3dTacticalHolo) noah3dBadgeStretch = 1;        // v367：新しい見た目では、斜めから見るときも縦に伸ばさない（真上から見るときと同じ大きさ・配置で、地面と平行のまま）
+    const view = opt && opt.view;                          // v366：描く範囲（盤面のマス）。無ければ盤面全体
     const geom = getBoardGeom();
     const {size, cell} = geom;
     const main = boardCtx;
@@ -17552,8 +17821,13 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       boardCtx.shadowColor='rgba(0,0,0,0)';
       try{ boardCtx.filter='none'; }catch(e){}
       boardCtx.clearRect(0,0,target.width,target.height);
-      const k = target.width / Math.max(1, size);
-      boardCtx.setTransform(k,0,0,k,0,0);
+      const k = view ? target.width / Math.max(1, view.w*cell) : target.width / Math.max(1, size);
+      if(view) boardCtx.setTransform(k,0,0,k,-view.x*cell*k,-view.y*cell*k);
+      else boardCtx.setTransform(k,0,0,k,0,0);
+      if(noah3dTacticalPart==='tags'){
+        drawKaijuBoardThreatDamage(cell);
+        return noah3dTacticalTagCount>0 ? 'drawn' : 'empty';
+      }
       if((game.mode==='move' || game.mode==='sortie') && !game.gameOver){
         const unit=curUnit();
         [0,1,2].forEach(unitCol=>{
@@ -17575,6 +17849,8 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       boardCtx.setTransform(1,0,0,1,0,0);
       boardCtx = main;
       noah3dBadgeStretch = 1;
+      noah3dTacticalHolo = false;
+      noah3dTacticalPart = '';
     }
     return true;
   }
@@ -17730,6 +18006,18 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     kaijuCharging: ()=>{ try{ return !!isBathynomaSpecialCharging(); }catch(e){ return false; } },
     geom: ()=>getBoardGeom(),
     drawTactical: (target, opt)=>noah3dDrawTacticalLayer(target, opt),
+    // テスト用（v366）：弾を撃って、0.5秒後にそのカードの着弾の演出を出す（本番の発射と同じ順番。着弾点が合うか確かめる）
+    debugAmmoFx: (cardId)=>{
+      const d=def(cardId), unit=game.units[0]; if(!d || !d.ammo || !unit) return false;
+      noahLaunchAmmo(cardId, unit);
+      setTimeout(()=>{
+        if(guidanceVariantForCard(cardId)) runGuidanceCardEffect(cardId, 0);
+        else if(supportVariantForCard(cardId)) runSupportCardEffect(cardId);
+        else spawnExplosionEffect(d.category==='fire' ? 'fire' : 'support', 0, null, { cardId });
+      }, 500);
+      return true;
+    },
+    debugFxPlacement: (effect)=>noah3dEffectPlacement(effect),
     // v361：観測HUD（高度スケール・生体モニター・行動予測）に出す数字。行動予測は、盤面の攻撃予測と同じくアタックフェイズの間は出さない
     // v362：必殺技の状態も渡す（special：'charging' 準備中＝次のラウンドに撃つ / 'ready' 発動＝このラウンドに撃つ / 'redirected' 音響誘導で逸らした）。
     //       前は怪獣の頭の上に「！」を出していたが、3Dではやめて生体モニターで知らせる（2Dの盤面の「！」はそのまま）
@@ -17752,7 +18040,12 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
           }
         }
       }catch(e){}
-      return { ep:game.ep, epMax:game.epMax, hp:game.kaijuHp, hpMax:game.kaijuHpMax, heightM:Number(k.heightM)||0, stage:currentStageDef().id,
+      // v366：進撃予測（このラウンドに怪獣が進む量＝DDPの減る幅。実際は ±1 の変動がある）
+      let advance = null;
+      try{
+        if(action){ const r = kaijuDistanceRange(effectiveKaijuDistanceLoss(currentKaijuAction())); advance = { min:r.min, max:r.max, ddp:Math.max(0, Number(game.distance)||0) }; }
+      }catch(e){}
+      return { advance, ep:game.ep, epMax:game.epMax, hp:game.kaijuHp, hpMax:game.kaijuHpMax, heightM:Number(k.heightM)||0, stage:currentStageDef().id,
         obs:`OBS-${game.observationNo || '00'}`, action, special, specialName, alert: special==='charging' || special==='ready',
         pointerHidden: noah3dPointerHidden() };   // v364：顔を狙う演出の間は、体の輪と線を消す
     },
