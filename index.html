@@ -151,6 +151,27 @@ SAVE / CONTINUE（v336〜）：
   怪獣に当たる演出の位置・大きさも怪獣に合わせて広げる（effectPlanePoint）。DMG の札は、斜めでつぶれる分だけ縦に伸ばして描く（noah3dBadgeStretch）。
   観測HUD（noah3d.js の makeHud・CSS の .noahHud）：左に高度スケール（体高・機体の高度）、右上に生体モニター（EP で波が荒れ、VSP が下がると途切れる）と
   行動予測、左上に環境の数字（飾り）。出す数字は 3D側への窓口の hud()。FIELD の札は上辺の中央から左上へ移した。機体の下には地面へ下ろす光の線。
+- v362〜：必殺技の溜めで怪獣の頭の上に出していた「！」は、3Dではやめて観測HUDの生体モニターで知らせる（いちばん下の段に
+  「必殺技 準備中＝次R」「必殺技 発動＝今R」「音響誘導 成功」。警告中はモニター・輪・線・照準が赤くなり、波形も変わる。hud() の special）。
+  2Dの盤面（3Dを使えない端末・?3d=0）の「！」はそのまま。
+  中央上部に追跡の照準（怪獣の頭の真上。TRACKING ／警告中は WARNING）。高度スケールの頭の高さの印から「体高」の文字を外し、目盛りの間隔は怪獣の高さで変わる。
+  生体モニターの輪（ポインター）の場所は、怪獣ごとに noah3d.js の KAIJU_MODEL.hudPointer（骨の名前＋ずれ）で決める。モニターの位置は固定で、
+  線は輪がモニターの下・左・ずっと下のどこにあってもつながる（noah3d.js の leaderPoints）。カメラに入れる怪獣の点は、怪獣の大きさ（kaijuHeightCells）に
+  合わせて広げる（poseFit）。背の高い怪獣でも頭が切れない。
+- v363〜：3Dの地面の絵を 1.45 倍に広げ、道の真ん中を怪獣の両足の真ん中にそろえた（noah3d.js の GROUND_ZOOM・PATH_CENTER_U・PATH_CENTER_X。
+  1.9倍のセレヴァーンの右足が道の外の森・岩場に出ていたため）。
+  カード演出（爆発・目視観察の照準など）の大きさを、怪獣を大きくする前（v360）と同じ「1マス＝1」に戻した（置き場所は大きい怪獣に合わせたまま。
+  noah3d.js の fxProject.planeRef・standing、index.html の noah3dEffectMatrix）。怪獣の衝撃波の輪だけは今の大きさのまま。
+  盤面を押して開いたポップアップに、同じタップのあとから来るクリックが届いていた（怪獣を押すと特性の小窓まで開いた）のを直した
+  （noah3d.js の onTouchEnd・index.html の noahGuardGhostClick。2Dの盤面にも効く）。
+  3Dでは、最接近攻撃・前中列薙ぎ払いの三日月弾をやめ、怪獣の腕の動きで見せる（最接近：片腕を振りかぶって振り下ろす／薙ぎ払い：両腕を横から
+  互い違いに払う。当たる瞬間は KAIJU_MOTIONS の hitMs）。必殺技は三日月弾・エネルギー波はそのままで、両腕を広げて反り、交差させて振り下ろす。
+  衝撃波は今まで通り。動きは game.kaijuMotion（セーブしない）を noah3d.js の motionOffsets が骨の回転にする。2D・仮モデルの間は今まで通り。
+- v364〜：怪獣の決まった所に出す演出（研究の演出＝目視観察の照準など、麻酔弾URの霧、誘導LRの爆発）は、3Dでは怪獣の顔を狙う
+  （noah3d.js の KAIJU_MODEL.fxAim＝骨の名前＋ずれ・fxProject.aim、index.html の noah3dFaceAimFx・noah3dEffectMatrix）。顔の動きに付いていく。
+  その演出（と麻酔弾LRの霧）が出ている間は、生体モニターの輪（ポインター）と線を消し、終わったら戻す（hud() の pointerHidden）。
+  麻酔弾N/R/SR・ミサイルなどの爆発は、毎回怪獣の体のどこかに散るので今まで通り。
+  怪獣の画面は、開いてから 0.45秒の間は中の小窓（特性・行動予測）を開かない（怪獣を押した同じタップの続きで開いてしまうのを、念のため防ぐ）。
 
 ===============================================================================
 -->
@@ -844,6 +865,8 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
 .nhRing{ fill:rgba(120,190,255,.08); stroke:#eef7ff; stroke-width:1.25; }
 .nhRing2{ fill:none; stroke:#dcefff; stroke-width:1.75; stroke-dasharray:5 10.7; }
 .nhLine{ fill:none; stroke:#e4f2ff; stroke-width:1.1; }
+.nhLink{ transition:opacity .18s ease; }
+.noahHud.ptrOff .nhLink{ opacity:0; }   /* v364 顔を狙う演出の間は、体の輪と線を消す */
 .noahHud[data-tone="alert"] .nhRing,.noahHud[data-tone="alert"] .nhRing2,.noahHud[data-tone="alert"] .nhLine{ stroke:rgba(255,110,125,.95); }
 /* 生体モニター */
 .nhBio{
@@ -872,11 +895,52 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
 .nhAct .k{ display:block; }
 .nhAct b{ display:block; overflow:hidden; text-overflow:ellipsis; font-size:10px; color:#ffd9a0; }
 .nhAct.alert b{ color:#ff9aa5; animation:noahLamp .9s ease-in-out infinite; }
-.noahHud[data-tone="alert"] .nhBio{ border-top-color:rgba(var(--order-rgb),.85); }
-.noahHud[data-tone="alert"] .nhLamp{ background:var(--order); box-shadow:0 0 6px var(--order); }
+.noahHud[data-tone="alert"] .nhBio{ border-top-color:rgba(var(--order-rgb),.85); box-shadow:0 0 18px rgba(var(--order-rgb),.16); }
+.noahHud[data-tone="alert"] .nhBio::before,.noahHud[data-tone="alert"] .nhBio::after{ border-color:#ff8d9a; }
+.noahHud[data-tone="alert"] .nhBioHead{ color:#ff8d9a; }
+.noahHud[data-tone="alert"] .nhLamp{ background:var(--order); box-shadow:0 0 6px var(--order); animation-duration:.6s; }
+/* v362 必殺技の警告（生体モニターのいちばん下の段）。前の怪獣の頭の上の「！」の代わり */
+.nhWarn{ margin-top:4px; padding:3px 5px 4px; border-top:1px solid rgba(var(--order-rgb),.75); background:linear-gradient(90deg,rgba(var(--order-rgb),.30),rgba(var(--order-rgb),.07)); }
+.nhWarnHead{ display:flex; align-items:baseline; gap:4px; font-family:var(--f-ui); font-size:8.5px; font-weight:800; letter-spacing:.06em; line-height:1.4; color:#ff8d9a; white-space:nowrap; }
+.nhWarnHead span{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.nhWarnHead em{ margin-left:auto; font-style:normal; font-size:8px; letter-spacing:.02em; }
+.nhWarnName{ display:flex; align-items:baseline; gap:4px; line-height:1.3; white-space:nowrap; }
+.nhWarnName b{ min-width:0; overflow:hidden; text-overflow:ellipsis; font-family:var(--f-ui); font-size:10px; font-weight:800; letter-spacing:.04em; color:#ffe1e5; }
+.nhWarnName em{ margin-left:auto; font-style:normal; font-family:var(--f-ui); font-size:8px; font-weight:800; color:#ff8d9a; }
+.nhWarn[data-kind="charging"] .nhWarnHead{ animation:noahLamp 1.2s ease-in-out infinite; }
+.nhWarn[data-kind="ready"]{ animation:nhWarnPulse .7s ease-in-out infinite; }
+.nhWarn[data-kind="ready"] .nhWarnHead{ animation:noahLamp .7s ease-in-out infinite; }
+.nhWarn[data-kind="redirected"]{ border-top-color:rgba(var(--ep-rgb),.7); background:linear-gradient(90deg,rgba(var(--ep-rgb),.22),rgba(var(--ep-rgb),.05)); }
+.nhWarn[data-kind="redirected"] .nhWarnHead,.nhWarn[data-kind="redirected"] .nhWarnName em{ color:#9ff3d2; }
+.nhWarn[data-kind="redirected"] .nhWarnName b{ color:#d9fff0; text-decoration:line-through; text-decoration-color:rgba(159,243,210,.85); }
+@keyframes nhWarnPulse{ 0%,100%{ box-shadow:inset 0 0 0 rgba(var(--order-rgb),0); } 50%{ box-shadow:inset 0 0 14px rgba(var(--order-rgb),.6); } }
+/* v362 中央上部：追跡の照準（怪獣の頭の真上。noah3d.js が位置と幅を決める） */
+.nhTrack{ position:absolute; left:0; top:0; height:calc(25px * var(--k,1)); will-change:transform; color:rgba(226,240,255,.92); }
+.nhTrackLabel{ position:absolute; left:-30px; right:-30px; top:0; display:flex; justify-content:center; align-items:center; gap:5px; font-size:calc(7.5px * var(--k,1)); font-weight:700; letter-spacing:.26em; line-height:1; white-space:nowrap; }
+.nhTrackLabel i{ width:4px; height:4px; transform:rotate(45deg); background:currentColor; box-shadow:0 0 4px currentColor; }
+.nhTrackLabel .b{ color:rgba(196,216,240,.62); letter-spacing:.16em; }
+.nhTrackBar{ position:absolute; left:0; right:0; bottom:0; height:calc(9px * var(--k,1)); border-top:1px solid rgba(226,240,255,.5); }
+.nhTrackBar::before,.nhTrackBar::after{ content:""; position:absolute; top:-1px; width:7px; height:100%; border-top:1.5px solid var(--plat); }
+.nhTrackBar::before{ left:0; border-left:1.5px solid var(--plat); }
+.nhTrackBar::after{ right:0; border-right:1.5px solid var(--plat); }
+.nhTrackTicks{
+  position:absolute; left:9px; right:9px; top:0; height:100%;
+  background:
+    repeating-linear-gradient(90deg,rgba(220,236,255,.6) 0 1px,transparent 1px 24px) 0 0 / auto 70% repeat-x,
+    repeating-linear-gradient(90deg,rgba(220,236,255,.32) 0 1px,transparent 1px 6px) 0 0 / auto 38% repeat-x;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent);
+}
+.nhTrackCaret{ position:absolute; left:50%; top:-1px; width:0; height:0; margin-left:-4.5px; border-left:4.5px solid transparent; border-right:4.5px solid transparent; border-top:6px solid #eaf4ff; filter:drop-shadow(0 0 3px rgba(120,190,255,.9)); }
+.noahHud[data-tone="alert"] .nhTrack{ color:#ff8d9a; }
+.noahHud[data-tone="alert"] .nhTrackBar{ border-top-color:rgba(255,120,135,.7); }
+.noahHud[data-tone="alert"] .nhTrackBar::before,.noahHud[data-tone="alert"] .nhTrackBar::after{ border-color:#ff8d9a; }
+.noahHud[data-tone="alert"] .nhTrackCaret{ border-top-color:#ff8d9a; filter:drop-shadow(0 0 3px rgba(255,60,80,.9)); }
+.noahHud[data-tone="alert"] .nhTrackLabel .a{ animation:noahLamp .9s ease-in-out infinite; }
+.noahHud.compact .nhTrackLabel .b{ display:none; }
 .nhBio{ transform-origin:100% 0; }
 .noahHud.compact .nhEnv,.noahHud.compact .nhMark span{ display:none; }
-@media (prefers-reduced-motion:reduce){ .nhLamp,.nhAct.alert b{ animation:none; } }
+@media (prefers-reduced-motion:reduce){ .nhLamp,.nhAct.alert b,.nhWarn,.nhWarnHead,.nhTrackLabel .a{ animation:none !important; } }
 
 /* 7 ───────────────────────────────────────────────────────── Command deck */
 /* 行動機の見出し */
@@ -4388,7 +4452,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v361',
+    currentPrototypeVersion:'v364',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -12298,11 +12362,14 @@ function getRandomExplosionCell(){
     if(game.inputLocked) return;
     const k = game.selectedKaiju || kaijuDef(setupState.kaiju);
     openModal(k.title, buildKaijuModalHtml(k), [], { modalClass:'cardDetailModal kaijuDetailModal' });
+    // v364：開いた直後（怪獣を押した同じタップの続き）は、中の小窓（特性・行動予測）を開かない。わざと押すときはこれより遅い
+    const openedAt = performance.now();
+    const tooSoon = ()=>performance.now() - openedAt < 450;
     const effectBtn = ui.modalBody.querySelector('[data-open-effect]');
     const effectPopup = ui.modalBody.querySelector('[data-effect-popup]');
     const effectClose = ui.modalBody.querySelector('[data-close-effect]');
     if(effectBtn && effectPopup){
-      const openEffect = ()=>{ playPopupOpenSound(); effectPopup.classList.add('show'); };
+      const openEffect = ()=>{ if(tooSoon()) return; playPopupOpenSound(); effectPopup.classList.add('show'); };
       const closeEffect = ()=>{ playModalCancelSound(); effectPopup.classList.remove('show'); };
       effectBtn.addEventListener('click', openEffect);
       effectBtn.addEventListener('keydown',e=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); openEffect(); } });
@@ -12312,7 +12379,7 @@ function getRandomExplosionCell(){
     const notePopup = ui.modalBody.querySelector('[data-note-popup]');
     const noteClose = ui.modalBody.querySelector('[data-close-note]');
     if(notePopup){
-      const openNote = ()=>{ playPopupOpenSound(); notePopup.classList.add('show'); };
+      const openNote = ()=>{ if(tooSoon()) return; playPopupOpenSound(); notePopup.classList.add('show'); };
       const closeNote = ()=>{ playModalCancelSound(); notePopup.classList.remove('show'); };
       ui.modalBody.querySelectorAll('[data-open-note]').forEach(noteBtn=>{
         noteBtn.addEventListener('click', openNote);
@@ -15710,11 +15777,58 @@ function showHandPopup(index){ if(game.inputLocked) return;
     });
   }
   function showStatusPopup(){ if(game.inputLocked) return; playTapSound(); normalizeArtifactState(); let unitBody=''; game.units.forEach((u,i)=>{ ensureStatus(u); const cannonCards=u.cannons.slice(0,activeCannons(u)).filter(Boolean).length; const barrierBonus=followBarrierDefenseBonus(u); const shieldBonus=shieldDefenseBonus(u); const defenseParts=[]; if(shieldBonus) defenseParts.push(`シールド${shieldBonus}`); if(barrierBonus) defenseParts.push(`バリア${barrierBonus}`); const normalDefense=Math.max(0,(Number(u.defense)||0)+shieldBonus+barrierBonus); const defenseText=statusCount(u,'corrosion')>0 ? `0（通常${normalDefense}）` : `${effectiveDefense(u)}${defenseParts.length ? `（本体${u.defense}+${defenseParts.join('+')}）` : ''}`; const mobilityText=statusCount(u,'freeze')>0 ? `0（通常${u.mobility}）` : `${u.mobility}`; unitBody += `<button type="button" class="statusBlock unitStatusButton" data-unit-status="${i}"><h4>第${i+1}行動機：${u.name}</h4>${statusBadgesHtml(u)}<div class="statusGrid"><div>状態：${stateLabels[u.state]}</div><div>HP：${u.hp} / ${u.maxHp}</div><div>防御力：${defenseText}</div><div>攻撃力：${u.attack}</div><div>精密性：${u.precision}</div><div>機動性：${mobilityText}</div><div>観測性能：${u.observation}</div><div>整備性：${u.maintenance}</div><div>ドローン性能：${dronePowerValue(u)}</div><div>ドローン制御：${droneControlLimit(u)}</div><div>追従ドローン：${ensureFollowDrones(u).length} / ${droneControlLimit(u)}</div><div>修理量：${repairValue(u)}</div><div>砲身：${activeCannons(u)} / 4</div><div>位置：${unitOccupiesBoard(u) ? positionLabel(u) : '-'}</div><div>山札：${u.deck.length} / 手札：${u.hand.length} / 上限：${maxHandSize(u)}</div><div>砲身内：${cannonCards}</div><div>基地内：${u.discard.length}</div></div><div class="unitStatusHint">タップでデッキ情報</div></button>`; }); const owned=(game.artifacts||[]).map(id=>artifactDef(id)).filter(Boolean); const artifactBody = owned.length ? `<div class="artifactOwnedGrid">` + owned.map(d=>`<button type="button" class="artifactTile" data-owned-artifact="${d.id}">${artifactArtHtml(d.id, d.name)}</button>`).join('') + `</div>` : `<div class="statusBlock"><h4>取得済みアーティファクト</h4><div class="muted">まだ取得していません。</div></div>`; const body = `<div class="statusTabs"><button type="button" class="statusTabBtn active" data-status-tab="units">機体情報</button><button type="button" class="statusTabBtn" data-status-tab="artifacts">アーティファクト</button></div><div class="statusTabPanel active" data-status-panel="units">${unitBody}</div><div class="statusTabPanel" data-status-panel="artifacts">${artifactBody}</div>`; openModal('ステータス', body, [{text:'閉じる',onClick(){}}]); ui.modalBody.querySelectorAll('[data-unit-status]').forEach(btn=>{ btn.addEventListener('click',()=>showUnitDeckInfo(Number(btn.getAttribute('data-unit-status')))); }); ui.modalBody.querySelectorAll('[data-status-tab]').forEach(btn=>{ btn.addEventListener('click',()=>{ const tab=btn.getAttribute('data-status-tab'); ui.modalBody.querySelectorAll('[data-status-tab]').forEach(b=>b.classList.toggle('active', b===btn)); ui.modalBody.querySelectorAll('[data-status-panel]').forEach(panel=>panel.classList.toggle('active', panel.getAttribute('data-status-panel')===tab)); }); }); ui.modalBody.querySelectorAll('[data-owned-artifact]').forEach(btn=>{ btn.addEventListener('click',()=>{ const id=btn.getAttribute('data-owned-artifact'); const item={ id, cost:0, sale:false, sold:true, kind:'artifact' }; openArtifactDetailModal(item, { hideFooter:true, onCloseX(){ showStatusPopup(); } }); }); }); }
+  // v363：3D表示では、最接近攻撃・前中列薙ぎ払いの三日月弾を出さず、怪獣の腕の動きで見せる（noah3d.js の motionOffsets）。
+  //       必殺技は三日月弾・エネルギー波を今まで通り出しつつ、怪獣も動く（両腕を広げて反り、交差させて振り下ろす）。衝撃波は今まで通り。
+  //   duration … 動きの長さ、hitMs … 当たる瞬間（腕を振り切る所。薙ぎ払いは左右1回ずつ）、releaseMs … 必殺技の演出を出す瞬間
+  //   2D表示（3Dを使えない端末）や、斬撃でない攻撃（ほかの怪獣の毒・ビームなど）は今まで通り
+  const KAIJU_MOTIONS = {
+    nearest_strike:{ kind:'strike', duration:950, hitMs:[505] },
+    front_sweep:{ kind:'sweep', duration:1150, hitMs:[505, 735] },
+    [BATHYNOMA_SPECIAL_ID]:{ kind:'special', duration:1300, releaseMs:670 },
+  };
+  function kaijuMotionForAction(action, targetIndexes=[]){
+    if(!noah3dActive || !usesBathynomaCombatTemplate() || activeKaijuId()==='monemakaiserin') return null;
+    if(!(noah3dHandle && noah3dHandle.kaijuReal && noah3dHandle.kaijuReal())) return null;   // 仮モデルの間は今まで通り
+    const m = KAIJU_MOTIONS[action.id];
+    if(!m) return null;
+    if(m.kind!=='special' && !(action.visual && action.visual.type==='slash')) return null;
+    // 振る腕：最接近攻撃は狙う機体の側（真ん中なら左右どちらか）。薙ぎ払いは先に振る腕をどちらか
+    let side = Math.random() < .5 ? -1 : 1;
+    const u = game.units[targetIndexes[0]];
+    if(m.kind==='strike' && u){ const c = unitColOf(u); if(c===0) side = -1; else if(c===2) side = 1; }
+    return Object.assign({ side }, m);
+  }
   async function playKaijuActionEffect(action, targetIndexes=[], hitIndexes=[]){
     if(activeKaijuId()==='monemakaiserin') playKaijuRoarSound();
-    triggerKaijuAttackJitter();
-    render();
-    await wait(KAIJU_SHAKE_MS);
+    const motion = kaijuMotionForAction(action, targetIndexes);
+    if(motion){
+      game.kaijuMotion = { kind:motion.kind, side:motion.side, start:performance.now(), duration:motion.duration };
+      render();
+    }
+    if(motion && motion.hitMs){
+      // 腕を振り切った瞬間に当たる（三日月弾の代わり）。薙ぎ払いは、左右の腕で1回ずつ
+      const kind = (action.visual && action.visual.hitKind) || 'fire';
+      motion.hitMs.forEach(ms=>setTimeout(()=>triggerGuidanceFxJitter(200, .45), ms));
+      if(hitIndexes.length){
+        hitIndexes.forEach((index,i)=>{
+          if(motion.hitMs.length>1) motion.hitMs.forEach(ms=>spawnTargetHitExplosions(index, kind, 1, 0, ms + i*10));
+          else spawnTargetHitExplosions(index, kind, 2, 85 + i*10, motion.hitMs[0]);
+        });
+        render();
+        await wait(motion.hitMs[motion.hitMs.length-1] + GENERATED_EXPLOSION_TOTAL_MS + 120);
+      }else{
+        await wait(Math.round(motion.duration * .75));
+      }
+      return;
+    }
+    if(motion){
+      await wait(motion.releaseMs);                 // 必殺技：両腕を振り下ろす瞬間に、今まで通りの演出を出す
+      triggerGuidanceFxJitter(KAIJU_SHAKE_MS, .45);
+    }else{
+      triggerKaijuAttackJitter();
+      render();
+      await wait(KAIJU_SHAKE_MS);
+    }
 
     const visual = action.visual || (action.id==='shockwave' ? { type:'special', form:'all' } : null);
     if(visual){
@@ -16696,7 +16810,27 @@ function showCardEnchantChoice(unit,item){
   ui.deckBtn.addEventListener('click',()=>flashThen(ui.deckBtn,'primary',()=>showDeckPopup('deck'))); ui.discardBtn.addEventListener('click',()=>flashThen(ui.discardBtn,'primary',()=>showDeckPopup('discard'))); ui.supplyBtn.addEventListener('click',()=>flashThen(ui.supplyBtn,'research',showSupplyPopup)); ui.statusBtn.addEventListener('click',()=>flashThen(ui.statusBtn,'primary',showStatusPopup)); ui.dfBtn.addEventListener('click',()=>flashThen(ui.dfBtn,'primary',showDefensePlanPopup)); if(ui.logBtn) ui.logBtn.addEventListener('click',()=>flashThen(ui.logBtn,'primary',showLogPopup)); ui.pauseBtn.addEventListener('click',showPausePopup); ui.endTurnBtn.addEventListener('click',()=>flashThen(ui.endTurnBtn,'primary',promptEndTurn));
   ui.hand.forEach((btn,i)=>btn.addEventListener('click',()=>{ if(game.mode==='loadAmmo' && game.pendingHandIndex===i){ showToast('砲身を選んでください'); return; } const unit=curUnit(); const card=unit.hand[i]; if(!card) return; flashThen(btn, def(card.id).category, ()=>showHandPopup(i)); }));
   ui.cannon.forEach((btn,i)=>btn.addEventListener('click',()=>{ const unit=curUnit(); if(game.mode==='loadAmmo'){ const pending=unit.hand[game.pendingHandIndex]; const kind=pending ? def(pending.id).category : 'primary'; flashThen(btn, kind, ()=>tryLoadAmmo(i)); return; } const card=unit.cannons[i]; if(!card) return; flashThen(btn, def(card.id).category, ()=>showCannonPopup(i)); }));
-  ui.board.addEventListener('pointerdown', onBoardTap);
+  // v363：盤面を押して開いたポップアップに、同じタップの「あとから来るクリック」が届いて、もう一度押したことになるのを防ぐ
+  //       （怪獣を押して怪獣の画面が開いたあと、怪獣の絵に届いて特性の小窓まで開いていた）。押した所の近くへ 0.6秒以内に来た
+  //       クリックのうち、盤面そのもの以外（開いたポップアップなど）に届いたものだけを捨てる
+  let noahGhostClickGuard = null;
+  function noahGuardGhostClick(x, y){
+    if(!Number.isFinite(x) || !Number.isFinite(y)) return;
+    noahGhostClickGuard = { x, y, until:performance.now() + 600 };
+  }
+  document.addEventListener('click', e=>{
+    const g = noahGhostClickGuard;
+    if(!g) return;
+    if(performance.now() > g.until){ noahGhostClickGuard = null; return; }
+    if(Math.hypot(e.clientX - g.x, e.clientY - g.y) > 40) return;
+    const t = e.target;
+    if(t && t.closest && t.closest('#boardHost')) return;
+    noahGhostClickGuard = null;
+    e.preventDefault();
+    e.stopPropagation();
+    if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+  }, true);
+  ui.board.addEventListener('pointerdown', e=>{ onBoardTap(e); noahGuardGhostClick(e.clientX, e.clientY); });
   document.addEventListener('pointerdown', recoverAudioFromUserGesture, {capture:true, passive:true});
   document.addEventListener('touchstart', recoverAudioFromUserGesture, {capture:true, passive:true});
   document.addEventListener('visibilitychange', ()=>{
@@ -16797,7 +16931,8 @@ function showCardEnchantChoice(unit,item){
   const NOAH_SAVE_SKIP_KEYS = new Set([
     'selectedKaiju','effects','cannonAnim','pendingProgress','pendingDiscard','pendingDeckToBase','pendingBaseToDeck','pendingBaseToTopDeck',
     'inputLocked','kaijuAttackJitterUntil','kaijuAttackJitterScale','sedationShakeUntil','sedationShakeStart','sedationShakeScale',
-    'researchFxUntil','researchFxLockToken','bgAnimToken','bgVisualOffsetCells','aircraftEntryProgress','introHideUnits','kaijuFadeProgress','metricSnapshot'
+    'researchFxUntil','researchFxLockToken','bgAnimToken','bgVisualOffsetCells','aircraftEntryProgress','introHideUnits','kaijuFadeProgress','metricSnapshot',
+    'kaijuMotion'   // v363 攻撃の動き（演出用）
   ]);
   const NOAH_AUTOSAVE_DELAY_MS = 350;
   let noahAutosaveTimer = null;
@@ -17484,11 +17619,36 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       default: return { kind:'span' };
     }
   }
+  // v364：怪獣の決まった所に出す演出（研究の演出＝目視観察の照準など・麻酔弾URの霧・誘導LRの爆発）は、怪獣の顔を狙う（proj.aim）。
+  //       顔を狙う演出と、麻酔弾LR（盤面いっぱいの霧）が出ている間は、生体モニターの輪（ポインター）と線を消す（終わったら戻す）。
+  //       麻酔弾N/R/SR・ミサイルなどの爆発は、毎回怪獣の体のどこかに散るので今まで通り
+  function noah3dFaceAimFx(effect){
+    if(!effect) return false;
+    if(effect.type==='researchFx' || effect.type==='guidanceFxLR') return true;
+    return effect.type==='supportFx' && effect.variant==='ur';
+  }
+  function noah3dPointerHidden(now=performance.now()){
+    if(!game || !game.effects) return false;
+    return game.effects.some(e=>{
+      if(!(noah3dFaceAimFx(e) || (e.type==='supportFx' && e.variant==='lr'))) return false;
+      return now >= e.start && now <= e.start + (e.duration || 620) + (e.holdMs || 0);
+    });
+  }
   function noah3dEffectMatrix(effect, cell, proj){
     const pl=noah3dEffectPlacement(effect);
+    if(proj.aim && noah3dFaceAimFx(effect) && (pl.kind==='point' || pl.kind==='standing')){
+      // 2Dで描く中心（研究は2Dの怪獣の絵の真ん中、ほかは演出の点）を、怪獣の顔に合わせる。大きさは1マス＝1（縦は研究の面と同じ1.1倍）
+      let c = pl.p;
+      if(pl.kind==='standing'){ const r = researchFxKaijuRect(cell); c = { x:r.cx/cell, y:r.cy/cell }; }
+      const P=[c, {x:c.x+1, y:c.y}, {x:c.x, y:c.y+1}];
+      return noah3dAffine(P, [proj.aim(0,0), proj.aim(1,0), proj.aim(0,1)], cell);
+    }
     if(pl.kind==='point'){
       const p=pl.p, p2={x:p.x+1, y:p.y};
-      return noah3dSimilarity(p, p2, proj.plane(p.x,p.y), proj.plane(p2.x,p2.y), cell);
+      // v363：カード演出（爆発など）の大きさは、怪獣を大きくする前と同じ「1マス＝1」（proj.planeRef）。置き場所は plane のまま。
+      //       怪獣の衝撃波（kaijuRing）だけは、大きくなった怪獣に合わせた今の大きさのまま
+      const ref = (proj.planeRef && effect.type!=='kaijuRing') ? proj.planeRef(p.x,p.y) : proj.plane(p2.x,p2.y);
+      return noah3dSimilarity(p, p2, proj.plane(p.x,p.y), ref, cell);
     }
     if(pl.kind==='segment'){
       const a=pl.a, b=(Math.abs(pl.b.x-pl.a.x)+Math.abs(pl.b.y-pl.a.y)<1e-6) ? {x:pl.a.x+1, y:pl.a.y} : pl.b;
@@ -17561,16 +17721,30 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     geom: ()=>getBoardGeom(),
     drawTactical: (target, opt)=>noah3dDrawTacticalLayer(target, opt),
     // v361：観測HUD（高度スケール・生体モニター・行動予測）に出す数字。行動予測は、盤面の攻撃予測と同じくアタックフェイズの間は出さない
+    // v362：必殺技の状態も渡す（special：'charging' 準備中＝次のラウンドに撃つ / 'ready' 発動＝このラウンドに撃つ / 'redirected' 音響誘導で逸らした）。
+    //       前は怪獣の頭の上に「！」を出していたが、3Dではやめて生体モニターで知らせる（2Dの盤面の「！」はそのまま）
     hud: ()=>{
       if(!gameStarted || !game) return null;
       const k = game.selectedKaiju || {};
-      let action = null;
+      let action = null, special = null, specialName = '';
       try{
-        if(!game.gameOver && !game.introHideUnits && game.phase!=='attack'){ const a = currentKaijuAction(); if(a && a.name) action = { name:a.name }; }
+        const a = currentKaijuAction();
+        if(!game.gameOver && !game.introHideUnits && game.phase!=='attack' && a && a.name) action = { name:a.name };
+        if(!game.gameOver){
+          if(isBathynomaSpecialCharging()){
+            special = 'charging';
+            specialName = kaijuActionWithOverrides(BATHYNOMA_SPECIAL_ID).name;
+          }else if(isBathynomaSpecialReady()){
+            const raw = currentRawKaijuAction();
+            const redirected = !!(game.nextKaijuSpecialRedirect && raw.id===BATHYNOMA_SPECIAL_ID && a.id!==BATHYNOMA_SPECIAL_ID);
+            special = redirected ? 'redirected' : 'ready';
+            specialName = redirected ? raw.name : a.name;
+          }
+        }
       }catch(e){}
-      let alert = false;
-      try{ alert = !!isBathynomaSpecialCharging(); }catch(e){}
-      return { ep:game.ep, epMax:game.epMax, hp:game.kaijuHp, hpMax:game.kaijuHpMax, heightM:Number(k.heightM)||0, stage:currentStageDef().id, action, alert };
+      return { ep:game.ep, epMax:game.epMax, hp:game.kaijuHp, hpMax:game.kaijuHpMax, heightM:Number(k.heightM)||0, stage:currentStageDef().id,
+        obs:`OBS-${game.observationNo || '00'}`, action, special, specialName, alert: special==='charging' || special==='ready',
+        pointerHidden: noah3dPointerHidden() };   // v364：顔を狙う演出の間は、体の輪と線を消す
     },
     tacticalLevel: ()=>noah3dTacticalLevel(),
     drawEffects: proj=>noah3dDrawEffectsLayer(proj),
@@ -17594,7 +17768,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       return out;
     },
     boardVisible: ()=>gameStarted && !ui.app.classList.contains('preHidden') && !document.hidden,
-    tap: cell=>onBoardTap({ noahCell:cell }),
+    tap: (cell, pt)=>{ onBoardTap({ noahCell:cell }); if(pt) noahGuardGhostClick(pt.x, pt.y); },
     onFatal: err=>noah3dFail(err),
   };
 
