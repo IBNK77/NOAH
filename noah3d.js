@@ -20,6 +20,8 @@
 //   tools/noah_glb_optimize.py で向き・大きさをそろえ、画像を WebP に縮めてある。ミサイル・麻酔弾は仮モデルのまま。
 //   読み込みは裏で行い、届くまで（または読めない端末では）これまでの仮モデルを出す。
 //   怪獣は Meshy の Smart Rig の骨を、ここで手続き的に動かす（歩き・呼吸・尾・突進・溜め）。
+// v365〜：見た目の強化（光の当て方・縁の光・雲の影／水面からの光・霧・光の筋・鳥や魚の群れ・火花と煙・足元の影・
+//   画面の揺れ・にじむ光）。まとめて「v365 見た目の強化」の所にある。数字は STAGE_LOOK・ATMOS・BLOOM_LOOK で変えられる。
 // =============================================================================
 (function () {
 'use strict';
@@ -87,10 +89,18 @@ function poseFit(pose, ks) {
 }
 
 // env … 映り込み用の空の明るさ（v354〜。機体と怪獣にだけ映す）
+// にじむ光の [強さ, 明るさのしきい値]（v365）
+const BLOOM_LOOK = { forest: [0.5, 0.8], seafloor: [0.55, 0.72] };
 const STAGE_LOOK = {
-  forest:   { fog: 0x9db3a6, fogNear: 18, fogFar: 48, sky: 0xe2f0ff, ground: 0x34402a, hemi: 1.25, sun: 0xfff0d2, sunI: 2.4, exposure: 1.02, env: 0.8, envSun: 3 },
-  seafloor: { fog: 0x0f4b57, fogNear: 12, fogFar: 36, sky: 0xa6ecff, ground: 0x0a2a30, hemi: 1.1,  sun: 0xc8f2ff, sunI: 1.6, exposure: 1.1, env: 0.7, envSun: 2.5 },
+  forest:   { fog: 0x9db3a6, fogNear: 17, fogFar: 52, sky: 0xe2f0ff, ground: 0x34402a, hemi: 1.08, sun: 0xffecc4, sunI: 3.1, exposure: 1.1, env: 0.8, envSun: 3,
+              sunPos: [-9.5, 10.5, 3.2], rim: 0xcfe6ff, rimI: 0.62, rimHot: 0xff7a3c, cloud: 0.34, caustic: 0, causticColor: 0xffffff, edge: 0.22, contact: 0.5 },
+  seafloor: { fog: 0x0f4b57, fogNear: 12, fogFar: 36, sky: 0xa6ecff, ground: 0x0a2a30, hemi: 0.95, sun: 0xc8f2ff, sunI: 1.7, exposure: 1.1, env: 0.7, envSun: 2.5,
+              sunPos: [-6.5, 12, 2.5], rim: 0x66e6ff, rimI: 0.6, rimHot: 0xff8a50, cloud: 0, caustic: 1.0, causticColor: 0xbff4ff, edge: 0.4, contact: 0.42 },
 };
+// v365：見た目の強化。光の当て方を「左の少し手前の上から」に変えて、怪獣の右半分に陰・地面に影が出るようにした（立体感）。
+//   sunPos … 太陽の位置。rim … 怪獣・機体の輪郭の光（縁の光）の色と強さ。rimHot … 必殺技の溜めのときの縁の色
+//   cloud … 森林の、地面と怪獣を流れる雲の影の濃さ。caustic … 海底の、水面からの光のゆらめき（コースティクス）の強さ
+//   edge … 地面の左右の端を暗くする強さ（真ん中の怪獣に目が行くように）。contact … 怪獣の足元の影の濃さ
 
 // -----------------------------------------------------------------------------
 // 小物
@@ -193,10 +203,15 @@ varying float vAlpha;
 #include <fog_pars_vertex>
 void main() {
   vUv = uv; vColor = iColor; vAlpha = iData.y;
-  vec4 mvPosition = modelViewMatrix * vec4(iPos, 1.0);
   float c = cos(iData.z), s = sin(iData.z);
   vec2 q = position.xy * iData.x;
-  mvPosition.xy += vec2(c * q.x - s * q.y, s * q.x + c * q.y);
+  vec2 qr = vec2(c * q.x - s * q.y, s * q.x + c * q.y);
+  #ifdef FX_FLAT
+  vec4 mvPosition = viewMatrix * vec4(iPos + vec3(qr.x, 0.0, qr.y), 1.0);   // 地面と平行に寝かせた板（v365 低い霧の層）
+  #else
+  vec4 mvPosition = modelViewMatrix * vec4(iPos, 1.0);
+  mvPosition.xy += qr;
+  #endif
   gl_Position = projectionMatrix * mvPosition;
   #include <fog_vertex>
 }`;
@@ -216,7 +231,8 @@ void main() {
   #include <colorspace_fragment>
   #include <fog_fragment>
 }`;
-function makeParticleLayer(tex, max, order) {
+// opt（v365）… flat：地面と平行に寝かせる／additive：光として足す（霧の色は混ぜない）
+function makeParticleLayer(tex, max, order, opt = {}) {
   const base = new THREE.PlaneGeometry(1, 1);
   const geo = new THREE.InstancedBufferGeometry();
   geo.setIndex(base.getIndex());
@@ -230,7 +246,8 @@ function makeParticleLayer(tex, max, order) {
   geo.instanceCount = 0;
   const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { map: { value: null } }]);
   uniforms.map.value = tex;        // merge は画像を複製してしまうので、あとから入れる
-  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: FX_VERT, fragmentShader: FX_FRAG, transparent: true, depthWrite: false, fog: true });
+  const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: FX_VERT, fragmentShader: FX_FRAG, transparent: true, depthWrite: false, fog: !opt.additive,
+    defines: opt.flat ? { FX_FLAT: 1 } : {}, blending: opt.additive ? THREE.AdditiveBlending : THREE.NormalBlending, side: opt.flat ? THREE.DoubleSide : THREE.FrontSide });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
   mesh.renderOrder = order;          // 怪獣のあと・戦術パネルの前（移動先などの表示が粒に隠れないように）
@@ -247,7 +264,7 @@ const FX_BUBBLE_COLOR = 0xe2f8ff;
 const lerpRange = ([a, b]) => a + Math.random() * (b - a);
 
 function makeStageFx() {
-  const dustL = makeParticleLayer(dustTexture(), 72, 0.5);
+  const dustL = makeParticleLayer(dustTexture(), 120, 0.5);
   const bubL = makeParticleLayer(bubbleTexture(), 120, 0.55);
   const group = new THREE.Group();
   group.add(dustL.mesh, bubL.mesh);
@@ -299,6 +316,36 @@ function makeStageFx() {
     if (!sea) return;
     const n = Math.max(2, Math.round(peak * 0.42 * (lite ? 0.6 : 1)));
     bubbleAt(x, y, z, n, 'burst', 0.35);
+  }
+  // 炸裂のあとに残る煙（v365。森林だけ。海底は泡が出る）
+  const smokeColor = new THREE.Color(0x57504a);
+  function smoke(x, y, z, peak) {
+    if (sea || lite) return;
+    const n = peak >= 14 ? 5 : peak >= 9 ? 3 : 2;
+    for (let i = 0; i < n && dust.length < dustL.max; i++) {
+      const a = Math.random() * Math.PI * 2, s0 = (0.22 + Math.random() * 0.16) * (peak >= 9 ? 1 : 0.7);
+      dust.push({
+        x: x + Math.cos(a) * 0.12, y: y + (Math.random() - 0.5) * 0.2, z: z + 0.3 + Math.sin(a) * 0.08,
+        vx: Math.cos(a) * 0.35, vy: 0.25 + Math.random() * 0.3, vz: Math.sin(a) * 0.2,
+        age: 0, life: 1.1 + Math.random() * 0.9, s0, s1: s0 * 3.2, a: 0.5 + Math.random() * 0.2,
+        rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 1.2, c: smokeColor,
+        drag: 2.2, buoy: 0.35, maxUp: 0.7, lift: 0, wob: 0, fin: 0.12, fout: 0.35,
+      });
+    }
+  }
+  // ミサイル・麻酔弾の航跡（v365）：森林では煙が少しの間残る。海底では細かい泡が昇っていく
+  const trailColor = { fire: new THREE.Color(0xe9e3d8), support: new THREE.Color(0xc9efe0) };
+  function trail(x, y, z, fire) {
+    if (sea) { if (Math.random() < (lite ? 0.35 : 0.7)) bubbleAt(x, y, z, 1, 'ambient', 0.06); return; }
+    if (dust.length >= dustL.max - 8) return;
+    const s0 = fire ? 0.15 + Math.random() * 0.06 : 0.09 + Math.random() * 0.03;
+    dust.push({
+      x: x + (Math.random() - 0.5) * 0.05, y: y + (Math.random() - 0.5) * 0.05, z,
+      vx: (Math.random() - 0.5) * 0.12, vy: 0.03 + Math.random() * 0.06, vz: (Math.random() - 0.5) * 0.12,
+      age: 0, life: (fire ? 0.9 : 0.6) + Math.random() * 0.5, s0, s1: s0 * (fire ? 3.4 : 2.6), a: fire ? 0.72 : 0.5,
+      rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 1.4, c: fire ? trailColor.fire : trailColor.support,
+      drag: 2.5, buoy: 0.05, maxUp: 0.3, lift: 0, wob: 0, fin: 0.05, fout: 0.25,
+    });
   }
   function ambient(now) {
     if (!nextAmbient) nextAmbient = now + 1200 + Math.random() * 2000;
@@ -374,13 +421,551 @@ function makeStageFx() {
     }
   }
   return {
-    group, setStage, footfall, burst, update, warm,
+    group, setStage, footfall, burst, smoke, trail, update, warm,
     setLite(on) { lite = !!on; },
     count: () => ({ dust: dust.length, bubbles: bubbles.length, emitters: emitters.length }),
     // テスト用：すぐに泡を出す
     debugAmbient(now) { nextAmbient = now; },
     dispose() { dustL.dispose(); bubL.dispose(); },
   };
+}
+
+// =============================================================================
+// v365 見た目の強化（iPhone SE3 で無理なく動く範囲で）
+//   ① 光：怪獣・機体・地面の「絵の作り方」（シェーダー）に少しだけ書き足す（patchLit）
+//        ・縁の光（輪郭が背景から浮き上がる。必殺技の溜めでは熱い色に変わる）
+//        ・森林…雲の影が地面と怪獣を流れる／海底…水面からの光のゆらめき（コースティクス）が地面と怪獣に映る
+//        ・地面の左右の端を少し暗くする
+//   ② 空気（makeAtmos）：低い霧の層・光の筋・ただよう粒（森林は光る塵、海底はマリンスノー）・
+//        鳥の群れ／魚の群れ（怪獣の大きさが分かる）・必殺技の溜めで胸の器官へ集まる光の粒
+//   ③ にじむ光（makeBloom）：描いた絵の明るい所だけを小さくぼかして重ねる（胸の器官・噴射・白い甲殻のハイライトがふわっと光る）
+//   どれも「追いつかない端末」では quality の段に合わせて減らす・止める（applyQuality）。
+// =============================================================================
+// 雲の影の元（R：大きなかたまり、G：細かいむら）。上下左右がつながる
+const cloudNoiseTexture = () => {
+  const N = 256, data = new Uint8Array(N * N * 4);
+  const fbm = (seed, freqs) => {
+    const out = new Float32Array(N * N);
+    let amp = 1, tot = 0;
+    freqs.forEach((f, o) => {
+      const r = rng(seed + o * 131), g = new Float32Array(f * f);
+      for (let i = 0; i < g.length; i++) g[i] = r();
+      for (let y = 0; y < N; y++) {
+        const v = y / N * f, y0 = Math.floor(v), fy = v - y0, sy = fy * fy * (3 - 2 * fy), ya = (y0 % f) * f, yb = ((y0 + 1) % f) * f;
+        for (let x = 0; x < N; x++) {
+          const u = x / N * f, x0 = Math.floor(u), fx = u - x0, sx = fx * fx * (3 - 2 * fx), xa = x0 % f, xb = (x0 + 1) % f;
+          const a = g[ya + xa] + (g[ya + xb] - g[ya + xa]) * sx, b = g[yb + xa] + (g[yb + xb] - g[yb + xa]) * sx;
+          out[y * N + x] += (a + (b - a) * sy) * amp;
+        }
+      }
+      tot += amp; amp *= 0.5;
+    });
+    for (let i = 0; i < out.length; i++) out[i] /= tot;
+    return out;
+  };
+  const a = fbm(911, [3, 6, 12, 24]), b = fbm(377, [5, 10, 20, 40]);
+  for (let i = 0; i < N * N; i++) { data[i * 4] = a[i] * 255; data[i * 4 + 1] = b[i] * 255; data[i * 4 + 3] = 255; }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
+};
+// 水面からの光のゆらめきの元（細い光の網目）。上下左右がつながる。2枚を別々の速さで流して暗い方を取ると、ゆらめいて見える
+const causticTexture = () => {
+  const N = 256, C = 7, r = rng(2024), pts = [], data = new Uint8Array(N * N * 4);
+  for (let i = 0; i < C * C; i++) pts.push([r(), r()]);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const u = x / N * C, v = y / N * C, cx = Math.floor(u), cy = Math.floor(v);
+    let f1 = 9, f2 = 9;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const p = pts[((cy + dy + C) % C) * C + ((cx + dx + C) % C)];
+      const d = Math.hypot(u - (cx + dx + p[0]), v - (cy + dy + p[1]));
+      if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
+    }
+    const line = Math.pow(1 - Math.min(1, (f2 - f1) / 0.42), 3.4);
+    const c = Math.min(1, line * 0.92 + 0.08 * (1 - Math.min(1, f1)));
+    const i = (y * N + x) * 4;
+    data[i] = data[i + 1] = data[i + 2] = c * 255; data[i + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
+};
+// 光の筋（上が明るく、下へ行くほど消える。左右の端もやわらかく消える）
+const rayTexture = () => canvasTexture(64, 256, (g) => {
+  const gv = g.createLinearGradient(0, 0, 0, 256);
+  gv.addColorStop(0, 'rgba(255,255,255,0)'); gv.addColorStop(0.1, 'rgba(255,255,255,1)'); gv.addColorStop(0.55, 'rgba(255,255,255,.4)'); gv.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gv; g.fillRect(0, 0, 64, 256);
+  g.globalCompositeOperation = 'destination-in';
+  const gh = g.createLinearGradient(0, 0, 64, 0);
+  gh.addColorStop(0, 'rgba(255,255,255,0)'); gh.addColorStop(0.5, 'rgba(255,255,255,1)'); gh.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gh; g.fillRect(0, 0, 64, 256);
+});
+// 足元の影（まん中が濃く、外へ消える）と、足が着いたときに地面に広がる輪
+const blobTexture = () => canvasTexture(128, 128, (g) => {
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(0,0,0,1)'); grd.addColorStop(0.45, 'rgba(0,0,0,.62)'); grd.addColorStop(0.8, 'rgba(0,0,0,.14)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+});
+const ringTexture = () => canvasTexture(128, 128, (g) => {
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(0.55, 'rgba(255,255,255,.06)'); grd.addColorStop(0.8, 'rgba(255,255,255,.9)'); grd.addColorStop(0.9, 'rgba(255,255,255,.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+});
+let sharedGlowTex = null;
+const sharedGlow = () => sharedGlowTex || (sharedGlowTex = glowTexture());
+
+// ① 光：みんなで使う値（毎コマ、本体が書きかえる）
+const noahU = {
+  uNoahScroll: { value: 0 },                          // 地形の流れた量（地面にくっついた模様にするため）
+  uNoahWind: { value: new THREE.Vector2() },          // 雲の流れ
+  uNoahNoise: { value: null }, uNoahCloud: { value: 0 },
+  uNoahCausTex: { value: null }, uNoahCaus: { value: 0 }, uNoahCausColor: { value: new THREE.Color(1, 1, 1) },
+  uNoahCausA: { value: new THREE.Vector2() }, uNoahCausB: { value: new THREE.Vector2() },
+  uNoahRim: { value: new THREE.Color(0, 0, 0) },      // 縁の光の色（強さ込み）
+  uNoahEdge: { value: 0 },
+};
+const NOAH_LIT_PARS = `
+varying vec3 vNoahW;
+uniform float uNoahScroll;
+uniform vec2 uNoahWind;
+uniform sampler2D uNoahNoise;
+uniform float uNoahCloud;
+uniform sampler2D uNoahCausTex;
+uniform float uNoahCaus;
+uniform vec3 uNoahCausColor;
+uniform vec2 uNoahCausA;
+uniform vec2 uNoahCausB;
+uniform vec3 uNoahRim;
+uniform float uNoahEdge;
+`;
+const NOAH_LIT_COMMON = `
+	vec2 noahG = vec2( vNoahW.x, vNoahW.z + uNoahScroll );
+	vec3 noahN = inverseTransformDirection( normal, viewMatrix );
+	float noahCl = texture2D( uNoahNoise, noahG * 0.03 + uNoahWind ).r * 0.72 + texture2D( uNoahNoise, noahG * 0.085 - uNoahWind * 1.9 ).g * 0.28;
+	outgoingLight *= 1.0 - uNoahCloud * smoothstep( 0.47, 0.63, noahCl );
+	float noahCa = min( texture2D( uNoahCausTex, noahG * 0.15 + uNoahCausA ).r, texture2D( uNoahCausTex, noahG * 0.19 + uNoahCausB ).r );
+	outgoingLight += ( diffuseColor.rgb * 0.8 + 0.035 ) * uNoahCausColor * ( noahCa * uNoahCaus * NOAH_CAUS_K * clamp( noahN.y * 0.75 + 0.45, 0.0, 1.0 ) );
+`;
+const noahRimCode = k => `
+	float noahF = 1.0 - clamp( dot( normalize( normal ), normalize( vViewPosition ) ), 0.0, 1.0 );
+	outgoingLight += uNoahRim * ( ${k.toFixed(2)} * pow( noahF, 2.6 ) * ( 0.3 + 0.7 * clamp( noahN.y * 0.5 + 0.62, 0.0, 1.0 ) ) );
+`;
+const NOAH_LIT_MAIN = {
+  kaiju: '\n#define NOAH_CAUS_K 0.36' + NOAH_LIT_COMMON + noahRimCode(1),
+  aircraft: '\n#define NOAH_CAUS_K 0.5' + NOAH_LIT_COMMON + noahRimCode(0.55),
+  ground: '\n#define NOAH_CAUS_K 1.8' + NOAH_LIT_COMMON + `
+	outgoingLight *= 1.0 - uNoahEdge * smoothstep( 3.6, 12.5, abs( vNoahW.x - ${PATH_CENTER_X.toFixed(2)} ) );
+`,
+};
+// 材質に①を書き足す。kind … 'kaiju' | 'aircraft' | 'ground'
+function patchLit(mat, kind) {
+  if (!mat || !mat.isMeshStandardMaterial) return;
+  mat.userData.noahLit = kind;
+  mat.onBeforeCompile = sh => {
+    for (const k in noahU) sh.uniforms[k] = noahU[k];
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vNoahW;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n\tvNoahW = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + NOAH_LIT_PARS)
+      .replace('#include <opaque_fragment>', '{' + NOAH_LIT_MAIN[kind] + '}\n\t#include <opaque_fragment>');
+  };
+  mat.customProgramCacheKey = () => 'noahLit-' + kind;
+  mat.needsUpdate = true;
+}
+
+// ② 空気
+const CRIT_VERT = `
+attribute vec3 iPos;
+attribute vec4 iData;   // 向き・大きさ・羽ばたきの位相・濃さ
+attribute float aTip;
+uniform float uTime;
+uniform vec3 uFlapAxis;
+uniform float uFlapAmp;
+uniform float uFlapHz;
+varying float vAlpha;
+varying float vShade;
+#include <fog_pars_vertex>
+void main() {
+  float fl = sin( uTime * uFlapHz + iData.z );
+  vec3 p = position + uFlapAxis * ( aTip * fl * uFlapAmp );
+  float c = cos( iData.x ), s = sin( iData.x );
+  p = vec3( c * p.x + s * p.z, p.y, - s * p.x + c * p.z ) * iData.y;
+  vec4 mvPosition = viewMatrix * vec4( iPos + p, 1.0 );
+  vAlpha = iData.w;
+  vShade = 0.8 + 0.2 * aTip * fl;
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+const CRIT_FRAG = `
+uniform vec3 uColor;
+varying float vAlpha;
+varying float vShade;
+#include <common>
+#include <fog_pars_fragment>
+void main() {
+  gl_FragColor = vec4( uColor * vShade, vAlpha );
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+const ATMOS = {
+  forest: {
+    sheets: { n: 9, color: 0xeef4ea, alpha: [0.1, 0.22], size: [4.2, 7.5], y: [0.14, 0.75], wind: [0.06, 0.16] },
+    motes: { n: 22, color: 0xfff0c0, alpha: [0.18, 0.42], size: [0.05, 0.09], vy: 0.035, vx: 0.05 },
+    rays: { n: 3, color: 0xfff1c8, alpha: 0.075 },
+    crit: { fish: false, color: 0xf6f3ea, size: [0.1, 0.14], speed: [1.7, 2.3], n: [5, 9], every: [9000, 20000], y: [0.7, 2.0], startle: 0.34 },
+  },
+  seafloor: {
+    sheets: { n: 8, color: 0x9fd8d2, alpha: [0.07, 0.14], size: [4.5, 8], y: [0.1, 0.5], wind: [0.02, 0.06] },
+    motes: { n: 64, color: 0xd8f6ff, alpha: [0.2, 0.55], size: [0.05, 0.12], vy: -0.05, vx: 0.07 },
+    rays: { n: 6, color: 0x8fe4ff, alpha: 0.42 },
+    crit: { fish: true, color: 0xc4eef4, size: [0.1, 0.15], speed: [0.9, 1.35], n: [8, 14], every: [8000, 17000], y: [0.5, 2.2], startle: 0.26 },
+  },
+};
+// 光の筋の場所 [x, z, 幅, 高さ, 傾き, 明るさ]（怪獣の後ろ・左右・少し手前。手前のものは怪獣に重なるので控えめに）
+const RAY_SPOTS = [[-5.6, -7.5, 2.4, 13, 0.24], [3.9, -9.5, 3.0, 14, 0.2], [-1.6, -11.5, 2.2, 14, 0.27], [6.6, -4.5, 1.9, 12, 0.22], [-7.2, -1.5, 1.6, 11, 0.25], [1.6, 0.6, 1.3, 10, 0.21, 0.45]];
+const EMBER_COLOR = 0x8fe6ff;
+
+function makeAtmos() {
+  const group = new THREE.Group();
+  const sheetL = makeParticleLayer(dustTexture(), 16, 0.42, { flat: true });
+  const moteL = makeParticleLayer(glowTexture(), 150, 0.62, { additive: true });
+  group.add(sheetL.mesh, moteL.mesh);
+  // 光の筋
+  const rayTex = rayTexture();
+  const rayGeo = new THREE.PlaneGeometry(1, 1); rayGeo.translate(0, 0.5, 0);
+  const rays = RAY_SPOTS.map(([x, z, w, h, tilt, gain = 1], i) => {
+    const mat = new THREE.MeshBasicMaterial({ map: rayTex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide });
+    const m = new THREE.Mesh(rayGeo, mat);
+    m.position.set(x, -0.6, z); m.scale.set(w, h, 1); m.rotation.z = tilt;
+    m.renderOrder = 0.46; m.visible = false; m.frustumCulled = false;
+    group.add(m);
+    return { m, mat, x, gain, ph: i * 1.7, sp: 0.23 + (i % 3) * 0.07 };
+  });
+  // 鳥・魚
+  const CRIT_MAX = 44;
+  const birdGeo = new THREE.InstancedBufferGeometry(), fishGeo = new THREE.InstancedBufferGeometry();
+  // 鳥：後ろへ反った2枚の翼（先が羽ばたく）＋細い胴。魚：胴＋尾びれ（尾が左右に振れる）
+  birdGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -0.34, 0, 0, 0.1, -1, 0, 0.5, 0, 0, 0.1, 0, 0, -0.34, 1, 0, 0.5, 0, 0, -0.5, -0.09, 0, 0.4, 0.09, 0, 0.4], 3));
+  birdGeo.setAttribute('aTip', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 0], 1));
+  fishGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -0.62, 0, 0.2, 0, 0, -0.2, 0, 0, 0.2, 0, 0, -0.2, 0, 0, 0, 0.5, 0, 0, 0.42, 0, 0.23, 0.82, 0, -0.23, 0.82], 3));
+  fishGeo.setAttribute('aTip', new THREE.Float32BufferAttribute([0, 0.08, 0.08, 0.08, 0.08, 0.6, 0.6, 1, 1], 1));
+  const critPos = new THREE.InstancedBufferAttribute(new Float32Array(CRIT_MAX * 3), 3);
+  const critData = new THREE.InstancedBufferAttribute(new Float32Array(CRIT_MAX * 4), 4);
+  critPos.setUsage(THREE.DynamicDrawUsage); critData.setUsage(THREE.DynamicDrawUsage);
+  for (const geo of [birdGeo, fishGeo]) { geo.setAttribute('iPos', critPos); geo.setAttribute('iData', critData); geo.instanceCount = 0; }
+  const critU = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 }, uFlapAxis: { value: new THREE.Vector3(0, 1, 0) }, uFlapAmp: { value: 0.6 }, uFlapHz: { value: 11 }, uColor: { value: new THREE.Color(1, 1, 1) } }]);
+  const critMat = new THREE.ShaderMaterial({ uniforms: critU, vertexShader: CRIT_VERT, fragmentShader: CRIT_FRAG, transparent: true, depthWrite: false, fog: true, side: THREE.DoubleSide });
+  const critMesh = new THREE.Mesh(birdGeo, critMat);
+  critMesh.frustumCulled = false; critMesh.renderOrder = 0.6; critMesh.visible = false;
+  group.add(critMesh);
+
+  const sheetColor = new THREE.Color(), moteColor = new THREE.Color(), emberColor = new THREE.Color(EMBER_COLOR);
+  const sheets = [], motes = [], embers = [], flocks = [];
+  let cfg = ATMOS.forest, level = 0, warming = false, lastNow = 0, lastScroll = null, nextFlock = 0, emberAcc = 0;
+  const R = Math.random, pick = ([a, b]) => a + R() * (b - a);
+
+  function newSheet(s, anyZ, dir) {
+    const C = cfg.sheets;
+    s.x = (R() - 0.5) * 22; s.y = pick(C.y); s.z = anyZ ? -22 + R() * 29 : (dir >= 0 ? -22 - R() * 3 : 7 + R() * 3);
+    s.size = pick(C.size); s.a = pick(C.alpha); s.vx = pick(C.wind) * (R() < 0.8 ? 1 : -0.4);
+    s.rot = R() * 6.28; s.vr = (R() - 0.5) * 0.04; s.ph = R() * 6.28;
+    return s;
+  }
+  function newMote(m, any) {
+    const C = cfg.motes;
+    m.x = (R() - 0.5) * 15; m.z = -9 + R() * 15; m.y = any ? 0.2 + R() * 7 : (C.vy < 0 ? 7.2 : 0.2);
+    m.size = pick(C.size) * (R() < 0.12 ? 1.9 : 1); m.a = pick(C.alpha); m.ph = R() * 6.28; m.f = 0.4 + R() * 0.8;
+    m.vx = C.vx * (0.5 + R()); m.vy = C.vy * (0.6 + R() * 0.8);
+    return m;
+  }
+  function setStage(stage) {
+    cfg = ATMOS[stage === 'seafloor' ? 'seafloor' : 'forest'];
+    sheetColor.set(cfg.sheets.color); moteColor.set(cfg.motes.color);
+    sheets.length = 0; motes.length = 0; embers.length = 0; flocks.length = 0; sparks.length = 0; nextFlock = 0;
+    for (let i = 0; i < cfg.sheets.n; i++) sheets.push(newSheet({}, true, 1));
+    for (let i = 0; i < cfg.motes.n; i++) motes.push(newMote({}, true));
+    rays.forEach((r, i) => { r.mat.color.set(cfg.rays.color); r.on = i < cfg.rays.n; });
+    critMesh.geometry = cfg.crit.fish ? fishGeo : birdGeo;
+    critU.uColor.value.set(cfg.crit.color);
+    critU.uFlapAxis.value.set(cfg.crit.fish ? 1 : 0, cfg.crit.fish ? 0 : 1, 0);
+    critU.uFlapAmp.value = cfg.crit.fish ? 0.3 : 0.62;
+    critU.uFlapHz.value = cfg.crit.fish ? 13 : 11.5;
+  }
+  function critCount() { let n = 0; for (const f of flocks) n += f.m.length; return n; }
+  // 群れ。ambient … 画面を横切る。startle … 怪獣の足音におどろいて、足元の外側から飛び立つ（泳ぎ去る）
+  function spawnFlock(kind, fx, fz) {
+    const C = cfg.crit;
+    const n = Math.round(pick(C.n) * (kind === 'startle' ? 0.7 : 1));
+    if (critCount() + n > CRIT_MAX) return;
+    const f = { m: [], age: 0, kind };
+    if (kind === 'startle') {
+      const side = fx > PATH_CENTER_X ? 1 : -1;
+      // 鳥は足元の森から、手前（カメラ側）へ舞い上がる。魚は足元から横へ泳ぎ去る（どちらも、画面の中に長くいるように）
+      f.x = fx + side * (C.fish ? 0.9 : 1.5 + R() * 0.9); f.y = 0.25; f.z = fz + (R() - 0.3) * 1.4;
+      if (C.fish) { f.vx = side * pick(C.speed) * 1.1; f.vy = 0.5; f.vz = (R() - 0.3) * 0.5; }
+      else { f.vx = side * (0.35 + R() * 0.5); f.vy = 1.2; f.vz = 1.15 + R() * 0.5; }
+      f.life = 4.4; f.spread = 0.25; f.grow = 0.9;
+    } else {
+      const side = R() < 0.5 ? 1 : -1, far = R() < 0.3;
+      f.x = -side * (far ? 13 : 10.5); f.y = far ? 1 + R() * 2.4 : pick(C.y); f.z = far ? -13 + R() * 5 : -0.4 + R() * 3.1;
+      f.vx = side * pick(C.speed); f.vy = 0; f.vz = (R() - 0.5) * 0.3;
+      f.life = (far ? 26 : 21) / Math.abs(f.vx); f.spread = C.fish ? 0.75 : 1; f.grow = 0;
+    }
+    for (let i = 0; i < n; i++) {
+      const row = Math.ceil(i / 2), sgn = i % 2 ? 1 : -1;      // 鳥は「く」の字、魚はかたまり
+      const o = C.fish || kind === 'startle'
+        ? [(R() - 0.5) * 1.5, (R() - 0.5) * 0.7, (R() - 0.5) * 1.0]
+        : [-row * 0.34 + (R() - 0.5) * 0.12, (R() - 0.5) * 0.14, sgn * row * 0.3 + (R() - 0.5) * 0.1];
+      f.m.push({ o, ph: R() * 6.28, size: pick(C.size), wob: 0.5 + R() });
+    }
+    flocks.push(f);
+  }
+  // 炸裂：火花が飛び散る（海底では水の抵抗ですぐ止まる）。peak … 光の強さ、color … 光の色
+  const sparks = [];
+  function burst(x, y, z, peak, color) {
+    if (level >= 2 || warming) return;
+    const n = Math.round((peak >= 14 ? 16 : peak >= 9 ? 10 : 6) * (level ? 0.6 : 1));
+    const c = new THREE.Color(color);
+    for (let i = 0; i < n && sparks.length < 70; i++) {
+      const a = R() * 6.28, el = (R() - 0.25) * 2.2, sp = (1.6 + R() * 2.6) * (peak >= 9 ? 1 : 0.6) * (cfg.crit.fish ? 0.7 : 1);
+      sparks.push({ x, y, z: z + 0.25, vx: Math.cos(a) * Math.cos(el) * sp, vy: Math.sin(el) * sp + 0.6, vz: Math.sin(a) * Math.cos(el) * sp * 0.6 + 0.5, age: 0, life: 0.45 + R() * 0.55, size: 0.07 + R() * 0.08, c });
+    }
+  }
+  // 怪獣の足が地面に着いた
+  function footfall(x, z) {
+    if (level >= 2 || warming) return;
+    if (R() < cfg.crit.startle) spawnFlock('startle', x, z);
+  }
+
+  function writeLayer(L, n) { L.mesh.visible = n > 0 && !warming; L.mesh.geometry.instanceCount = n; if (n) { L.pos.needsUpdate = true; L.color.needsUpdate = true; L.data.needsUpdate = true; } }
+  // 毎コマ。charge … 必殺技の溜め 0〜1、chest … 胸の器官の場所、kz … 怪獣の足元、ks … 怪獣の大きさ
+  function update(now, scroll, charge, chest, ks, kAlpha) {
+    const dt = lastNow ? Math.min(0.1, Math.max(0, (now - lastNow) / 1000)) : 0;
+    lastNow = now;
+    const ds = lastScroll == null || Math.abs(scroll - lastScroll) > 3 ? 0 : scroll - lastScroll;
+    lastScroll = scroll;
+    const t = now / 1000;
+    if (warming) return;
+    // 低い霧の層（地面と一緒に流れる）
+    {
+      const P = sheetL.pos.array, C = sheetL.color.array, D = sheetL.data.array;
+      const n = level >= 2 ? Math.min(sheets.length, 5) : sheets.length;
+      sheets.sort((a, b) => a.y - b.y);
+      for (let i = 0; i < n; i++) {
+        const s = sheets[i];
+        s.x += s.vx * dt; s.z -= ds; s.rot += s.vr * dt;
+        if (s.z > 10.5) newSheet(s, false, 1); else if (s.z < -25.5) newSheet(s, false, -1);
+        if (s.x > 13) s.x -= 26; else if (s.x < -13) s.x += 26;
+        const j = i * 3;
+        P[j] = s.x; P[j + 1] = s.y; P[j + 2] = s.z;
+        C[j] = sheetColor.r; C[j + 1] = sheetColor.g; C[j + 2] = sheetColor.b;
+        const edge = clamp01((10.5 - s.z) / 3) * clamp01((s.z + 25.5) / 3);
+        D[j] = s.size; D[j + 1] = s.a * edge * (0.75 + 0.25 * Math.sin(t * 0.3 + s.ph)); D[j + 2] = s.rot;
+      }
+      writeLayer(sheetL, n);
+    }
+    // ただよう粒＋溜めの光の粒
+    {
+      const P = moteL.pos.array, C = moteL.color.array, D = moteL.data.array;
+      let k = 0;
+      const n = level >= 2 ? Math.floor(motes.length * 0.4) : motes.length;
+      for (let i = 0; i < n; i++) {
+        const m = motes[i];
+        m.x += m.vx * dt; m.y += m.vy * dt; m.z -= ds;
+        if (m.y < 0.1 || m.y > 7.4) newMote(m, false);
+        if (m.x > 7.5) m.x -= 15; else if (m.x < -7.5) m.x += 15;
+        if (m.z > 6) m.z -= 15; else if (m.z < -9) m.z += 15;
+        const j = k * 3; k++;
+        P[j] = m.x + Math.sin(t * m.f + m.ph) * 0.12; P[j + 1] = m.y + Math.cos(t * m.f * 0.7 + m.ph) * 0.08; P[j + 2] = m.z;
+        C[j] = moteColor.r; C[j + 1] = moteColor.g; C[j + 2] = moteColor.b;
+        D[j] = m.size; D[j + 1] = m.a * (0.6 + 0.4 * Math.sin(t * 1.3 * m.f + m.ph * 2)); D[j + 2] = 0;
+      }
+      // 溜め：怪獣のまわりから胸の器官へ、光の粒が吸い込まれていく
+      if (charge > 0.12 && kAlpha > 0.5 && chest) {
+        emberAcc += dt * charge * (level >= 2 ? 12 : 26);
+        while (emberAcc >= 1 && embers.length < 60) {
+          emberAcc -= 1;
+          const a = R() * 6.28, rad = (0.95 + R() * 1.0) * ks;
+          embers.push({ x: chest.x + Math.cos(a) * rad, y: 0.15 + R() * chest.y * 1.25, z: chest.z + 0.2 + Math.sin(a) * rad * 0.55, age: 0, life: 0.85 + R() * 0.6, size: 0.1 + R() * 0.1, sw: (R() - 0.5) * 1.6 });
+        }
+        if (emberAcc > 2) emberAcc = 0;
+      }
+      for (let i = embers.length - 1; i >= 0; i--) {
+        const e = embers[i];
+        e.age += dt;
+        if (e.age >= e.life || !chest) { embers[i] = embers[embers.length - 1]; embers.pop(); continue; }
+        if (k >= moteL.max) continue;
+        const u = e.age / e.life, q = u * u, sw = Math.sin(u * Math.PI) * e.sw;
+        const j = k * 3; k++;
+        P[j] = e.x + (chest.x - e.x) * q + sw * 0.4; P[j + 1] = e.y + (chest.y - e.y) * q + Math.sin(u * Math.PI) * 0.35; P[j + 2] = e.z + (chest.z + 0.25 - e.z) * q;
+        C[j] = emberColor.r; C[j + 1] = emberColor.g; C[j + 2] = emberColor.b;
+        D[j] = e.size * (1.25 - 0.8 * u); D[j + 1] = Math.min(1, u / 0.15) * (1 - q * q) * kAlpha; D[j + 2] = 0;
+      }
+      // 炸裂の火花
+      const sea = cfg.crit.fish, drag = Math.exp(-(sea ? 5.5 : 1.6) * dt);
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const p = sparks[i];
+        p.age += dt;
+        if (p.age >= p.life) { sparks[i] = sparks[sparks.length - 1]; sparks.pop(); continue; }
+        p.vx *= drag; p.vz *= drag; p.vy = p.vy * drag - (sea ? 0.4 : 4.2) * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt - ds;
+        if (k >= moteL.max) continue;
+        const u = p.age / p.life, j = k * 3; k++;
+        P[j] = p.x; P[j + 1] = p.y; P[j + 2] = p.z;
+        C[j] = p.c.r; C[j + 1] = p.c.g; C[j + 2] = p.c.b;
+        D[j] = p.size * (1 - 0.6 * u); D[j + 1] = 1 - u * u; D[j + 2] = 0;
+      }
+      writeLayer(moteL, k);
+    }
+    // 光の筋（ゆっくり明るさが変わり、左右に少し揺れる）
+    for (const r of rays) {
+      const on = r.on && level < 2;
+      r.m.visible = on;
+      if (!on) continue;
+      r.mat.opacity = cfg.rays.alpha * r.gain * (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * r.sp + r.ph)));
+      r.m.position.x = r.x + Math.sin(t * 0.11 + r.ph) * 0.5;
+    }
+    // 鳥・魚の群れ
+    if (level < 2) {
+      if (!nextFlock) nextFlock = now + 2500 + R() * 4000;
+      if (now >= nextFlock) { nextFlock = now + pick(cfg.crit.every) * (level ? 1.6 : 1); spawnFlock('ambient'); }
+    } else flocks.length = 0;
+    {
+      const P = critPos.array, D = critData.array;
+      let k = 0;
+      for (let i = flocks.length - 1; i >= 0; i--) {
+        const f = flocks[i];
+        f.age += dt;
+        if (f.age >= f.life) { flocks.splice(i, 1); continue; }
+        if (f.kind === 'startle') { f.vy = Math.max(0.12, f.vy - dt * 0.42); f.spread += f.grow * dt * Math.exp(-f.age); }
+        f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt - ds;
+        const head = Math.atan2(-f.vx, -f.vz);
+        const fade = Math.min(1, f.age / 0.5) * Math.min(1, (f.life - f.age) / 0.9);
+        for (const m of f.m) {
+          if (k >= CRIT_MAX) break;
+          const j = k * 3, q = k * 4; k++;
+          const dir = f.vx >= 0 ? 1 : -1;
+          P[j] = f.x + m.o[0] * f.spread * dir + Math.sin(t * 0.9 * m.wob + m.ph) * 0.05;
+          P[j + 1] = Math.max(0.12, f.y + m.o[1] * f.spread + Math.sin(t * 1.7 * m.wob + m.ph) * 0.05);
+          P[j + 2] = f.z + m.o[2] * f.spread;
+          D[q] = head + Math.sin(t * 0.8 + m.ph) * 0.08; D[q + 1] = m.size; D[q + 2] = m.ph; D[q + 3] = fade;
+        }
+      }
+      critMesh.visible = k > 0;
+      critMesh.geometry.instanceCount = k;
+      if (k) { critPos.needsUpdate = true; critData.needsUpdate = true; critU.uTime.value = t % 1000; }
+    }
+  }
+  // 下ごしらえ用：見えない物を1つずつ出して、絵の作り方を作らせる
+  function warm(on) {
+    warming = on;
+    for (const L of [sheetL, moteL]) {
+      L.data.array[0] = 0.01; L.data.array[1] = 0; L.data.needsUpdate = true;
+      L.mesh.geometry.instanceCount = on ? 1 : 0; L.mesh.visible = on;
+    }
+    critData.array[1] = 0.001; critData.array[3] = 0; critData.needsUpdate = true;
+    critMesh.geometry.instanceCount = on ? 1 : 0; critMesh.visible = on;
+    if (rays[0]) { rays[0].mat.opacity = 0; rays[0].m.visible = on; }
+  }
+  setStage('forest');
+  return {
+    group, setStage, update, footfall, burst, warm,
+    setLevel(q) { level = q | 0; },
+    count: () => ({ sheets: sheets.length, motes: motes.length, embers: embers.length, flocks: flocks.length, critters: critCount(), rays: rays.filter(r => r.m.visible).length }),
+    debugFlock(kind, x, z) { spawnFlock(kind || 'ambient', x || 2, z || -1); const f = flocks[flocks.length - 1]; if (f && kind !== 'startle' && x != null) { f.x = x; f.z = z; } return critCount(); },
+    dispose() { sheetL.dispose(); moteL.dispose(); rayTex.dispose(); rayGeo.dispose(); rays.forEach(r => r.mat.dispose()); birdGeo.dispose(); fishGeo.dispose(); critMat.dispose(); },
+  };
+}
+
+// ③ にじむ光：いま描いた絵（画面）を写し取り、明るい所だけを 1/4・1/8 の大きさでぼかして、上から足す。
+//    もとの描き方（なめらかな輪郭・色）はそのままなので、うまく動かない端末では止めるだけでよい（何か起きたら自動で止まる）
+const BLOOM_VERT = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4( position.xy, 0.0, 1.0 ); }';
+const BLOOM_BRIGHT = `
+uniform sampler2D tMap; uniform vec2 uTexel; uniform float uThreshold;
+varying vec2 vUv;
+void main() {
+  vec3 c = texture2D( tMap, vUv + uTexel * vec2( -1.0, -1.0 ) ).rgb + texture2D( tMap, vUv + uTexel * vec2( 1.0, -1.0 ) ).rgb
+         + texture2D( tMap, vUv + uTexel * vec2( -1.0, 1.0 ) ).rgb + texture2D( tMap, vUv + uTexel * vec2( 1.0, 1.0 ) ).rgb;
+  c *= 0.25;
+  float l = max( c.r, max( c.g, c.b ) );
+  gl_FragColor = vec4( c * smoothstep( uThreshold, uThreshold + 0.22, l ), 1.0 );
+}`;
+const BLOOM_BLUR = `
+uniform sampler2D tMap; uniform vec2 uDir;
+varying vec2 vUv;
+void main() {
+  vec3 c = texture2D( tMap, vUv ).rgb * 0.227027;
+  c += ( texture2D( tMap, vUv + uDir * 1.384615 ).rgb + texture2D( tMap, vUv - uDir * 1.384615 ).rgb ) * 0.316216;
+  c += ( texture2D( tMap, vUv + uDir * 3.230769 ).rgb + texture2D( tMap, vUv - uDir * 3.230769 ).rgb ) * 0.070270;
+  gl_FragColor = vec4( c, 1.0 );
+}`;
+const BLOOM_MIX = `
+uniform sampler2D tA; uniform sampler2D tB; uniform float uStrength;
+varying vec2 vUv;
+void main() {
+  vec3 c = texture2D( tA, vUv ).rgb * 0.55 + texture2D( tB, vUv ).rgb * 0.75;
+  gl_FragColor = vec4( c * uStrength, 1.0 );
+}`;
+function makeBloom(renderer) {
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+  quad.frustumCulled = false;
+  const sc = new THREE.Scene(); sc.add(quad);
+  const mk = (frag, uniforms, add) => new THREE.ShaderMaterial({ uniforms, vertexShader: BLOOM_VERT, fragmentShader: frag, depthTest: false, depthWrite: false, toneMapped: false,
+    transparent: !!add, blending: add ? THREE.AdditiveBlending : THREE.NoBlending, premultipliedAlpha: false });
+  const mBright = mk(BLOOM_BRIGHT, { tMap: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 0.74 } });
+  const mBlur = mk(BLOOM_BLUR, { tMap: { value: null }, uDir: { value: new THREE.Vector2() } });
+  const mMix = mk(BLOOM_MIX, { tA: { value: null }, tB: { value: null }, uStrength: { value: 0.6 } }, true);
+  const rt = (w, h) => new THREE.WebGLRenderTarget(w, h, { depthBuffer: false, stencilBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+  let fb = null, a1 = null, a2 = null, b1 = null, b2 = null, fw = 0, fh = 0, failed = false;
+  const size = new THREE.Vector2(), zero = new THREE.Vector2(0, 0);
+  function free() { for (const o of [fb, a1, a2, b1, b2]) if (o) o.dispose(); fb = a1 = a2 = b1 = b2 = null; fw = fh = 0; }
+  function pass(mat, target) { quad.material = mat; renderer.setRenderTarget(target); renderer.render(sc, cam); }
+  // いま画面に描いた絵に、にじむ光を足す（renderer.render のすぐあとに呼ぶ）
+  function apply(strength, threshold) {
+    if (failed) return false;
+    const prevAuto = renderer.autoClear;
+    try {
+      renderer.getDrawingBufferSize(size);
+      const w = Math.floor(size.x), h = Math.floor(size.y);
+      if (w < 16 || h < 16) return false;
+      if (w !== fw || h !== fh) {
+        free(); fw = w; fh = h;
+        fb = new THREE.FramebufferTexture(w, h);
+        fb.minFilter = fb.magFilter = THREE.LinearFilter;
+        const qw = Math.max(4, w >> 2), qh = Math.max(4, h >> 2), ew = Math.max(2, w >> 3), eh = Math.max(2, h >> 3);
+        a1 = rt(qw, qh); a2 = rt(qw, qh); b1 = rt(ew, eh); b2 = rt(ew, eh);
+      }
+      renderer.setRenderTarget(null);
+      renderer.copyFramebufferToTexture(fb, zero);
+      renderer.autoClear = false;
+      mBright.uniforms.tMap.value = fb; mBright.uniforms.uTexel.value.set(1 / w, 1 / h); mBright.uniforms.uThreshold.value = threshold;
+      pass(mBright, a1);
+      mBlur.uniforms.tMap.value = a1.texture; mBlur.uniforms.uDir.value.set(1 / a1.width, 0); pass(mBlur, a2);
+      mBlur.uniforms.tMap.value = a2.texture; mBlur.uniforms.uDir.value.set(0, 1 / a1.height); pass(mBlur, a1);
+      mBlur.uniforms.tMap.value = a1.texture; mBlur.uniforms.uDir.value.set(1 / b1.width, 0); pass(mBlur, b2);
+      mBlur.uniforms.tMap.value = b2.texture; mBlur.uniforms.uDir.value.set(0, 1 / b1.height); pass(mBlur, b1);
+      mBlur.uniforms.tMap.value = b1.texture; mBlur.uniforms.uDir.value.set(1.6 / b1.width, 0); pass(mBlur, b2);
+      mBlur.uniforms.tMap.value = b2.texture; mBlur.uniforms.uDir.value.set(0, 1.6 / b1.height); pass(mBlur, b1);
+      mMix.uniforms.tA.value = a1.texture; mMix.uniforms.tB.value = b1.texture; mMix.uniforms.uStrength.value = strength;
+      pass(mMix, null);
+      return true;
+    } catch (e) {
+      failed = true;
+      console.warn('[N.O.A.H. 3D] にじむ光を使えませんでした（無しで続けます）', e);
+      try { renderer.setRenderTarget(null); } catch (e2) {}
+      return false;
+    } finally {
+      renderer.autoClear = prevAuto;
+    }
+  }
+  return { apply, get failed() { return failed; }, dispose() { free(); quad.geometry.dispose(); mBright.dispose(); mBlur.dispose(); mMix.dispose(); } };
 }
 
 // -----------------------------------------------------------------------------
@@ -846,6 +1431,9 @@ const KAIJU_MODEL = {
   // v364：怪獣の決まった所に出す演出（目視観察の照準などの研究の演出・麻酔弾URの霧・誘導LRの爆発）が狙う所＝顔。
   //       書き方は hudPointer と同じ（骨の名前＋ずれ。単位は怪獣の高さ＝3）。セレヴァーンは頭の甲殻のまん中
   fxAim: { bone: 'Bone_024', offset: [0, 0, 0.35] },
+  // v365：胸の器官のまわりに重ねる、ふわっとした光（hudPointer の場所から [左右, 上下, 前後] ずらした所。単位は怪獣の高さ＝3）。
+  //       size … 光の大きさ（同じ単位）。書かなければ出さない
+  glow: { color: 0x58d6ff, offset: [0, 0.02, 0.1], size: 0.62, alpha: 0.5 },
 };
 
 // v360：腕（手・爪）と脚（太もも・ひざ）の両方に重みが付いている頂点を、どちらか一方にそろえる。
@@ -1033,6 +1621,7 @@ function makeKaijuFromModel(gltf) {
     m.castShadow = true; m.receiveShadow = false; m.frustumCulled = false;
     if (!mats.includes(m.material)) mats.push(m.material);
   });
+  mats.forEach(m => patchLit(m, 'kaiju'));   // v365 縁の光・雲の影・水面からの光
   const glowMats = mats.filter(m => m.emissiveMap);
   glowMats.forEach(m => { m.emissive.set(0xffffff); m.emissiveIntensity = 1.2; });
 
@@ -1103,6 +1692,7 @@ function makeKaijuFromModel(gltf) {
     // 喉〜胸の器官の光：呼吸に合わせて明滅、溜めで強く脈打つ
     const gl = Math.max(charge, M.glow);
     for (const m of glowMats) m.emissiveIntensity = 1.0 + 0.5 * (0.5 + 0.5 * breathe) + gl * (1.6 + 1.2 * Math.sin(t * 9));
+    R.glowLevel = 0.5 + 0.5 * breathe + gl * (1.5 + 0.9 * Math.sin(t * 9));   // 胸の光の強さ（v365 重ねる光に使う）
   }
   // 足首の骨（-X 側, +X 側）。歩きの周期で足が地面に着くのは、地形が「1.5マス（-X 側）・0.5マス（+X 側）＋2マスごと」流れたとき
   //（前へ歩くとき。後ろへ下がるときは左右が入れ替わる）。砂ぼこりはそこに出す（v356〜）
@@ -1117,6 +1707,7 @@ function makeKaijuFromModel(gltf) {
   const aimOffset = new THREE.Vector3().fromArray(fa.offset || [0, 0, 0.3]);
   return {
     real: true, root, body, head, localBox, mats, skinned, animate, feet, weightFix, pointerNode, pointerOffset, aimNode, aimOffset, bonesByName: byName,
+    glowLevel: () => R.glowLevel || 0,
     setAlpha: a => { fader.set(a); skinned.forEach(m => { m.castShadow = a > 0.35; }); },
     dispose() { fader.dispose(); disposeObject(root); },
   };
@@ -1133,12 +1724,32 @@ const AIRCRAFT_ENGINES = [
   [[-0.031, 0.022, 0.44, 0.7], [0.029, 0.022, 0.44, 0.7]],                                                // AA4
   [[-0.186, 0.004, 0.44, 1.25], [0.182, 0.004, 0.44, 1.25]],                                              // AA5
 ];
+// 翼の両端（いちばん左・右の頂点）と、機体のいちばん上・後ろ（v365 航法灯を付ける所）。機体の元ごとに1回だけ調べる
+function aircraftTips(template) {
+  if (template.userData.noahTips) return template.userData.noahTips;
+  template.updateMatrixWorld(true);
+  const L = new THREE.Vector3(Infinity, 0, 0), Rt = new THREE.Vector3(-Infinity, 0, 0), v = new THREE.Vector3();
+  let top = -Infinity, tail = -Infinity;
+  template.traverse(o => {
+    if (!o.isMesh || !o.geometry.attributes.position) return;
+    const pos = o.geometry.attributes.position, step = Math.max(1, Math.floor(pos.count / 6000));
+    for (let i = 0; i < pos.count; i += step) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+      if (v.x < L.x) L.copy(v);
+      if (v.x > Rt.x) Rt.copy(v);
+      if (v.y > top) top = v.y;
+      if (v.z > tail) tail = v.z;
+    }
+  });
+  if (!Number.isFinite(L.x)) { L.set(-0.48, 0, 0.1); Rt.set(0.48, 0, 0.1); top = 0.08; tail = 0.44; }
+  return (template.userData.noahTips = { left: L.clone(), right: Rt.clone(), top, tail });
+}
 function makeAircraftFromModel(template, type) {
   const look = AIRCRAFT_LOOKS[type] || AIRCRAFT_LOOKS[0];
   const g = new THREE.Group();
   const model = template.clone(true);          // 形と画像は共有し、材質だけ機体ごとに複製（半透明を別々にするため）
   const meshes = [];
-  model.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.castShadow = true; o.receiveShadow = false; meshes.push(o); } });
+  model.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); patchLit(o.material, 'aircraft'); o.castShadow = true; o.receiveShadow = false; meshes.push(o); } });
   g.add(model);
   model.updateMatrixWorld(true);
   const glowMat = new THREE.MeshBasicMaterial({ color: look.glow, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
@@ -1154,11 +1765,31 @@ function makeAircraftFromModel(template, type) {
     flame.renderOrder = 4;
     g.add(flame); engines.push(flame);
   }
+  // v365：噴射口のにじむ光と、翼の端の航法灯（左＝赤・右＝緑）・尾の白い閃光灯。翼の端は形から探す
+  const tips = aircraftTips(template);
+  const spriteMats = [];
+  const light = (color, x, y, z, size, base) => {
+    const mat = new THREE.SpriteMaterial({ map: sharedGlow(), color, transparent: true, opacity: base, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false });
+    const sp = new THREE.Sprite(mat);
+    sp.position.set(x, y, z); sp.scale.setScalar(size); sp.renderOrder = 4.1;
+    sp.userData.base = base;
+    g.add(sp); spriteMats.push(mat);
+    return sp;
+  };
+  const engineGlows = engines.map(f => light(look.glow, f.position.x, f.position.y, f.position.z - 0.02, 0.28 * (0.7 + 0.3 * (f.userData.r || 1)), 0.42));
+  const lights = {
+    engines: engineGlows,
+    port: light(0xff3b30, tips.left.x, tips.left.y + 0.012, tips.left.z, 0.13, 0.95),
+    star: light(0x3dff7a, tips.right.x, tips.right.y + 0.012, tips.right.z, 0.13, 0.95),
+    strobe: light(0xffffff, 0, tips.top + 0.01, tips.tail - 0.04, 0.2, 1),
+  };
   const fader = makeFader(meshes, 3.5);
+  let alphaNow = 1;
   return {
-    real: true, group: g, engines, glowMat, type, mats: fader.mats,
-    setAlpha: a => fader.set(a),
-    dispose() { fader.dispose(); meshes.forEach(m => m.material.dispose()); flameGeo.dispose(); glowMat.dispose(); },
+    real: true, group: g, engines, glowMat, type, mats: fader.mats, lights,
+    get alpha() { return alphaNow; },
+    setAlpha: a => { alphaNow = a; fader.set(a); },
+    dispose() { fader.dispose(); meshes.forEach(m => m.material.dispose()); flameGeo.dispose(); glowMat.dispose(); spriteMats.forEach(m => m.dispose()); },
   };
 }
 
@@ -1449,6 +2080,7 @@ function start(bridge) {
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.info.autoReset = false;      // v365：1コマの中で何回か描く（にじむ光）ので、数える所は自分で区切る
   const canvas = renderer.domElement;
   canvas.className = 'noah3dCanvas';
   Object.assign(canvas.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', touchAction: 'none', zIndex: '1', display: 'block' });
@@ -1478,6 +2110,7 @@ function start(bridge) {
   groundTex.colorSpace = THREE.SRGBColorSpace;
   groundTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, map: groundTex, envMapIntensity: 0 });
+  patchLit(groundMat, 'ground');   // v365 雲の影・水面からの光・左右の端を暗く
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(GROUND_W, GROUND_L), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, 0, GROUND_ZC);
@@ -1627,6 +2260,105 @@ function start(bridge) {
   const stageFx = makeStageFx();
   scene.add(stageFx.group);
   const tmpFoot = new THREE.Vector3();
+  // ---------------------------------------------------------------------------
+  // v365 見た目の強化：空気・足元の影・足音の輪・胸の光・画面の揺れ・にじむ光
+  // ---------------------------------------------------------------------------
+  const cloudTex = cloudNoiseTexture(), causTex = causticTexture();
+  noahU.uNoahNoise.value = cloudTex; noahU.uNoahCausTex.value = causTex;
+  const atmos = makeAtmos();
+  scene.add(atmos.group);
+  const bloom = makeBloom(renderer);
+  let bloomOn = true, bloomUsed = false;
+  cleanups.push(() => { atmos.dispose(); bloom.dispose(); cloudTex.dispose(); causTex.dispose(); noahU.uNoahNoise.value = null; noahU.uNoahCausTex.value = null; });
+  // 足元の影：体の下の大きな影＋両足の下の濃い影（足が上がると薄くなる）。太陽の影とは別に、地面に「乗っている」感じを出す
+  const blobTex = blobTexture(), ringTex = ringTexture();
+  const flatGeo = new THREE.PlaneGeometry(1, 1); flatGeo.rotateX(-Math.PI / 2);
+  const blobMat = () => new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const contact = [0, 1, 2].map(i => { const m = new THREE.Mesh(flatGeo, blobMat()); m.renderOrder = 0.2 + i * 0.01; m.visible = false; m.frustumCulled = false; scene.add(m); return m; });
+  // 足が着いたときに地面に広がる輪（砂・土が押しのけられる）
+  const rings = [0, 1, 2, 3].map(() => {
+    const m = new THREE.Mesh(flatGeo, new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, opacity: 0, depthWrite: false }));
+    m.renderOrder = 0.3; m.visible = false; m.frustumCulled = false; scene.add(m);
+    return { m, age: 9, life: 0.8 };
+  });
+  let ringNext = 0;
+  const ringColor = new THREE.Color();
+  cleanups.push(() => { blobTex.dispose(); ringTex.dispose(); flatGeo.dispose(); contact.forEach(m => m.material.dispose()); rings.forEach(r => r.m.material.dispose()); });
+  // 胸の器官のまわりの光
+  const chestGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false }));
+  chestGlow.renderOrder = 0.4; chestGlow.visible = false;
+  scene.add(chestGlow);
+  cleanups.push(() => chestGlow.material.dispose());
+  const chestPos = new THREE.Vector3();
+  let footY0 = [null, null];
+  // 画面の揺れ（怪獣の足音・炸裂）。盤面の上の文字（HPの札・計器）は揺らさず、3Dの景色だけを揺らす
+  let shakeAmp = 0;
+  const addShake = v => { if (quality < 2) shakeAmp = Math.min(0.11, Math.max(shakeAmp, v)); };
+  let rimHot = 0;
+  const rimBase = new THREE.Color(), rimHotC = new THREE.Color();
+  function footImpact(x, z) {
+    const r = rings[ringNext]; ringNext = (ringNext + 1) % rings.length;
+    r.age = 0; r.m.position.set(x, 0.03, z); r.m.material.color.copy(ringColor);
+    addShake(0.055);
+    atmos.footfall(x, z);
+  }
+  function updateLook(g, now, dt, scroll, ds, kAlpha) {
+    const t = now / 1000, L = STAGE_LOOK[lookStage] || STAGE_LOOK.forest, ks = kaiju.root.scale.x;
+    noahU.uNoahScroll.value = scroll;
+    noahU.uNoahWind.value.set((t * 0.0055) % 1, (t * 0.002) % 1);
+    noahU.uNoahCausA.value.set((t * 0.021) % 1, (t * 0.013) % 1);
+    noahU.uNoahCausB.value.set(1 - (t * 0.017) % 1, (t * 0.019) % 1);
+    // 縁の光：必殺技の溜めで熱い色へ
+    const chg = debugPose ? (debugPose.charge || 0) : charge;
+    rimHot = smooth(rimHot, chg, 4, dt);
+    noahU.uNoahRim.value.copy(rimBase).lerp(rimHotC, clamp01(rimHot) * (0.75 + 0.25 * Math.sin(t * 9)));
+    // 炸裂の光が当たっている間は、縁もその色で光る（当たった手ごたえ）
+    if (flash.intensity > 0.2) { const fk = Math.min(1.1, flash.intensity / 12), rc = noahU.uNoahRim.value; rc.r += flash.color.r * fk; rc.g += flash.color.g * fk; rc.b += flash.color.b * fk; }
+    // 胸の場所
+    kaiju.pointerNode.getWorldPosition(chestPos);
+    chestPos.addScaledVector(kaiju.pointerOffset, ks);
+    const G = kaiju.real ? KAIJU_MODEL.glow : null;
+    chestGlow.visible = !!G && kAlpha > 0.02 && kaiju.root.visible;
+    if (chestGlow.visible) {
+      const lv = kaiju.glowLevel ? kaiju.glowLevel() : 0.5;
+      chestGlow.position.set(chestPos.x + G.offset[0] * ks, chestPos.y + G.offset[1] * ks, chestPos.z + G.offset[2] * ks);
+      chestGlow.scale.setScalar(G.size * ks * (0.92 + 0.1 * Math.min(2.5, lv)));
+      chestGlow.material.color.set(G.color);
+      chestGlow.material.opacity = Math.min(1, G.alpha * (0.55 + 0.45 * Math.min(2.4, lv))) * kAlpha;
+    }
+    // 足元の影
+    const show = kaiju.root.visible && kAlpha > 0.02;
+    const bx = kaiju.root.position.x + (kaiju.body ? kaiju.body.position.x : 0);
+    contact[0].visible = show;
+    if (show) {
+      contact[0].position.set(bx + PATH_CENTER_X * ks / KAIJU_SCALE, 0.02, KAIJU_Z - 0.1 * ks);
+      contact[0].scale.set(3.0 * ks, 1, 2.3 * ks);
+      contact[0].material.opacity = L.contact * kAlpha;
+    }
+    for (let i = 0; i < 2; i++) {
+      const bone = kaiju.real && kaiju.feet ? kaiju.feet[i] : null, m = contact[1 + i];
+      m.visible = show && !!bone;
+      if (!m.visible) continue;
+      bone.getWorldPosition(tmpFoot);
+      if (footY0[i] == null || tmpFoot.y / ks < footY0[i]) footY0[i] = tmpFoot.y / ks;
+      const lift = clamp01((tmpFoot.y / ks - footY0[i]) / 0.11);
+      m.position.set(tmpFoot.x, 0.025, tmpFoot.z + 0.1 * ks);
+      m.scale.set(0.8 * ks * (1 + lift * 0.35), 1, 0.95 * ks * (1 + lift * 0.35));
+      m.material.opacity = L.contact * 1.25 * (1 - lift * 0.75) * kAlpha;
+    }
+    // 足音の輪
+    for (const r of rings) {
+      if (r.age >= r.life) { r.m.visible = false; continue; }
+      r.age += dt; r.m.position.z -= ds;
+      const u = clamp01(r.age / r.life), e = 1 - Math.pow(1 - u, 2.4);
+      r.m.visible = true;
+      r.m.scale.setScalar((0.55 + 1.5 * e) * ks);
+      r.m.material.opacity = 0.5 * (1 - u) * (1 - u);
+    }
+    atmos.update(now, scroll, chg, chestPos, ks, kAlpha);
+    shakeAmp *= Math.exp(-dt * 7.5);
+    if (shakeAmp < 0.002) shakeAmp = 0;
+  }
   // 怪獣の足が地面に着いたら砂ぼこりを出す。prev → cur は、このコマの間に地形が流れた量（マス）
   function kaijuFootfalls(prev, cur, alpha) {
     if (!kaiju.real || !kaiju.feet || walkAmp < 0.3 || alpha < 0.5 || !kaiju.root.visible) return;
@@ -1642,6 +2374,7 @@ function start(bridge) {
       if (!bone) continue;
       bone.getWorldPosition(tmpFoot);
       stageFx.footfall(tmpFoot.x, tmpFoot.z + 0.08 * kaiju.root.scale.z, KAIJU_SCALE);
+      footImpact(tmpFoot.x, tmpFoot.z + 0.08 * kaiju.root.scale.z);
     }
   }
   // 炸裂の泡（海底）：演出が始まった瞬間に1回だけ
@@ -1657,6 +2390,10 @@ function start(bridge) {
       if (!info.p) continue;
       effectPlanePoint(info.p.x, info.p.y, tmpBlast);
       stageFx.burst(tmpBlast.x, tmpBlast.y, tmpBlast.z, info.peak);
+      // v365：火花・煙（森林）・画面の小さな揺れ
+      atmos.burst(tmpBlast.x, tmpBlast.y, tmpBlast.z, info.peak, info.color);
+      stageFx.smoke(tmpBlast.x, tmpBlast.y, tmpBlast.z, info.peak);
+      addShake(info.peak >= 14 ? 0.05 : info.peak >= 9 ? 0.03 : 0.015);
     }
   }
   // 研究UR（生体解析）：怪獣の体に光る網目を重ねる。本番の怪獣は骨で動くので、同じ骨で動く網目を重ね、法線の向きに少し膨らませる
@@ -1691,6 +2428,7 @@ function start(bridge) {
     scene.remove(prev.root);
     prev.dispose();
     kaiju = next;
+    footY0 = [null, null];
     kaiju.root.position.set(0, 0, KAIJU_Z);
     scene.add(kaiju.root);
     scanMeshes = attachScan(kaiju);
@@ -2033,8 +2771,14 @@ function start(bridge) {
     scene.background = new THREE.Color(L.fog);
     hemi.color.set(L.sky); hemi.groundColor.set(L.ground); hemi.intensity = L.hemi;
     sun.color.set(L.sun); sun.intensity = L.sunI;
+    sun.position.fromArray(L.sunPos);
     renderer.toneMappingExposure = L.exposure;
     stageFx.setStage(stage);
+    // v365
+    atmos.setStage(stage);
+    noahU.uNoahCloud.value = L.cloud; noahU.uNoahCaus.value = L.caustic; noahU.uNoahCausColor.value.set(L.causticColor); noahU.uNoahEdge.value = L.edge;
+    rimBase.set(L.rim).multiplyScalar(L.rimI); rimHotC.set(L.rimHot).multiplyScalar(1.5);
+    ringColor.set(FX_DUST[stage === 'seafloor' ? 'seafloor' : 'forest'].color);
     // 映り込みの空（ステージの色）
     try {
       const next = makeEnvironment(renderer, L);
@@ -2239,6 +2983,12 @@ function start(bridge) {
       a.tether.position.copy(grp.position);
       const flick = 0.85 + Math.sin(now / 37 + type) * 0.1 + Math.random() * 0.08;
       a.model.engines.forEach(f => { const r = f.userData.r || 1; f.scale.set(r, flick * (f.userData.len || 1), r); });
+      if (a.model.lights) {
+        const Lg = a.model.lights, al = a.model.alpha, blink = (now / 1000 + type * 0.37) % 1.6;
+        Lg.engines.forEach(sp => { sp.material.opacity = sp.userData.base * al * (0.75 + 0.3 * flick); });
+        Lg.port.material.opacity = Lg.star.material.opacity = 0.95 * al * (0.8 + 0.2 * Math.sin(now / 300 + type));
+        Lg.strobe.material.opacity = al * (blink < 0.07 || (blink > 0.2 && blink < 0.26) ? 1 : 0);
+      }
       // 追従ドローン
       const colors = bridge.followDroneColors(u);
       while (a.drones.length < colors.length) {
@@ -2290,13 +3040,16 @@ function start(bridge) {
         const sx = (ef.startCell ? ef.startCell.x : 3.5) - 3.5, sz = (ef.startCell ? ef.startCell.y : 5.5) - 3.5;
         const end = effectPlanePoint(3.5 + (Math.random() - 0.5) * 0.3, FX_HIT_ROW, new THREE.Vector3());
         end.y += (Math.random() - 0.5) * 0.2;
-        pr = { model, history: [], start: new THREE.Vector3(sx, FLY_Y + 0.02, sz), end };
+        pr = { model, history: [], start: new THREE.Vector3(sx, FLY_Y + 0.02, sz), end, fire: bridge.cardCategory(ef.cardId) === 'fire', puff: null };
         projectiles.set(ef, pr);
       }
       const pos = flightPoint(pr, p, tmpA);
       pr.model.group.position.copy(pos);
       pr.model.group.lookAt(pr.end);
       pr.model.group.rotateY(Math.PI);           // 模型の機首は -Z。lookAt は +Z を向けるので反転
+      // v365：航跡（一定の間隔で煙・泡を置いていく）
+      if (!pr.puff) pr.puff = pos.clone();
+      else if (pr.puff.distanceToSquared(pos) > (pr.fire ? 0.05 : 0.09)) { stageFx.trail(pos.x, pos.y, pos.z, pr.fire); pr.puff.copy(pos); }
       pr.history.unshift(pos.clone());
       if (pr.history.length > 20) pr.history.length = 20;
       pr.model.trail.forEach((s, i) => {
@@ -2356,6 +3109,10 @@ function start(bridge) {
         // 砂ぼこり・泡（見えない粒を1つずつ）
         stageFx.warm(true);
         temps.push({ obj: null, dispose: () => stageFx.warm(false) });
+        // v365：空気・足元の影・足音の輪・胸の光
+        atmos.warm(true);
+        temps.push({ obj: null, dispose: () => atmos.warm(false) });
+        contact.forEach(show); show(rings[0].m); show(chestGlow);
       }
       // 機体：ふつうのもの／半透明のもの（移動先・帰還中）
       const tplName = AIRCRAFT_MODEL_NAMES.find(n => templates[n]);
@@ -2374,6 +3131,7 @@ function start(bridge) {
       placeCamera(cam.elev, fitDistance(cam.elev, cam.target, cam.fov, aspect, poseFit(CAMERA_POSES.oblique, kaijuRootScale())), cam.target, cam.fov, aspect);
       kaiju.root.updateMatrixWorld(true);
       renderer.render(scene, camera);
+      if (!transparent && bloomOn && quality === 0) bloom.apply(0.01, 0.99);   // にじむ光の絵の作り方も作っておく
     } finally {
       if (transparent) { try { kaiju.setAlpha(1); } catch (e) {} scanMeshes.forEach(w => { w.visible = false; }); }
       shown.forEach(o => { o.visible = false; });
@@ -2419,6 +3177,8 @@ function start(bridge) {
     }
     // いちばん軽い段では、砂ぼこり・泡を少なめに
     stageFx.setLite(quality >= 2);
+    // v365：1段目でにじむ光を止め、鳥・魚を減らす。2段目で光の筋・鳥・魚・揺れを止め、霧と粒を減らす
+    atmos.setLevel(quality);
     resize();
   }
   function watchSpeed(now) {
@@ -2458,7 +3218,7 @@ function start(bridge) {
     // 動きの少ないときは毎秒30回ほどに抑えて電池を節約する
     const busy = g.effects.length > 0 || walkAmp > 0.02 || pressId !== null || lunge > 0.02 || charge > 0.02 || aircraftMoving ||
       (g.kaijuMotion && now - g.kaijuMotion.start < g.kaijuMotion.duration + 100) ||
-      (typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1) || camSettling || Math.abs(cam.elev - desiredPose(g).elev) > 0.3;
+      (typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1) || camSettling || shakeAmp > 0 || Math.abs(cam.elev - desiredPose(g).elev) > 0.3;
     if (!busy && now - lastRender < 31) return;
     lastRender = now;
     try {
@@ -2476,6 +3236,7 @@ function start(bridge) {
   function renderFrame(g, now, dt) {
     const t = now / 1000;
     const geom = bridge.geom();
+    renderer.info.reset();
 
     // ステージと地形
     applyStage(bridge.stageId());
@@ -2526,6 +3287,7 @@ function start(bridge) {
     kaiju.root.scale.setScalar(kaijuRootScale());
     kaiju.root.updateMatrixWorld(true);
     if (!debugPose) kaijuFootfalls(prevScroll, scroll, kAlpha);
+    updateLook(g, now, dt, scroll, Math.abs(scroll - prevScroll) > 3 ? 0 : scroll - prevScroll, kAlpha);
 
     // 機体・ミサイル・目印
     activeRing.visible = false;
@@ -2574,8 +3336,16 @@ function start(bridge) {
     }
     lastTacticalLevel = level;
 
+    // v365：画面の揺れ（文字の位置を決めたあとで、景色だけ揺らす）
+    if (shakeAmp > 0) {
+      camera.position.y += Math.sin(t * 41) * shakeAmp;
+      camera.position.x += Math.sin(t * 33 + 1.3) * shakeAmp * 0.45;
+      camera.updateMatrixWorld();
+    }
     const r0 = performance.now();
     renderer.render(scene, camera);
+    // v365：にじむ光（いちばん上の画質の段だけ）
+    bloomUsed = bloomOn && quality === 0 && bloom.apply(BLOOM_LOOK[lookStage === 'seafloor' ? 'seafloor' : 'forest'][0], BLOOM_LOOK[lookStage === 'seafloor' ? 'seafloor' : 'forest'][1]);
     stats.renderMs += performance.now() - r0;
     stats.frames++;
 
@@ -2648,6 +3418,7 @@ function start(bridge) {
         },
         charge, warmMs: stats.warmMs == null ? null : stats.warmMs,
         fx: stageFx.count(),
+        look: { atmos: atmos.count(), bloom: bloomUsed, bloomFailed: bloom.failed, shake: +shakeAmp.toFixed(3), rimHot: +rimHot.toFixed(2) },
         cameraPose: desiredPose(bridge.game) === CAMERA_POSES.top ? 'top' : 'oblique',
         hp: [...hpPlates.entries()].map(([u, p]) => ({ unit: bridge.game && bridge.game.units ? bridge.game.units.indexOf(u) : -1, hp: p.hp, max: p.max, dmg: p.dmg, breakRisk: p.brk, shown: p.shown, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h })),
       };
@@ -2678,6 +3449,14 @@ function start(bridge) {
     hudState() { const r = s => { const e = host.querySelector(s); if (!e || e.style.display === 'none' || getComputedStyle(e).display === 'none') return null; const b = e.getBoundingClientRect(), h = host.getBoundingClientRect(); return [Math.round(b.left - h.left), Math.round(b.top - h.top), Math.round(b.width), Math.round(b.height)]; };
       const ln = host.querySelector('.nhLine'); return { ptrOff: host.querySelector('.noahHud').classList.contains('ptrOff'), pointer: hudView.pointer, track: r('.nhTrack'), bio: r('.nhBio'), warn: r('.nhWarn'), line: ln && ln.style.display !== 'none' ? ln.getAttribute('points') : null, tone: host.querySelector('.noahHud').dataset.tone || '' }; },
     // テスト用：場面の中身（重さの内訳を調べるときに一部を隠す）
+    // テスト用（v365）：にじむ光の入・切、鳥や魚の群れ・足音・揺れをすぐに出す
+    debugLook(o) {
+      if (o && 'bloom' in o) bloomOn = !!o.bloom;
+      if (o && o.flock) atmos.debugFlock(o.flock, o.x, o.z);
+      if (o && o.foot) footImpact(o.foot[0], o.foot[1]);
+      if (o && o.shake) addShake(o.shake);
+      return { bloomOn, bloomUsed, atmos: atmos.count() };
+    },
     debugParts() { return { scene, kaiju: kaiju.root, ground, aircraft: [...aircraft.values()].map(a => a.model.group), sun }; },
     // テスト用：盤面の位置（x, y）が画面のどこに映っているか（host 内の CSS px）
     screenOfCell(bx, by, y) { return toScreen(new THREE.Vector3(bx - 3.5, y == null ? PANEL_Y : y, by - 3.5)); },
@@ -2688,5 +3467,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v364' };
+window.NOAH3D = { start, version: 'v365' };
 })();

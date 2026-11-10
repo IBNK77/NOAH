@@ -172,6 +172,16 @@ SAVE / CONTINUE（v336〜）：
   その演出（と麻酔弾LRの霧）が出ている間は、生体モニターの輪（ポインター）と線を消し、終わったら戻す（hud() の pointerHidden）。
   麻酔弾N/R/SR・ミサイルなどの爆発は、毎回怪獣の体のどこかに散るので今まで通り。
   怪獣の画面は、開いてから 0.45秒の間は中の小窓（特性・行動予測）を開かない（怪獣を押した同じタップの続きで開いてしまうのを、念のため防ぐ）。
+- v365〜：3Dの見た目の強化（noah3d.js だけ。ルール・カード・2D表示は変えていない）。iPhone SE3 で無理なく動く範囲。
+  ・光：太陽を「左の少し手前の上」へ（怪獣に陰影、地面に影）。怪獣・機体に縁の光（必殺技の溜めで熱い色、炸裂が当たるとその色で光る）。
+    森林は雲の影が地面と怪獣を流れ、海底は水面からの光のゆらめきが地面と怪獣に映る。地面の左右の端は少し暗く、森林は遠くがかすむ
+  ・空気：低い霧の層、光の筋、ただよう粒（森林＝光る塵、海底＝マリンスノー）、鳥の群れ／魚の群れ（ときどき横切る。足音で飛び立つ）
+  ・怪獣：足元の影（体の下＋両足）、足が着くと地面に広がる輪と画面の小さな揺れ、胸の器官のにじむ光、溜めで胸へ集まる光の粒
+  ・機体：噴射口のにじむ光、翼の端の航法灯（左＝赤・右＝緑）、尾の白い閃光灯
+  ・攻撃：ミサイル・麻酔弾の航跡（森林＝煙、海底＝泡）、炸裂の火花と煙
+  ・にじむ光（明るい所がふわっと光る）：描いた画面を写し取って小さくぼかして足す。使えない端末では自動で無しになる
+  ・重い端末では段階的に減らす（1段目：にじむ光を止める／2段目：光の筋・群れ・火花・揺れを止め、霧と粒を減らす）
+  ・数字を変える所：noah3d.js の STAGE_LOOK（光）・ATMOS（空気）・BLOOM_LOOK（にじむ光）・KAIJU_MODEL.glow（胸の光）
 
 ===============================================================================
 -->
@@ -4452,7 +4462,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v364',
+    currentPrototypeVersion:'v365',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
