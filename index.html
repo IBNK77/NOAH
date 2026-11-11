@@ -199,6 +199,30 @@ SAVE / CONTINUE（v336〜）：
   ・v369：機体がいるマスの小さな DMG だけ、別の板（noah3d.js の tagPlane・TAG_LIFT）に描いて少し浮かせる（黄色い輪より上。地面と平行のまま）
   ・v370：DMG の板の中に「DMG」と数字が必ず収まるよう、幅を測って文字の大きさ・間隔を合わせる
   ・テスト用：bridge.debugAmmoFx(cardId)・bridge.debugFxPlacement(effect)・handle.debugBone(name)
+- v371〜：フィールドイベント（ラウンド開始時の 2〜3択のテキストイベント。22種類）。GAME_EVENTS・showGameEvent・maybeShowRoundEvent。
+  ・今までの支援イベント（アーティファクト3択）は、大当たり枠の1つ（artifact_drop）になった
+  ・枠：jackpot（好機）/ risk（賭け）/ small（小さな恵み）/ bad（凶報）。比は EVENT_TIER_WEIGHTS、起きる割合は ROUND_EVENT_RATE（v371 で 0.20→0.45、v374 で 0.20 に戻した）
+  ・RP の増減は 40 前後（35〜50）。eventRp() を通し、エンドレスでは 2体目×2・3体目×3…（game.endlessRescued+1）
+  ・そのラウンドだけの効果は game.roundEvent（round が今のラウンドのときだけ有効）：hand / handPenaltyUnit（maxHandSize）、
+    mobility / noEvadeUnit（effectiveMobility）、researchHalf（resolveImmediateCard）、fireOrder・fireDone（noahLaunchAmmo → resolveRoundEventOrders）、
+    skipUnit（continueTurnAfterTitle）
+  ・イベントだけでは勝敗が決まらないようにしてある（EP は 1 まで、DDP は 1 まで）。EP の増減は最大EPに対する割合（eventEp）。
+    EP が上限に張りついていて「EP+」が効かないときは、そのイベント（脱落した甲殻・余震）は出さない
+  ・封印コンテナのはずれは、新しいカードではなく今ある「侵蝕痕」を山札に混ぜる
+  ・v372：バランスの見直し（今のゲームの値段を物差しにした机上の比較。遊んで確かめた物ではない）。
+    物差し：試作カード N15/R25/SR40/UR50/LR60、アーティファクト60、カード強化50、ステータス強化60〜、カード除去10。
+    1ラウンドぶんの目安＝RP40 ≒ DDP5 ≒ HP5 ≒ EP8%（マナの見積もり）。「必ず損な選択肢」「ほとんど効かない報酬・罰」を直した
+  ・v373：通しのテストプレイで確かめて直した（自動で遊ぶボット。画面のボタン・マスを押して、第1怪獣の決着まで遊ぶ。
+    判断の材料は画面に出ている予測だけ。ページの中の時計だけを早送りし、ルールの計算は変えていない）。
+    ・条件ごとに12ゲーム：イベント無し / v370まで（アーティファクトのみ・20%）/ v372（選択肢をランダム）/ v372（状況を見て選ぶ）。
+      v372 のイベントは v370 までのアーティファクトのイベントとほぼ同じだけ助ける（終わった時のEPの残りが、イベント無しより13〜19ポイント少ない）。
+    ・枠ごとに6ゲーム（その枠のイベントだけが出る）：好機・賭けはどちらも6戦5勝、小さな恵みはやや助ける、凶報は選び方しだいでほぼ痛くない。
+      賭けが好機と同じ強さ＝外れが軽すぎたので、外れを重くした：未踏鉱脈 70%・HP−5 → 60%・HP−10 /
+      封印コンテナ LR30・SR50・外れ20 → 20・45・35（外れは侵蝕痕2枚）/ 過給テスト 照準系に最大HP−3、火器管制の最大HP −3 → −4 /
+      防衛軍との取引 DDP−5 → −8
+    ・ラウンド限定の効果（磁気嵐・上層部の圧力・避難の遅れ・補給線の寸断・補給便の手札+1・怪獣のまどろみ）が、実際のゲームの流れで効くことも確かめた
+  ・v374：起きる割合を 0.45 → 0.20 に戻した（v370 までと同じ。1ゲーム30ラウンドくらいで6回前後）
+  ・テスト用：bridge.debugEvent(id)・debugEventList()・debugEventRoll(n)・debugBotView()（自動テストプレイ用：各マスの被害予測・怪獣の進撃・防衛軍の予定）
 
 ===============================================================================
 -->
@@ -2361,6 +2385,18 @@ input[type="range"]::-webkit-slider-thumb{
 .kcBody .kaijuHighScoreBadge::before{ content:"BEST"; color:var(--text-2); letter-spacing:.14em; }
 .kaijuHighScoreBadge.failed{ border-color:rgba(var(--order-rgb),.45); background:rgba(var(--order-rgb),.12); color:#ffd9dd; }
 .roundEventChoiceList{ display:grid; gap:8px; margin-top:10px; }
+/* v371 フィールドイベント */
+.eventHead{ display:flex; align-items:center; gap:8px; margin-bottom:8px; font-family:var(--f-disp); font-size:15.5px; letter-spacing:.04em; color:var(--text-1); }
+.eventTier{ flex:none; padding:2px 8px; border-radius:999px; font-family:var(--f-ui, inherit); font-size:10.5px; font-weight:800; letter-spacing:.08em; border:1px solid currentColor; }
+.eventTier[data-tier="jackpot"]{ color:#ffd66a; }
+.eventTier[data-tier="risk"]{ color:#ff9d6c; }
+.eventTier[data-tier="small"]{ color:#6ceeda; }
+.eventTier[data-tier="bad"]{ color:#ff8a98; }
+.eventText{ font-size:13px; line-height:1.85; color:var(--text-2); }
+.eventResult{ font-size:13.5px; line-height:1.9; color:var(--text-1); }
+.eventResult b{ color:#ffe9a8; }
+.eventChoiceBtn{ width:100%; text-align:left; }
+.eventChoiceBtn:disabled{ opacity:.42; }
 .roundEventArtifactNameBtn{
   width:100%;
   min-height:48px;
@@ -4449,7 +4485,7 @@ input[type="range"]::-webkit-slider-thumb{
   const ARTIFACT_SALE_COST = 25;
   const EMERGENCY_COUNCIL_ARTIFACT_COUNT = 2;
   const ARTIFACT_SALE_RATE = 0.25;
-  const ROUND_EVENT_RATE = 0.20;
+  const ROUND_EVENT_RATE = 0.20;   // v374：0.45 → 0.20 に戻した（v370 までと同じ割合。v371〜v373 は 0.45）。枠の比は EVENT_TIER_WEIGHTS
   const ARTIFACT_DEFS = {
     ore_attack:{ id:'ore_attack', name:'ヴォルカイト鉱石', kind:'ore', effectType:'allStat', statKey:'attack', tag:'恒常', short:'全AA機 攻撃力+1', text:'全AA機の攻撃力を恒常的に+1します。誘導弾によるDDP増加量が底上げされます。' },
     ore_precision:{ id:'ore_precision', name:'ミラジウム鉱石', kind:'ore', effectType:'allStat', statKey:'precision', tag:'恒常', short:'全AA機 精密性+1', text:'全AA機の精密性を恒常的に+1します。鎮静弾のEP減少量が伸びます。' },
@@ -4488,7 +4524,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v370',
+    currentPrototypeVersion:'v374',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -5004,6 +5040,7 @@ function noahTakeAmmoImpact(cardId){
 }
 function noahLaunchAmmo(cardId,unit) {
  const d=def(cardId);if(!d?.ammo)return;
+ if(d.category==='fire' && roundEventNow()) roundEventNow().fireDone=true;   // v371：イベント「上層部の圧力」の命令を果たした
  const cell=getBoardGeom().cell,index=game.units.indexOf(unit),visualIndex=aircraftImageIndex(unit.aircraftId);
  const hover=getAircraftHoverState(visualIndex,performance.now()+index*37,cell);
  const hit=noahPlanAmmoImpact(cardId,cell);
@@ -11036,6 +11073,7 @@ function getRandomExplosionCell(){
     game.nextDefenseNullify = false;
     game.nextKaijuDamageMod = 0;
     game.nextKaijuDistanceMod = 0;
+    game.roundEvent = null; game.eventSeen = [];   // v371
     game.nextKaijuSpecialRedirect = false;
     game.nextKaijuRedirectedActionId = null;
     game.returnToMainAfterAttack = false;
@@ -11527,7 +11565,7 @@ function getRandomExplosionCell(){
     'カード強化':'CARD ENHANCE', '強化内容選択':'CARD ENHANCE', 'カード除去':'CARD PURGE', '除去確認':'CARD PURGE',
     '修理対象選択':'REPAIR', 'リカバリー・リンク':'RECOVERY LINK', '追従先選択':'DRONE LINK', '配備先選択':'DEPLOYMENT',
     '対象選択':'TARGET', '基地内カード整理':'BASE STORAGE', 'ターン終了':'END OF TURN', '確認':'CONFIRM',
-    '支援イベント':'SUPPORT EVENT', '幕間基地':'INTERMISSION', '怪獣ターン':'KAIJU PHASE', '防衛軍ターン':'O.R.D.E.R. PHASE',
+    '支援イベント':'SUPPORT EVENT', 'イベント':'FIELD EVENT', '護衛任務':'ESCORT DUTY', '命令違反':'ORDER VIOLATION', '幕間基地':'INTERMISSION', '怪獣ターン':'KAIJU PHASE', '防衛軍ターン':'O.R.D.E.R. PHASE',
     'ポーズ':'PAUSE', '新規ゲーム確認':'NEW OPERATION', '開発抽選統計':'R&D STATISTICS', 'ルール説明':'FIELD MANUAL',
     '山札確認':'DECK', '基地内確認':'BASE STORAGE',
     '作戦成功':'MISSION REPORT', '作戦失敗':'MISSION REPORT', '作戦継続':'MISSION REPORT', '作戦終了':'MISSION REPORT'
@@ -11580,7 +11618,7 @@ function getRandomExplosionCell(){
   function ensureStatus(unit){ if(!unit.status) unit.status=createEmptyStatus(); STATUS_KEYS.forEach(k=>{ unit.status[k]=Math.max(0, Number(unit.status[k])||0); }); return unit.status; }
   function statusCount(unit,key){ return ensureStatus(unit)[key] || 0; }
   function hasAnyStatus(unit){ const s=ensureStatus(unit); return STATUS_KEYS.some(k=>s[k]>0); }
-  function maxHandSize(unit){ return Math.max(0, 5 - statusCount(unit,'bleed')); }
+  function maxHandSize(unit){ return Math.max(0, 5 - statusCount(unit,'bleed') + roundEventHandMod(unit)); }   // v371：イベントの手札上限±1
   function roundShieldStacks(unit){ if(!unit) return 0; unit.roundShieldStacks=Math.max(0, Math.floor(Number(unit.roundShieldStacks)||0)); return unit.roundShieldStacks; }
   function shieldBaseDefense(unit){ return Math.max(0, Number(unit && unit.defense)||0); }
   function shieldDefenseBonus(unit){ return shieldBaseDefense(unit) * roundShieldStacks(unit); }
@@ -11589,7 +11627,8 @@ function getRandomExplosionCell(){
   function effectiveDefense(unit){ return statusCount(unit,'corrosion')>0 ? 0 : Math.max(0, (Number(unit.defense)||0) + shieldDefenseBonus(unit) + followBarrierDefenseBonus(unit)); }
   function effectiveMobility(unit){
     if(statusCount(unit,'freeze')>0) return 0;
-    return Math.max(0, Math.min(MOBILITY_CAP, Number(unit.mobility)||0));
+    if(roundEventNoEvade(unit)) return 0;   // v371：イベント「危険域の近接観測」で寄った機体は、このラウンド回避できない
+    return Math.max(0, Math.min(MOBILITY_CAP, (Number(unit.mobility)||0) + roundEventMobilityBonus()));   // v371：イベント「追い風」
   }
   function evasionRateFromMobility(mobility){
     const n = Math.max(0, Math.min(MOBILITY_CAP, Math.floor(Number(mobility)||0)));
@@ -13209,6 +13248,7 @@ function getRandomExplosionCell(){
     game.nextDefenseNullify = false;
     game.nextKaijuDamageMod = 0;
     game.nextKaijuDistanceMod = 0;
+    game.roundEvent = null; game.eventSeen = [];   // v371
     game.nextKaijuSpecialRedirect = false;
     game.nextKaijuRedirectedActionId = null;
     game.returnToMainAfterAttack = false;
@@ -15147,6 +15187,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     noahOperationEffect(card.id,unit);
     const cardDef = def(card.id);
     let deferredResolve=false;
+    const lpBeforeCard=game.lp;   // v371：イベント「磁気嵐」で研究カードのRPを半分にするため
     const finishResolve=()=>{
       if(cardDef.category==='research') maybeTriggerResearchArtifact(unit);
       recordMetricHistory('card');
@@ -15242,6 +15283,11 @@ function showHandPopup(index){ if(game.inputLocked) return;
       case 'repairdrone':
       case 'repairdrone2':
         break;
+    }
+    // v371：イベント「磁気嵐」の間は、研究カードで得たRPを半分にする
+    if(cardDef.category==='research' && roundEventNow() && roundEventNow().researchHalf){
+      const cut=Math.floor(Math.max(0, game.lp-lpBeforeCard)/2);
+      if(cut>0){ game.lp -= cut; game.stats.totalLpProduced -= cut; addLog(`磁気嵐：研究カードのRPが半分に（RP-${cut}）`); showToast(`磁気嵐：RP−${cut}`); }
     }
     if(!deferredResolve) finishResolve();
   }
@@ -15692,12 +15738,485 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(!choices.length){ afterEvent(); return; }
     showRoundArtifactEventChoices(choices, afterEvent);
   }
+  // ===========================================================================
+  // v371：フィールドイベント（ラウンド開始時にときどき起きる、2〜3択の短いテキストイベント）
+  //   今までの「支援イベント（アーティファクト3択）」は、この中の大当たり枠の1つになった。
+  //   枠（tier）：jackpot＝ノーリスクで大きな報酬 / risk＝リスクつき大報酬 / small＝ノーリスクで小さな報酬 / bad＝デメリット（別の代償で軽くできる）
+  //   出やすさ：ROUND_EVENT_RATE（1ラウンドに起きる割合）と EVENT_TIER_WEIGHTS（枠の比）。
+  //   RP の増減は eventRp() を通す（エンドレスでは 2体目×2、3体目×3…。研究カードのインフレに合わせる）。
+  //   そのラウンドだけの効果は game.roundEvent に入れる（機動性+1・手札上限±1・回避不可・行動不可・研究RP半減・誘導弾の命令）。
+  //   イベントを足すときは GAME_EVENTS に1つ書く：{ id, tier, name, text, available()（出せるか）, choices(ctx)（選択肢の配列） }。
+  //   選択肢：{ label, sub（効果の説明）, disabled, run(ctx) }。run の中で ctx.done(結果の文) を呼ぶと結果の画面へ進む。
+  //   機体・カードを選ばせたいときは ctx.pickUnit / ctx.pickStat / ctx.pickCard / ctx.pickEnchant を使う。
+  // ===========================================================================
+  const EVENT_TIER_WEIGHTS = { jackpot:20, risk:30, small:28, bad:22 };   // v372：好機を 15→20（アーティファクトが前より出にくくなった分を少し戻す）
+  const EVENT_TIER_LABEL = { jackpot:'好機', risk:'賭け', small:'小さな恵み', bad:'凶報' };
+  const EVENT_STAT_KEYS = ['maxHp','defense','attack','precision','mobility','observation','maintenance'];
+  const EVENT_STAT_LABEL = { maxHp:'最大HP', defense:'防御力', attack:'攻撃力', precision:'精密性', mobility:'機動性', observation:'観測性能', maintenance:'整備性' };
+  function eventRpScale(){ return game.endlessMode ? (Number(game.endlessRescued)||0) + 1 : 1; }
+  function eventRp(n){ return Math.round(n * eventRpScale()); }
+  function eventGainRp(n){ const v=eventRp(n); game.lp += v; game.stats.totalLpProduced += v; return v; }
+  function eventPayRp(n){ const v=Math.min(Math.max(0, game.lp), eventRp(n)); game.lp -= v; game.stats.totalLpSpent += v; return v; }
+  function eventCanPay(n){ return game.lp >= eventRp(n); }
+  function eventUnits(){ return game.units.filter(u=>u && u.state!=='destroyed'); }
+  function eventRand(list){ return list[Math.floor(Math.random()*list.length)]; }
+  // そのラウンドだけの効果。別のラウンドの物は無いものとして扱う
+  function roundEventNow(){ const e=game && game.roundEvent; return e && e.round===game.round ? e : null; }
+  function ensureRoundEvent(){ if(!roundEventNow()) game.roundEvent={ round:game.round }; return game.roundEvent; }
+  function roundEventHandMod(unit){
+    const e=roundEventNow(); if(!e) return 0;
+    return (Number(e.hand)||0) - (e.handPenaltyUnit===game.units.indexOf(unit) ? (Number(e.handPenalty)||1) : 0);
+  }
+  function roundEventNoEvade(unit){ const e=roundEventNow(); return !!e && e.noEvadeUnit===game.units.indexOf(unit); }
+  function roundEventMobilityBonus(){ const e=roundEventNow(); return e ? (Number(e.mobility)||0) : 0; }
+  function eventUnownedArtifacts(kind=null){
+    const owned=new Set(game.artifacts || []);
+    return ARTIFACT_POOL.filter(id=>!owned.has(id) && (!kind || artifactDef(id).kind===kind));
+  }
+  function eventTrialPool(rarities){ return activeTrialSupply().filter(id=>rarities.includes(def(id).rarity)); }
+  function eventChangeEp(delta){
+    const before=game.ep;
+    if(delta<0) game.ep=Math.max(1, game.ep+delta);            // イベントだけでは保護完了（EP0）にしない
+    else game.ep=Math.min(Math.max(Number(game.epMax)||0, game.ep), game.ep+delta);
+    return game.ep-before;
+  }
+  // EP の増減は最大EPに対する割合で決める（怪獣ごとに最大EPが違うので、固定の数だと効き目が変わってしまう）
+  function eventEp(pct){ return Math.max(1, Math.round((Number(game.epMax)||0) * pct / 100)); }
+  function eventEpRoom(pct){ return game.ep + eventEp(pct) <= (Number(game.epMax)||0); }   // EP が上限に張りついていると「EP+」が効かないので、そのイベントは出さない
+  function eventLoseDdp(n){ const before=game.distance; game.distance=Math.max(1, game.distance-n); return before-game.distance; }   // イベントだけでは陥落（DDP0）にしない
+  function eventLowerStat(unit,key){
+    if(key==='maxHp'){ unit.maxHp=Math.max(1, unit.maxHp-1); unit.hp=Math.min(unit.hp, unit.maxHp); return; }
+    unit[key]=Math.max(0, (Number(unit[key])||0)-1);
+  }
+  function eventStatValue(unit,key){ return key==='maxHp' ? unit.maxHp : (Number(unit[key])||0); }
+  function eventEnhanceRefsAll(){
+    const out=[];
+    eventUnits().forEach(unit=>cardEnhanceRefs(unit).forEach(ref=>{ if(availableCardEnchants(ref.card).length>0) out.push(Object.assign({ unit }, ref)); }));
+    return out;
+  }
+  function eventRemoveRefCard(unit,ref){
+    const list = ref.zone==='discard' ? unit.discard : ref.zone==='cannon' ? unit.cannons : ref.zone==='follow' ? ensureFollowDrones(unit) : ref.zone==='hand' ? unit.hand : ref.zone==='deck' ? unit.deck : null;
+    if(!Array.isArray(list)) return false;
+    const i=list.findIndex(c=>c && c.uid===ref.card.uid);
+    if(i<0) return false;
+    if(ref.zone==='cannon') list[i]=null; else list.splice(i,1);
+    return true;
+  }
+  function eventIsBasicCard(card){ const d=card && def(card.id); return !!d && (d.category==='damage' || !d.trial || d.rarity==='N'); }
+
+  const GAME_EVENTS = [
+    // ---- 大当たり（ノーリスクで大きな報酬）----
+    { id:'artifact_drop', tier:'jackpot', weight:2, name:'後方支援班の特殊投下',
+      available:()=>eventUnownedArtifacts().length>0, special:'artifact' },
+    { id:'proto_supply', tier:'jackpot', name:'試作兵装の先行配備',
+      text:'研究班から通信が入った。「正式採用前の試作品を、3つだけ前線に回せます。実戦データが欲しいんです」',
+      available:()=>eventTrialPool(['UR','LR']).length>=1,
+      choices(ctx){
+        const cards=shuffle(eventTrialPool(['UR','LR'])).slice(0,3);   // v372：SR以上 → UR以上（好機の枠なので、賭けの枠の「脱落した甲殻」より良い物に）
+        const list=cards.map(id=>({ label:`${def(id).name}（${def(id).rarity}）`, sub:'タップで内容を確認して、受け取る機体を選ぶ', run(){
+          openCardDetailModal(id, { actionText:'受け取る', onCloseX(){ ctx.reopen(); }, onAction(){
+            ctx.pickUnit('受け取る機体', u=>`山札 ${u.deck.length}枚`, eventUnits(), unit=>{
+              addDevelopedCardToDeck(unit,id);
+              ctx.done(`${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b> を加えました。`);
+            });
+          } });
+        } }));
+        list.push({ label:'辞退して開発費に回す', sub:`RP+${eventRp(45)}`, run(){ const v=eventGainRp(45); ctx.done(`試作品は研究班に残し、浮いた予算を受け取りました。<br>RP+${v}`); } });
+        return list;
+      } },
+    { id:'chief_engineer', tier:'jackpot', name:'主任技師の気まぐれ',
+      text:'いつも不機嫌な主任技師が、珍しく上機嫌で格納庫に現れた。「今日は気分がいい。好きにいじってやる」',
+      available:()=>eventUnits().length>0,
+      choices(ctx){ return [
+        { label:'1機を徹底的に仕上げてもらう', sub:'1機を選び、好きなステータス+2', run(){
+          ctx.pickUnit('仕上げる機体', u=>`HP ${u.hp}/${u.maxHp}`, eventUnits(), unit=>{
+            ctx.pickStat(unit, key=>{
+              const a=applyStatBonusWithoutUpgradeCost(unit,key,'イベント'), b=applyStatBonusWithoutUpgradeCost(unit,key,'イベント');
+              ctx.done(`${unit.name} の <b>${EVENT_STAT_LABEL[key]}</b> を2段階引き上げました。<br>${escapeHtml(a)} → ${escapeHtml(b)}`);
+            });
+          });
+        } },
+        { label:'全機をひととおり見てもらう', sub:'全機のランダムな1種のステータス+1', run(){
+          const key=eventRand(EVENT_STAT_KEYS);
+          eventUnits().forEach(u=>applyStatBonusWithoutUpgradeCost(u,key,'イベント'));
+          ctx.done(`技師は全機を順に見て回りました。<br>全機の <b>${EVENT_STAT_LABEL[key]}</b> +1`);
+        } },
+      ]; } },
+
+    // ---- リスクつき大報酬 ----
+    { id:'ore_vein', tier:'risk', name:'未踏鉱脈の反応',
+      text:'進路の脇、崩れた斜面の奥に強い鉱石反応がある。降りれば手が届くが、足場は怪獣の歩みで今も揺れている。',
+      available:()=>eventUnownedArtifacts('ore').length>0 && eventUnits().length>0,
+      choices(ctx){ return [
+        { label:'1機を降ろして回収する', sub:'60%：鉱石を獲得 / 40%：落盤でその機体HP−10', run(){   // v373：70%・HP−5 → 60%・HP−10（通しのテストプレイで、ほぼ好機と同じ強さだったので、外れを本当に痛くした）
+          ctx.pickUnit('降下する機体', u=>`HP ${u.hp}/${u.maxHp}`, eventUnits(), unit=>{
+            if(Math.random()<0.6){
+              const id=eventRand(eventUnownedArtifacts('ore'));
+              acquireArtifact(id);
+              ctx.done(`${unit.name} が鉱脈の採取に成功しました。<br><b>${escapeHtml(artifactDef(id).name)}</b> を獲得（${escapeHtml(artifactDef(id).short)}）`);
+            }else{
+              const dmg=damageUnit(unit,10,{ sourceLabel:'落盤' });
+              ctx.done(`斜面が崩れ、${unit.name} が巻き込まれました。<br>${dmg>0 ? `${unit.name} HP−${dmg}` : '追従ドローンが身代わりになり、被害はありませんでした'}${unit.state==='destroyed' ? '（大破）' : ''}`);
+            }
+          });
+        } },
+        { label:'上空から記録だけ取る', sub:`RP+${eventRp(35)}`, run(){ const v=eventGainRp(35); ctx.done(`位置と組成を記録し、研究班へ送りました。<br>RP+${v}`); } },
+      ]; } },
+    { id:'overboost', tier:'risk', name:'過給テスト',
+      text:'整備主任が声をひそめる。「出力制限を外せば、まだ伸びます。その代わり、機体のどこかに無理が出ますが」',
+      available:()=>eventUnits().some(u=>u.maxHp>=6 || (u.defense>=1 && u.maxHp>=5)),
+      choices(ctx){
+        const hpOk=eventUnits().filter(u=>u.maxHp>=6), dfOk=eventUnits().filter(u=>u.defense>=1 && u.maxHp>=5);   // v373：どちらも最大HPを削るようにした（精密性+2 が軽い代償で取れすぎた）
+        return [
+          { label:'火器管制の制限を外す', sub:'1機：攻撃力+2 / 最大HP−4', disabled:!hpOk.length, run(){
+            ctx.pickUnit('制限を外す機体', u=>`攻撃力 ${u.attack} / 最大HP ${u.maxHp}`, hpOk, unit=>{
+              unit.attack += 2; unit.maxHp=Math.max(1, unit.maxHp-4); unit.hp=Math.min(unit.hp, unit.maxHp);
+              ctx.done(`${unit.name} の火器管制を解放しました。<br>攻撃力+2 / 最大HP−4（現在 ${unit.hp}/${unit.maxHp}）`);
+            });
+          } },
+          { label:'照準系の制限を外す', sub:'1機：精密性+2 / 防御力−1 / 最大HP−3', disabled:!dfOk.length, run(){
+            ctx.pickUnit('制限を外す機体', u=>`精密性 ${u.precision} / 防御力 ${u.defense} / 最大HP ${u.maxHp}`, dfOk, unit=>{
+              unit.precision += 2; unit.defense=Math.max(0, unit.defense-1); unit.maxHp=Math.max(1, unit.maxHp-3); unit.hp=Math.min(unit.hp, unit.maxHp);
+              ctx.done(`${unit.name} の照準系を解放しました。<br>精密性+2 / 防御力−1 / 最大HP−3（現在 ${unit.hp}/${unit.maxHp}）`);
+            });
+          } },
+          { label:'断る', sub:'何も起きない', run(){ ctx.done('「安全第一、ですね」主任は肩をすくめて戻っていきました。'); } },
+        ];
+      } },
+    { id:'close_observe', tier:'risk', name:'危険域の近接観測',
+      text:'怪獣の体表で、これまで記録のない発光が始まった。懐まで寄れば貴重なデータが取れる。ただし、寄った機体は逃げ場がない。',
+      available:()=>eventUnits().length>0,
+      choices(ctx){ return [
+        { label:'1機を懐まで寄せる', sub:`RP+${eventRp(40)}・その機体の観測性能+1 / このラウンド、その機体は回避できない`, run(){
+          ctx.pickUnit('寄せる機体', u=>`HP ${u.hp}/${u.maxHp} / 機動性 ${u.mobility}`, eventUnits(), unit=>{
+            const v=eventGainRp(40); unit.observation += 1; ensureRoundEvent().noEvadeUnit=game.units.indexOf(unit);
+            ctx.done(`${unit.name} が至近距離で発光を記録しました。<br>RP+${v} / ${unit.name} の観測性能+1<br>このラウンドの間、${unit.name} は回避できません。`);
+          });
+        } },
+        { label:'遠巻きに観測する', sub:`RP+${eventRp(35)}`, run(){ const v=eventGainRp(35); ctx.done(`安全な距離から記録を取りました。<br>RP+${v}`); } },
+      ]; } },
+    { id:'shed_shell', tier:'risk', name:'脱落した甲殻',
+      text:'怪獣の肩から、甲殻のかけらが剥がれて落ちた。研究班が欲しがる一級の試料だ。けれど、拾いに行けばきっと気づかれる。',
+      available:()=>eventTrialPool(['UR']).length>0 && eventUnits().length>0 && eventEpRoom(6),
+      choices(ctx){ return [
+        { label:'回収する', sub:`URの試作カードを1枚獲得 / EP+${eventEp(6)}`, run(){
+          ctx.pickUnit('回収する機体', u=>`山札 ${u.deck.length}枚`, eventUnits(), unit=>{
+            const id=eventRand(eventTrialPool(['UR'])); addDevelopedCardToDeck(unit,id);
+            const d=eventChangeEp(eventEp(6));
+            ctx.done(`試料から <b>${escapeHtml(def(id).name)}</b> が生まれ、${unit.name} の山札に加わりました。<br>怪獣がこちらを見ています。EP+${d}`);
+          });
+        } },
+        { label:'そっとしておく', sub:`EP−${eventEp(3)}`, run(){ const d=eventChangeEp(-eventEp(3)); ctx.done(`誰も近づかないと分かると、怪獣は少し落ち着きました。<br>EP${d}`); } },
+      ]; } },
+    { id:'army_deal', tier:'risk', name:'防衛軍との取引',
+      text:'防衛軍司令部から打診が来た。「前線を少し下げさせてくれるなら、押収品の特殊装備を回そう。逆に、そちらが資金を出すなら線を押し上げる」',
+      available:()=>true,
+      choices(ctx){
+        const arts=eventUnownedArtifacts();
+        return [
+          { label:'前線の後退を認める', sub:'DDP−8 / アーティファクトを1つ獲得', disabled:!arts.length || game.distance<=9, run(){   // v373：DDP−5 → −8
+            const lost=eventLoseDdp(8), id=eventRand(arts); acquireArtifact(id);
+            ctx.done(`防衛線が下がり、装備が届きました。<br>DDP−${lost}<br><b>${escapeHtml(artifactDef(id).name)}</b> を獲得（${escapeHtml(artifactDef(id).short)}）`);
+          } },
+          { label:'資金を出して線を押し上げる', sub:`RP−${eventRp(40)} / DDP+6`, disabled:!eventCanPay(40), run(){
+            const v=eventPayRp(40); game.distance += 6;
+            ctx.done(`防衛軍が前進し、縦深に余裕ができました。<br>RP−${v} / DDP+6`);
+          } },
+          { label:'断る', sub:'何も起きない', run(){ ctx.done('「了解した。気が変わったら言ってくれ」通信は切れました。'); } },
+        ];
+      } },
+    { id:'sealed_container', tier:'risk', name:'封印コンテナ',
+      text:'補給品の中に、出所の分からない封印コンテナが混じっていた。送り状は読めない。中で何かが、かすかに脈打っている。',
+      available:()=>eventUnits().length>0 && eventTrialPool(['SR']).length>0 && eventTrialPool(['LR']).length>0,
+      choices(ctx){ return [
+        { label:'開ける', sub:'20%：LRカード / 45%：SRカード / 35%：侵蝕痕が2枚山札に混ざる', run(){   // v373：30/50/20 → 20/45/35、はずれは侵蝕痕2枚
+          ctx.pickUnit('開ける機体', u=>`山札 ${u.deck.length}枚`, eventUnits(), unit=>{
+            const r=Math.random();
+            if(r<0.2){ const id=eventRand(eventTrialPool(['LR'])); addDevelopedCardToDeck(unit,id); ctx.done(`中身は、封印指定の試作兵装でした。<br>${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b>（LR）を加えました。`); }
+            else if(r<0.65){ const id=eventRand(eventTrialPool(['SR'])); addDevelopedCardToDeck(unit,id); ctx.done(`中身は、未配備の試作品でした。<br>${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b>（SR）を加えました。`); }
+            else { addDevelopedCardToDeck(unit,'corrosion_mark'); addDevelopedCardToDeck(unit,'corrosion_mark'); ctx.done(`中身は、怪獣の体組織の標本でした。封を切ったとたん、機体に取りつきます。<br>${unit.name} の山札に <b>侵蝕痕</b> が2枚混ざりました。`); }
+          });
+        } },
+        { label:'開けずに基地へ送る', sub:`RP+${eventRp(35)}`, run(){ const v=eventGainRp(35); ctx.done(`封をしたまま研究班へ回しました。<br>RP+${v}`); } },
+      ]; } },
+    { id:'rush_mod', tier:'risk', name:'突貫改修',
+      text:'若い整備員が目を輝かせている。「手順を3つ飛ばせば、今すぐ強化できます！ ……たまに、壊れますけど」',
+      available:()=>eventEnhanceRefsAll().length>0,
+      choices(ctx){ return [
+        { label:'賭ける', sub:'70%：カード1枚に強化を1つ付与 / 30%：そのカードを失う', run(){
+          ctx.pickCard('改修するカード', eventEnhanceRefsAll(), ref=>{
+            const name=def(ref.card.id).name;
+            if(Math.random()<0.7){
+              const key=eventRand(availableCardEnchants(ref.card)); ensureCardEnchants(ref.card).push(key);
+              ctx.done(`突貫改修は成功しました。<br>${ref.unit.name} の <b>${escapeHtml(name)}</b> に「${escapeHtml(cardEnchantLabel(key))}」を付与`);
+            }else{
+              eventRemoveRefCard(ref.unit, ref);
+              ctx.done(`火花が散り、部品は使い物にならなくなりました。<br>${ref.unit.name} の <b>${escapeHtml(name)}</b> を失いました。`);
+            }
+          });
+        } },
+        { label:'正規の手順で頼む', sub:`RP−${eventRp(40)} / カード1枚に好きな強化を1つ付与`, disabled:!eventCanPay(40), run(){
+          ctx.pickCard('改修するカード', eventEnhanceRefsAll(), ref=>{
+            ctx.pickEnchant(ref, key=>{
+              const v=eventPayRp(40); ensureCardEnchants(ref.card).push(key);
+              ctx.done(`手順どおりの改修が終わりました。<br>RP−${v}<br>${ref.unit.name} の <b>${escapeHtml(def(ref.card.id).name)}</b> に「${escapeHtml(cardEnchantLabel(key))}」を付与`);
+            });
+          });
+        } },
+        { label:'見送る', sub:'何も起きない', run(){ ctx.done('整備員は少し残念そうに工具を片づけました。'); } },
+      ]; } },
+
+    // ---- 小さな恵み ----
+    { id:'supply_run', tier:'small', name:'補給便の到着',
+      text:'遅れていた補給便が、ようやく追いついた。積み荷は多くないが、欲しい物を1つ選べる。',
+      available:()=>true,
+      choices(ctx){ return [
+        { label:'修理部品を受け取る', sub:'全機HP+3', run(){ const lines=game.units.map(u=>`${u.name} HP+${healUnit(u,3,'補給便')}`); ctx.done(`修理部品を配りました。<br>${lines.join(' / ')}`); } },
+        { label:'研究資材を受け取る', sub:`RP+${eventRp(40)}`, run(){ const v=eventGainRp(40); ctx.done(`研究資材を受け取りました。<br>RP+${v}`); } },
+        { label:'弾薬を受け取る', sub:'このラウンド、全機の手札上限+1', run(){ ensureRoundEvent().hand=1; ctx.done('弾薬庫に余裕ができました。<br>このラウンドの間、全機の手札上限+1'); } },
+      ]; } },
+    { id:'crew_snack', tier:'small', name:'整備班の差し入れ',
+      text:'整備班が夜食を持ってきた。ついでに、気になっていた所を少しだけ見てくれるという。',
+      available:()=>eventUnits().length>0,
+      choices(ctx){ return [
+        { label:'1機をじっくり見てもらう', sub:'1機の整備性+1', run(){
+          ctx.pickUnit('見てもらう機体', u=>`整備性 ${u.maintenance}`, eventUnits(), unit=>{ unit.maintenance += 1; ctx.done(`${unit.name} の整備性+1`); });
+        } },
+        { label:'全機を軽く点検してもらう', sub:'全機HP+2', run(){ const lines=game.units.map(u=>`${u.name} HP+${healUnit(u,2,'点検')}`); ctx.done(`ひととおり点検が終わりました。<br>${lines.join(' / ')}`); } },
+      ]; } },
+    { id:'tailwind', tier:'small', name:'追い風',
+      text:'風向きが変わった。背中を押すような、強い追い風だ。',
+      available:()=>true,
+      choices(ctx){ return [
+        { label:'風に乗って身軽に動く', sub:'このラウンド、全機の機動性+2', run(){ ensureRoundEvent().mobility=2; ctx.done('機体が軽くなりました。<br>このラウンドの間、全機の機動性+2'); } },
+        { label:'風に乗って防衛線を押し上げる', sub:'DDP+4', run(){ game.distance += 4; ctx.done('追い風を受けて、防衛線が前へ出ました。<br>DDP+4'); } },
+      ]; } },
+    { id:'veteran_advice', tier:'small', name:'古参兵の助言',
+      text:'長く前線にいる古参の整備兵が、ぽつりと言う。「荷物は軽いほうがいい。それか、いい物を1つだけ磨くことだ」',
+      available:()=>eventUnits().some(u=>purgeItemRefs(u).some(r=>eventIsBasicCard(r.card))) || eventEnhanceRefsAll().length>0,
+      choices(ctx){
+        const basic=[]; eventUnits().forEach(unit=>purgeItemRefs(unit).forEach(ref=>{ if(eventIsBasicCard(ref.card)) basic.push(Object.assign({ unit }, ref)); }));
+        const enh=eventEnhanceRefsAll();
+        return [
+          { label:'荷物を軽くする', sub:'基本カード（N・侵蝕痕をふくむ）を2枚まで、デッキから除く', disabled:!basic.length, run(){
+            ctx.pickCard('除くカード（1枚目）', basic, ref=>{
+              eventRemoveRefCard(ref.unit, ref);
+              const first=`${ref.unit.name} の <b>${escapeHtml(def(ref.card.id).name)}</b>`;
+              const rest=basic.filter(x=>x.card.uid!==ref.card.uid);
+              if(!rest.length){ ctx.done(`${first} をデッキから除きました。`); return; }
+              ctx.pickCard('除くカード（2枚目）', rest, ref2=>{ eventRemoveRefCard(ref2.unit, ref2); ctx.done(`${first} と、${ref2.unit.name} の <b>${escapeHtml(def(ref2.card.id).name)}</b> をデッキから除きました。`); },
+                { skipText:'1枚だけにする', onSkip(){ ctx.done(`${first} をデッキから除きました。`); } });
+            });
+          } },
+          { label:'1つだけ磨く', sub:'カード1枚に好きな強化を1つ付与', disabled:!enh.length, run(){
+            ctx.pickCard('磨くカード', enh, ref=>{ ctx.pickEnchant(ref, key=>{ ensureCardEnchants(ref.card).push(key); ctx.done(`${ref.unit.name} の <b>${escapeHtml(def(ref.card.id).name)}</b> に「${escapeHtml(cardEnchantLabel(key))}」を付与しました。`); }); });
+          } },
+          { label:'礼だけ言う', sub:'何も起きない', run(){ ctx.done('古参兵は小さくうなずいて、持ち場へ戻りました。'); } },
+        ];
+      } },
+    { id:'kaiju_slumber', tier:'small', name:'怪獣のまどろみ',
+      text:'怪獣の歩みが、ふっと緩んだ。まぶたが重そうに下がっている。今なら、静かに寄り添える。',
+      available:()=>true,
+      choices(ctx){ return [
+        { label:'そっと見守る', sub:`EP−${eventEp(4)}`, run(){ const d=eventChangeEp(-eventEp(4)); ctx.done(`怪獣の呼吸が深くなりました。<br>EP${d}`); } },
+        { label:'今のうちに態勢を整える', sub:'このラウンドの怪獣の進撃−3', run(){ game.nextKaijuDistanceMod=(Number(game.nextKaijuDistanceMod)||0)-3; ctx.done('歩みが緩んでいる間に、防衛線を整えました。<br>このラウンドの怪獣の進撃−3'); } },
+      ]; } },
+    { id:'record_team', tier:'small', name:'記録班の整理',
+      text:'記録班が、これまでの観測データをまとめ終えた。「使い道は、そちらで決めてください」',
+      available:()=>eventUnits().length>0,
+      choices(ctx){ return [
+        { label:'研究班へ回す', sub:`RP+${eventRp(40)}`, run(){ const v=eventGainRp(40); ctx.done(`データは研究班の手に渡りました。<br>RP+${v}`); } },
+        { label:'前線の観測に役立てる', sub:'1機の観測性能+1', run(){
+          ctx.pickUnit('データを渡す機体', u=>`観測性能 ${u.observation}`, eventUnits(), unit=>{ unit.observation += 1; ctx.done(`${unit.name} の観測性能+1`); });
+        } },
+      ]; } },
+
+    // ---- デメリット（別の代償で軽くできる）----
+    { id:'mag_storm', tier:'bad', name:'磁気嵐',
+      text:'空が低く鳴り、計器の針が一斉に震えだした。磁気嵐だ。このままでは、観測記録がまともに残らない。',
+      available:()=>true,
+      choices(ctx){ return [
+        { label:'嵐が過ぎるのを待つ', sub:'このラウンド、研究カードで得るRPが半分', run(){ ensureRoundEvent().researchHalf=true; ctx.done('計器の乱れは収まりません。<br>このラウンドの間、研究カードで得るRPが半分になります。'); } },
+        { label:'防護装置を緊急手配する', sub:`RP−${eventRp(40)} / 影響なし`, disabled:!eventCanPay(40), run(){ const v=eventPayRp(40); ctx.done(`防護装置が間に合いました。<br>RP−${v}`); } },
+      ]; } },
+    { id:'supply_cut', tier:'bad', name:'補給線の寸断',
+      text:'後方の補給路が、怪獣の通った跡の崩落で塞がれた。弾薬の届かない機体が出る。',
+      available:()=>eventUnits().length>0,
+      choices(ctx){
+        const unit=eventRand(eventUnits());
+        return [
+          { label:'届く分だけで戦う', sub:`このラウンド、${unit.name} の手札上限−2`, run(){ const e=ensureRoundEvent(); e.handPenaltyUnit=game.units.indexOf(unit); e.handPenalty=2; enforceHandLimit(unit,'補給線の寸断'); ctx.done(`${unit.name} への補給が途切れました。<br>このラウンドの間、${unit.name} の手札上限−2`); } },
+          { label:'防衛線を下げて迂回路を開く', sub:'DDP−3 / 影響なし', disabled:game.distance<=4, run(){ const lost=eventLoseDdp(3); ctx.done(`防衛線を下げ、補給路を確保しました。<br>DDP−${lost}`); } },
+        ];
+      } },
+    { id:'aftershock', tier:'bad', name:'余震',
+      text:'足元から突き上げるような揺れ。怪獣が頭を上げ、落ち着きなく辺りを見回している。',
+      available:()=>eventEpRoom(6),
+      choices(ctx){
+        const holders=eventUnits().filter(u=>u.deck.some(c=>def(c.id).category==='support'));
+        return [
+          { label:'揺れが収まるのを待つ', sub:`EP+${eventEp(6)}`, run(){ const d=eventChangeEp(eventEp(6)); ctx.done(`怪獣は興奮したままです。<br>EP+${d}`); } },
+          { label:'鎮静弾を空へ撃ってなだめる', sub:'1機の山札の鎮静カードを2枚まで、基地内へ送る / 影響なし', disabled:!holders.length, run(){
+            ctx.pickUnit('なだめる機体', u=>`山札の鎮静カード ${u.deck.filter(c=>def(c.id).category==='support').length}枚`, holders, unit=>{
+              const names=[];
+              for(let n=0;n<2;n++){
+                const idxs=unit.deck.map((c,i)=>def(c.id).category==='support' ? i : -1).filter(i=>i>=0);
+                if(!idxs.length) break;
+                const [card]=unit.deck.splice(eventRand(idxs),1); unit.discard.push(card); names.push(def(card.id).name);
+              }
+              ctx.done(`${unit.name} が鎮静弾を空へ撃ち、怪獣をなだめました。<br><b>${escapeHtml(names.join('、'))}</b> を山札から基地内へ`);
+            });
+          } },
+        ];
+      } },
+    { id:'malfunction', tier:'bad', name:'機体の不調',
+      text:'警告灯が点いた。連戦の無理が、機体のどこかに出ている。',
+      available:()=>eventUnits().some(u=>['defense','attack','precision','mobility','observation','maintenance'].some(k=>eventStatValue(u,k)>0)),
+      choices(ctx){
+        const cands=eventUnits().filter(u=>['defense','attack','precision','mobility','observation','maintenance'].some(k=>eventStatValue(u,k)>0));
+        const unit=eventRand(cands), key=eventRand(['defense','attack','precision','mobility','observation','maintenance'].filter(k=>eventStatValue(unit,k)>0));
+        return [
+          { label:'だましだまし使う', sub:`${unit.name} の${EVENT_STAT_LABEL[key]}−1`, run(){ eventLowerStat(unit,key); ctx.done(`不調は直りませんでした。<br>${unit.name} の${EVENT_STAT_LABEL[key]}−1`); } },
+          { label:'その場で応急修理する', sub:`${unit.name} HP−5 / 影響なし`, disabled:unit.hp<=5, run(){ const dmg=damageUnit(unit,5,{ sourceLabel:'応急修理', ignoreBarrier:true }); ctx.done(`装甲を外して中を直しました。<br>${unit.name} HP−${dmg}`); } },
+        ];
+      } },
+    { id:'evac_delay', tier:'bad', name:'避難の遅れ',
+      text:'進路上の集落で、避難が終わっていない。誰かが護衛に付くか、防衛線を下げて時間を稼ぐしかない。',
+      available:()=>eventUnits().length>0,
+      choices(ctx){ return [
+        { label:'防衛線を下げて時間を稼ぐ', sub:'DDP−5', disabled:game.distance<=6, run(){ const lost=eventLoseDdp(5); ctx.done(`防衛線を下げ、避難の時間を作りました。<br>DDP−${lost}`); } },
+        { label:'1機を護衛に出す', sub:'その機体はこのラウンド行動できない / 影響なし', run(){
+          ctx.pickUnit('護衛に出す機体', u=>`HP ${u.hp}/${u.maxHp}`, eventUnits(), unit=>{ ensureRoundEvent().skipUnit=game.units.indexOf(unit); ctx.done(`${unit.name} が避難の護衛に向かいました。<br>このラウンド、${unit.name} は行動できません。`); });
+        } },
+      ]; } },
+    { id:'brass_pressure', tier:'bad', name:'上層部の圧力',
+      text:'司令部から直通の命令が届いた。「成果を見せろ。このラウンドのうちに、誘導弾を最低1発は撃て」',
+      available:()=>true,
+      choices(ctx){ return [
+        { label:'命令を受ける', sub:`このラウンドに誘導弾を1発も撃たなければ RP−${eventRp(50)}`, run(){ ensureRoundEvent().fireOrder=true; ctx.done(`命令を受領しました。<br>このラウンドの怪獣ターンまでに誘導弾を1発も撃たなければ、RP−${eventRp(50)}`); } },
+        { label:'その場で突っぱねる', sub:`RP−${eventRp(35)}（予算の削減）`, run(){ const v=eventPayRp(35); ctx.done(`「現場の判断を優先します」と返しました。予算が削られます。<br>RP−${v}`); } },
+      ]; } },
+  ];
+  const gameEventById = id => GAME_EVENTS.find(e=>e.id===id) || null;
+  // どのイベントを出すか：枠を比で選び、その中から（最近出た物を避けて）選ぶ
+  function rollGameEvent(){
+    let avail=GAME_EVENTS.filter(e=>{ try{ return e.available(); }catch(err){ return false; } });
+    if(window.NOAH_TEST_EVENT_ONLY) avail=avail.filter(e=>String(window.NOAH_TEST_EVENT_ONLY).split(',').includes(e.id));   // テスト用
+    if(!avail.length) return null;
+    const recent=Array.isArray(game.eventSeen) ? game.eventSeen : [];
+    const tiers=Object.keys(EVENT_TIER_WEIGHTS).filter(t=>avail.some(e=>e.tier===t));
+    let r=Math.random()*tiers.reduce((s,t)=>s+EVENT_TIER_WEIGHTS[t],0), tier=tiers[tiers.length-1];
+    for(const t of tiers){ r-=EVENT_TIER_WEIGHTS[t]; if(r<=0){ tier=t; break; } }
+    let pool=avail.filter(e=>e.tier===tier);
+    const fresh=pool.filter(e=>!recent.includes(e.id));
+    if(fresh.length) pool=fresh;
+    let w=Math.random()*pool.reduce((s,e)=>s+(e.weight||1),0);
+    for(const e of pool){ w-=(e.weight||1); if(w<=0) return e; }
+    return pool[pool.length-1];
+  }
+  function eventChoiceListHtml(items){
+    return `<div class="roundEventChoiceList">${items.map((c,i)=>`<button class="listCard eventChoiceBtn" data-ev-choice="${i}" ${c.disabled?'disabled':''}><div><div class="name">${escapeHtml(c.label)}</div>${c.sub ? `<div class="sub">${escapeHtml(c.sub)}</div>` : ''}</div></button>`).join('')}</div>`;
+  }
+  function eventBindChoices(items, kind='research'){
+    let busy=false;
+    ui.modalBody.querySelectorAll('[data-ev-choice]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        if(busy || btn.disabled) return;
+        const c=items[Number(btn.getAttribute('data-ev-choice'))];
+        if(!c) return;
+        busy=true;
+        await flashThen(btn, kind, ()=>{ playTapSound(); c.run(); });
+      });
+    });
+  }
+  function showGameEvent(ev, afterEvent){
+    if(ev.special==='artifact'){
+      const choices=makeRoundArtifactEventChoices();
+      if(!choices.length){ afterEvent(); return; }
+      showRoundArtifactEventChoices(choices, afterEvent);
+      return;
+    }
+    let choices=null;
+    const ctx={
+      reopen(){ open(); },
+      done(html){
+        addLog(`イベント：${ev.name} / ${String(html).replace(/<br>/g,' / ').replace(/<[^>]+>/g,'')}`);
+        recordMetricHistory('round-event');
+        render();
+        const finish=()=>{ if(checkGameEnd()) return; afterEvent(); };
+        openModal('イベント', `<div class="eventHead"><span class="eventTier" data-tier="${ev.tier}">${EVENT_TIER_LABEL[ev.tier]}</span><b>${escapeHtml(ev.name)}</b></div><div class="eventResult">${html}</div>`, [{ text:'OK', onClick(){ finish(); } }], { onCloseX(){ finish(); } });
+      },
+      pickUnit(title, note, units, cb){
+        const items=units.map(u=>({ label:u.name, sub:typeof note==='function' ? note(u) : '', run(){ cb(u); } }));
+        openModal('イベント', `<div class="eventHead"><b>${escapeHtml(title)}</b></div>${eventChoiceListHtml(items)}`, [{ text:'戻る', onClick(){ open(); } }], { onCloseX(){ open(); } });
+        eventBindChoices(items);
+      },
+      pickStat(unit, cb){
+        const keys=EVENT_STAT_KEYS.filter(k=>!(k==='mobility' && effectiveMobility(unit)>=MOBILITY_CAP));
+        const items=keys.map(k=>({ label:EVENT_STAT_LABEL[k], sub:`現在 ${eventStatValue(unit,k)}`, run(){ cb(k); } }));
+        openModal('イベント', `<div class="eventHead"><b>${escapeHtml(unit.name)}：上げるステータス</b></div>${eventChoiceListHtml(items)}`, [{ text:'戻る', onClick(){ open(); } }], { onCloseX(){ open(); } });
+        eventBindChoices(items);
+      },
+      pickCard(title, refs, cb, opt={}){   // opt.skipText / opt.onSkip … 「戻る」の代わりに出すボタン（もう戻れない所で使う）
+        const zone={ discard:'基地内', cannon:'装填中', follow:'追従中', hand:'手札', deck:'山札' };
+        const body=`<div class="eventHead"><b>${escapeHtml(title)}</b></div><div class="cardListScroll">${refs.map((ref,i)=>{
+          const d=def(ref.card.id);
+          return `<button class="listCard cardListButton cardBorder-${d.category}" data-ev-card="${i}"><div class="name">${escapeHtml(d.name)}</div><div class="code">${escapeHtml(ref.unit.name)}・${zone[ref.zone] || ''}</div></button>`;
+        }).join('')}</div>`;
+        const back=opt.onSkip ? ()=>opt.onSkip() : ()=>open();
+        openModal('イベント', body, [{ text:opt.skipText || '戻る', onClick(){ back(); } }], { onCloseX(){ back(); } });
+        let busy=false;
+        ui.modalBody.querySelectorAll('[data-ev-card]').forEach(btn=>btn.addEventListener('click', async ()=>{
+          if(busy) return;
+          const ref=refs[Number(btn.getAttribute('data-ev-card'))];
+          if(!ref) return;
+          busy=true;
+          await flashThen(btn, def(ref.card.id).category, ()=>{ playTapSound(); cb(ref); });
+        }));
+      },
+      pickEnchant(ref, cb){
+        const keys=availableCardEnchants(ref.card);
+        const items=keys.map(k=>({ label:cardEnchantLabel(k), sub:cardEnchantDescription(k), run(){ cb(k); } }));
+        openModal('イベント', `<div class="eventHead"><b>${escapeHtml(def(ref.card.id).name)}：付ける強化</b></div>${eventChoiceListHtml(items)}`, [{ text:'戻る', onClick(){ open(); } }], { onCloseX(){ open(); } });
+        eventBindChoices(items);
+      },
+    };
+    function open(){
+      if(!choices) choices=ev.choices(ctx);      // 抽選をふくむ選択肢は、開き直しても変えない
+      const body=`<div class="eventHead"><span class="eventTier" data-tier="${ev.tier}">${EVENT_TIER_LABEL[ev.tier]}</span><b>${escapeHtml(ev.name)}</b></div><div class="eventText">${escapeHtml(ev.text)}</div>${eventChoiceListHtml(choices)}`;
+      // 選ばずに閉じることはできない（× を押しても同じ画面に戻る）
+      openModal('イベント', body, [], { onCloseX(){ open(); } });
+      eventBindChoices(choices);
+    }
+    game.eventSeen=(Array.isArray(game.eventSeen) ? game.eventSeen : []).concat(ev.id).slice(-8);
+    open();
+  }
+  function maybeShowRoundEvent(afterEvent){
+    if(game.gameOver) return;
+    if(game.round < 2 || Math.random() >= (window.NOAH_TEST_EVENT_RATE ?? ROUND_EVENT_RATE)){ afterEvent(); return; }   // NOAH_TEST_EVENT_RATE はテスト用
+    const ev=rollGameEvent();
+    if(!ev){ afterEvent(); return; }
+    showGameEvent(ev, afterEvent);
+  }
+  // 「誘導弾を撃て」の命令（上層部の圧力）を、怪獣ターンの前に確かめる
+  function resolveRoundEventOrders(next){
+    const e=roundEventNow();
+    if(e && e.fireOrder && !e.fireDone && !e.fireChecked){
+      e.fireChecked=true;
+      const v=eventPayRp(50);
+      addLog(`イベント：上層部の圧力 / 誘導弾を撃たなかったため RP-${v}`);
+      render();
+      setProgressPrompt('命令違反', `このラウンド、誘導弾を1発も撃ちませんでした。<br>司令部が予算を削りました。<br>RP−${v}`, ()=>next());
+      return;
+    }
+    next();
+  }
   function startRoundOpeningPhase(){
     if(game.gameOver) return;
     noahWriteSave('round');
     prepareDefensePlanForRound();
     showQuickTitle(`ROUND ${game.round}`, ()=>{
-      maybeShowRoundArtifactEvent(()=>{
+      maybeShowRoundEvent(()=>{   // v371：アーティファクト3択だけだったのを、いろいろなイベントの抽選に
         maybeShowEmergencyCouncilNotice(()=>{ render(); startTurn(); });
       });
     });
@@ -16256,7 +16775,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
   }
   function finishDeployedTurn(doReturn){ const unit=curUnit(); ensureArtifactFlags(unit).attackDistanceBonus = 0; game.returnToMainAfterAttack=false; clearQuickFireFlags(unit); if(doReturn){ const returnGrid=findReturnGridForUnit(unit); if(!returnGrid){ showToast('帰還経路が塞がっています'); promptEndTurn(); return; } game.stats.returns += 1; returnRefresh(unit); unit.col=returnGrid.col; unit.row=returnGrid.row; unit.state='returning'; const jamNote=returnGrid.row===6 ? '後列へ退避し、帰還します' : `${rowLabel(returnGrid.row)}で帰還姿勢に入ります`; showToast(unit.name + ' は' + jamNote); addLog(unit.name + '：' + positionLabel(unit) + 'で帰還へ'); } else { normalRefresh(unit); applyTurnEndKaijuTrait(unit); addLog(unit.name + '：ターン終了'); } game.mode=null; game.phase='attack'; game.pendingHandIndex=null; advanceTurn(); }
   function advanceTurn(){ if(checkGameEnd()) return; if(game.active < game.units.length-1){ game.active += 1; render(); startTurn(); } else { resolveRoundEnd(); } }
-  function resolveRoundEnd(){ if(game.gameOver) return; playBgm('alert'); showQuickTitle('KAIJU TURN', resolveKaijuPhase); }
+  function resolveRoundEnd(){ if(game.gameOver) return; resolveRoundEventOrders(()=>{ playBgm('alert'); showQuickTitle('KAIJU TURN', resolveKaijuPhase); }); }   // v371：命令（上層部の圧力）を先に確かめる
   async function resolveDefensePhase(){
     if(game.inputLocked) return;
     prepareDefensePlanForRound();
@@ -16611,6 +17130,14 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(game.gameOver) return;
     const unit=curUnit();
     const key=`${game.round}:${game.active}`;
+    // v371：イベント「避難の遅れ」で護衛に出した機体は、このラウンド行動できない
+    const evSkip=roundEventNow();
+    if(evSkip && evSkip.skipUnit===game.active && !evSkip.skipDone && unit && unit.state!=='destroyed'){
+      evSkip.skipDone=true;
+      addLog(`${unit.name}：避難の護衛のため行動なし`);
+      setProgressPrompt('護衛任務', `${unit.name} は避難の護衛に出ています。<br>このラウンドは行動できません。`, ()=>advanceTurn());
+      return;
+    }
     if(unit && unit._turnStartResolvedKey!==key){
       unit._turnStartResolvedKey=key;
       const lines=resolveTurnStartStatus(unit);
@@ -18018,6 +18545,27 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       return true;
     },
     debugFxPlacement: (effect)=>noah3dEffectPlacement(effect),
+    // テスト用（v371）：イベントを指定して開く／一覧／そのラウンドの効果／RPの倍率
+    debugEvent: (id, after)=>{ const ev=gameEventById(id); if(!ev) return false; showGameEvent(ev, after || (()=>{})); return true; },
+    debugEventList: ()=>GAME_EVENTS.map(e=>({ id:e.id, tier:e.tier, name:e.name, available:(()=>{ try{ return !!e.available(); }catch(err){ return 'ERR '+err.message; } })() })),
+    debugEventRoll: (n)=>{ const c={}; for(let i=0;i<n;i++){ const e=rollGameEvent(); const k=e ? e.tier : 'none'; c[k]=(c[k]||0)+1; } return c; },
+    debugEventRp: (n)=>eventRp(n),
+    debugMaxHand: (i)=>maxHandSize(game.units[i]), debugMobility: (i)=>effectiveMobility(game.units[i]),
+    // テスト用（v372）：自動テストプレイ用に、今の機体から見た各マスの被害予測・怪獣の進撃・防衛軍の予定を返す（画面に出ている予測と同じ計算）
+    debugBotView: ()=>{
+      const unit=curUnit(), out={ cells:[] };
+      if(unit){
+        for(const row of [4,5,6]) for(let col=0;col<3;col++){
+          const f=hypotheticalKaijuDamageForCell(unit,col,row);
+          out.cells.push({ col, row, occ:isGridOccupied(col,row,unit), damage:f.damage, targeted:!!f.targeted });
+        }
+        try{ out.evade=evasionRate(unit); }catch(e){ out.evade=0; }
+      }
+      try{ const a=currentKaijuAction(); out.action=a && a.id; const r=kaijuDistanceRange(effectiveKaijuDistanceLoss(a)); out.adv=[r.min,r.max]; }catch(e){}
+      try{ const p=currentDefenseActionPlan(); out.df={ kind:p.kind, epGain:p.epGain||0, min:p.min||0, max:p.max||0, effect:defenseActionHasEffect(p) }; out.hotCost=defenseHotlineCost(); out.hotActive=!!game.defenseHotlineActive; }catch(e){}
+      try{ out.danger=dangerLevel(); }catch(e){}
+      return out;
+    },
     // v361：観測HUD（高度スケール・生体モニター・行動予測）に出す数字。行動予測は、盤面の攻撃予測と同じくアタックフェイズの間は出さない
     // v362：必殺技の状態も渡す（special：'charging' 準備中＝次のラウンドに撃つ / 'ready' 発動＝このラウンドに撃つ / 'redirected' 音響誘導で逸らした）。
     //       前は怪獣の頭の上に「！」を出していたが、3Dではやめて生体モニターで知らせる（2Dの盤面の「！」はそのまま）

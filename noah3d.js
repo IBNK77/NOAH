@@ -3652,5 +3652,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v370' };
+window.NOAH3D = { start, version: 'v374' };
 })();
