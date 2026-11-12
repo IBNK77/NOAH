@@ -202,7 +202,8 @@ SAVE / CONTINUE（v336〜）：
 - v371〜：フィールドイベント（ラウンド開始時の 2〜3択のテキストイベント。22種類）。GAME_EVENTS・showGameEvent・maybeShowRoundEvent。
   ・今までの支援イベント（アーティファクト3択）は、大当たり枠の1つ（artifact_drop）になった
   ・枠：jackpot（好機）/ risk（賭け）/ small（小さな恵み）/ bad（凶報）。比は EVENT_TIER_WEIGHTS、起きる割合は ROUND_EVENT_RATE（v371 で 0.20→0.45、v374 で 0.20 に戻した）
-  ・RP の増減は 40 前後（35〜50）。eventRp() を通し、エンドレスでは 2体目×2・3体目×3…（game.endlessRescued+1）
+  ・RP の増減は、ラウンドで決まる基準の前後（v375〜。R1〜10：10 / R11〜20：20 / R21〜30：30 …。エンドレスは捕獲済み怪獣×30 を足す）。
+    各イベントの数（35・40・45・50）は「40＝基準」の比で読む。eventRp()・eventRpBase()
   ・そのラウンドだけの効果は game.roundEvent（round が今のラウンドのときだけ有効）：hand / handPenaltyUnit（maxHandSize）、
     mobility / noEvadeUnit（effectiveMobility）、researchHalf（resolveImmediateCard）、fireOrder・fireDone（noahLaunchAmmo → resolveRoundEventOrders）、
     skipUnit（continueTurnAfterTitle）
@@ -222,7 +223,38 @@ SAVE / CONTINUE（v336〜）：
       防衛軍との取引 DDP−5 → −8
     ・ラウンド限定の効果（磁気嵐・上層部の圧力・避難の遅れ・補給線の寸断・補給便の手札+1・怪獣のまどろみ）が、実際のゲームの流れで効くことも確かめた
   ・v374：起きる割合を 0.45 → 0.20 に戻した（v370 までと同じ。1ゲーム30ラウンドくらいで6回前後）
+  ・v375：①抽選で決まるカード（脱落した甲殻のUR・封印コンテナのLR/SR）は、カードを見てから配備先を選ぶ（ctx.revealCard → ctx.pickDeploy）。
+      配備先の画面には状態・山札・精密性・攻撃力・砲身の数を出す。抽選の後は選び直せない（× でも配備先選択へ）。
+      封印コンテナのはずれ（侵蝕痕2枚）は、出撃中・基地の機体のどれかにランダムで取りつく。試作兵装の先行配備も同じ配備先の画面に。
+    ②RP の増減を「ラウンドで決まる基準」の前後に：R1〜10：10 / R11〜20：20 / R21〜30：30 …、エンドレスは捕獲済み怪獣×30 を足す。
+    ③イベントの画面に枠の名前（好機・賭け…）を出さない
   ・テスト用：bridge.debugEvent(id)・debugEventList()・debugEventRoll(n)・debugBotView()（自動テストプレイ用：各マスの被害予測・怪獣の進撃・防衛軍の予定）
+- v376〜：機体（AA1〜AA5）を「怪獣の力を取り入れる生体装甲」の有機的な新モデルに差し替え（models/aa*-v376.js。v358 の機体ファイルは使わない）。
+  Meshy のモデルは立った状態（機首が上・表裏がほぼ同じ形）だったので寝かせた。上にする面は、AA1 はコクピットが分厚い面（Meshy の正面＝+Z）、
+  AA2〜AA5 も同じく正面（元の絵の面）。変換は tools/noah_aa_convert.py（全幅1・全長0.92 にそろえ、色 1024px・金属/粗さ 512px・凹凸 512px の WebP）。
+  噴射の位置は noah3d.js の AIRCRAFT_ENGINES（AA3 は上下2段の8基、AA5 は上下2段の4基）。2D の機体の絵も新しいモデルを真上から撮った
+  img/aircraft/aa*-v376.webp に替えた（AIRCRAFT_IMG_SRCS・AIRCRAFT_IMAGE_BBOXES・img/asset-manifest.json。aa*-v358.webp は sw.js の RETIRED で消す）。
+  ・怪獣の前中列薙ぎ払いを、その場で腕を振るのではなく前のめりに：背骨を前へ曲げ、体ごと前へ傾けて少し踏み込み、ひざを曲げて腰を落とす
+    （noah3d.js の motionOffsets の lean。当たる瞬間 hitMs は今まで通り）
+  ・決着の瞬間の怪獣の動き（3Dで本番の怪獣が出ているときだけ。2D・仮モデルの間は今まで通り）：
+    DDP 0 → 身を沈めてから天を仰いで咆哮（声は kaijuRoar の効果音・足元に輪と砂ぼこり・画面の揺れ）→ MISSION FAILED
+    VSP 0 → びくっと反ったあと、ひざが折れて左手前へ倒れ込み、そのあと すーっと消える（kaijuFadeProgress を 1.5秒）→ MISSION FAILED
+    EP 0 → 力を抜いてゆっくり身を伏せ、頭を地面に下ろして眠る（深い寝息・胸の光が弱まる・目を閉じる）→ MISSION COMPLETE
+    見せる長さは index.html の KAIJU_END_MOTIONS、姿勢は noah3d.js の endOffsets。状態は game.kaijuEndMotion（セーブしない。次の作戦・次の怪獣で消す）。
+    動きの間は操作を止める。決着したら戦術パネル（DMG のマス）も出さない（HPの札・観測HUDは前から決着で消える）
+  ・目を閉じる：色の絵（テクスチャ）は描き替えず、シェーダーで目の場所にまわりの皮膚の色のまぶたを上から下ろす
+    （noah3d.js の NOAH_EYELID・KAIJU_MODEL.eyes＝目の中心・上の向き・半径（UV）とまぶたの色）
+  ・テスト用：bridge.debugGameEnd('complete' | 'failed-hp' | 'failed-distance')（本当に決着する）、
+    handle.debugKaijuPose({ end: { kind:'roar'|'collapse'|'sleep', e:秒 } })（決着の動きの途中で止める）
+- v377〜：v376 の手直し（怪獣の足元）。
+  ・立っているとき、-X 側の脚（怪獣の右脚＝画面の左）の足の裏が、いつも地面から少し（体の高さの約2%）浮いていたのを直した。
+    Meshy のモデルはこちらの脚が反対の脚より少し深く曲がっていたので、太もも・ひざ・足首の角度を少し直して、足の場所はそのままで
+    地面に着ける（noah3d.js の KAIJU_MODEL.legFix）。歩く・攻撃・咆哮・倒れるときもこの上に重ねる（眠るときは伏せるのに合わせて外す）
+  ・EP 0 で眠るとき、尾（と腕・頭・脚の一部）が地面にめり込んでいたのを直した。伏せた姿勢を、平らな道の上で体のどこもめり込まないように
+    合わせ直し（尾は根元で腰の傾きを戻し、骨ごとに曲げて地面に沿わせる：endOffsets の tailRoot・tailBend、SLEEP_TAIL_BEND）、
+    伏せていく途中もめり込まないように動きの順番を直した（腰はひざが曲がるのに合わせて後半ほど下げ、腕と尾は途中だけ少し持ち上げる）。
+    森林の道の両側の盛り上がり（起伏）にかかる尾の先だけは、止まった場所によって少し埋まることがある
+  ・DDP 0 の咆哮で身を沈めるとき、足が少し浮いていたので腰をもう少し下げた（-0.07 → -0.1）
 
 ===============================================================================
 -->
@@ -2387,11 +2419,6 @@ input[type="range"]::-webkit-slider-thumb{
 .roundEventChoiceList{ display:grid; gap:8px; margin-top:10px; }
 /* v371 フィールドイベント */
 .eventHead{ display:flex; align-items:center; gap:8px; margin-bottom:8px; font-family:var(--f-disp); font-size:15.5px; letter-spacing:.04em; color:var(--text-1); }
-.eventTier{ flex:none; padding:2px 8px; border-radius:999px; font-family:var(--f-ui, inherit); font-size:10.5px; font-weight:800; letter-spacing:.08em; border:1px solid currentColor; }
-.eventTier[data-tier="jackpot"]{ color:#ffd66a; }
-.eventTier[data-tier="risk"]{ color:#ff9d6c; }
-.eventTier[data-tier="small"]{ color:#6ceeda; }
-.eventTier[data-tier="bad"]{ color:#ff8a98; }
 .eventText{ font-size:13px; line-height:1.85; color:var(--text-2); }
 .eventResult{ font-size:13.5px; line-height:1.9; color:var(--text-1); }
 .eventResult b{ color:#ffe9a8; }
@@ -4524,7 +4551,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v374',
+    currentPrototypeVersion:'v377',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -5110,13 +5137,13 @@ function noahDrawKaijuGroundShadow(cell) {
 
   const DF_EMBLEM_SRC = './img/brand/order.webp';
 
-  // v358: 機体の絵は、新しい3Dモデル（models/aa*-v358.js）を真上から撮ったもの（前の絵の aa1〜aa5.webp は使わない）
+  // v376: 機体の絵は、新しい3Dモデル（生体装甲の機体。models/aa*-v376.js）を真上から撮ったもの（v358 の aa*-v358.webp は使わない）
   const AIRCRAFT_IMG_SRCS = [
-    './img/aircraft/aa1-v358.webp',
-    './img/aircraft/aa2-v358.webp',
-    './img/aircraft/aa3-v358.webp',
-    './img/aircraft/aa4-v358.webp',
-    './img/aircraft/aa5-v358.webp'
+    './img/aircraft/aa1-v376.webp',
+    './img/aircraft/aa2-v376.webp',
+    './img/aircraft/aa3-v376.webp',
+    './img/aircraft/aa4-v376.webp',
+    './img/aircraft/aa5-v376.webp'
   ];
   const BOARD_BG_IMG_SRC = "./img/background/forest.webp";
   const kaijuImgs = [];
@@ -5144,7 +5171,7 @@ function noahDrawKaijuGroundShadow(cell) {
 
   // AA機画像の描画基準：透明余白を除いた本体外接矩形の縦方向を盤面1マスに合わせる。
   // 横幅は制限せず、横長機体はマスからはみ出してよい。
-  const AIRCRAFT_IMAGE_BBOXES = [{"x":4,"y":4,"w":598,"h":617,"imgW":606,"imgH":640},{"x":4,"y":4,"w":615,"h":626,"imgW":623,"imgH":640},{"x":3,"y":3,"w":634,"h":526,"imgW":640,"imgH":542},{"x":4,"y":4,"w":632,"h":621,"imgW":640,"imgH":632},{"x":4,"y":4,"w":617,"h":617,"imgW":625,"imgH":640}];
+  const AIRCRAFT_IMAGE_BBOXES = [{"x":4,"y":4,"w":598,"h":614,"imgW":606,"imgH":640},{"x":4,"y":4,"w":568,"h":614,"imgW":576,"imgH":640},{"x":4,"y":4,"w":632,"h":530,"imgW":640,"imgH":556},{"x":4,"y":5,"w":631,"h":612,"imgW":640,"imgH":639},{"x":4,"y":5,"w":632,"h":612,"imgW":640,"imgH":639}];
 
 
   function getAircraftRenderMetrics(visualIndex, img, cell, x, y){
@@ -11026,6 +11053,7 @@ function getRandomExplosionCell(){
     game.kaijuHp = k.hp;
     game.kaijuHpMax = k.hp;
     game.kaijuFadeProgress = 0;
+    game.kaijuEndMotion = null;   // v376 決着の動き
     const epBonus = 0;
     game.ep = k.ep + epBonus;
     game.epMax = k.ep + epBonus;
@@ -13212,6 +13240,7 @@ function getRandomExplosionCell(){
     game.kaijuHp = k.hp;
     game.kaijuHpMax = k.hp;
     game.kaijuFadeProgress = 0;
+    game.kaijuEndMotion = null;   // v376 決着の動き
     const epBonus = game.endlessMode ? ((Number(game.endlessRescued) || 0) * ENDLESS_EP_BONUS_PER_RESCUE) : 0;
     game.ep = k.ep + epBonus;
     game.epMax = k.ep + epBonus;
@@ -13316,6 +13345,26 @@ function getRandomExplosionCell(){
     drawBoard();
   }
 
+  // v376：決着の瞬間の怪獣の動き（3Dで本番の怪獣が出ているときだけ。2D・仮モデルの間は今まで通り）
+  //   EP 0 → sleep（ゆっくり身を伏せ、目を閉じて眠る）／VSP 0 → collapse（力尽きて倒れ、そのあと すーっと消える）／
+  //   DDP 0 → roar（天を仰いで咆哮する）。動きは game.kaijuEndMotion = { kind, start }（セーブしない）を
+  //   noah3d.js の endOffsets が骨の回転にする（動き終わっても最後の姿勢のまま。次の作戦・次の怪獣で消す）。
+  //   holdMs … 動きを見せてから MISSION COMPLETE / FAILED を出すまで。roarMs … 咆哮の声を出す瞬間（口を開ける所）。
+  //   fadeMs … 倒れたあとに消える長さ（kaijuFadeProgress。2D・仮モデルの間は今まで通り倒れずに 1050ms で消える）
+  const KAIJU_END_MOTIONS = {
+    sleep:{ holdMs:3300 },
+    collapse:{ holdMs:2300, fadeMs:1500 },
+    roar:{ holdMs:2700, roarMs:620 },
+  };
+  function startKaijuEndMotion(kind){
+    const m = KAIJU_END_MOTIONS[kind];
+    if(!m || !noah3dActive || !(noah3dHandle && noah3dHandle.kaijuReal && noah3dHandle.kaijuReal())) return null;
+    game.kaijuMotion = null;
+    game.kaijuAttackJitterUntil = 0;
+    game.kaijuEndMotion = { kind, start:performance.now() };
+    setInputLocked(true);   // 動きの間は操作を止める（MISSION の文字を出す直前に戻す）
+    return m;
+  }
 function checkGameEnd(){
     if(game.gameOver) return true;
     if(game.ep<=0){
@@ -13327,10 +13376,13 @@ function checkGameEnd(){
       render();
       stopExternalBattleBgm(true, true);
       stopBgm();
-      showMissionTitle('complete', ()=>{
+      const showTitle = ()=>showMissionTitle('complete', ()=>{
         playBgm('victory');
         showMissionResult('complete','怪獣の興奮値が0になりました。<br>街に到達する前に保護に成功です。');
       });
+      const endMotion = startKaijuEndMotion('sleep');   // v376：怪獣が眠るのを見せてから
+      if(endMotion) setTimeout(()=>{ setInputLocked(false); showTitle(); }, endMotion.holdMs);
+      else showTitle();
       return true;
     }
     if(game.kaijuHp<=0){
@@ -13342,7 +13394,11 @@ function checkGameEnd(){
       render();
       stopExternalBattleBgm(true, true);
       stopBgm();
-      animateKaijuVspZeroFadeOut(1050).then(()=>{
+      const endMotion = startKaijuEndMotion('collapse');   // v376：倒れきってから消える
+      const fade = endMotion
+        ? wait(endMotion.holdMs).then(()=>animateKaijuVspZeroFadeOut(endMotion.fadeMs)).then(()=>setInputLocked(false))
+        : animateKaijuVspZeroFadeOut(1050);
+      fade.then(()=>{
         showMissionTitle('failed', ()=>{
           playBgm('defeat');
           showMissionResult('failed','怪獣のVSPが0になってしまいました。');
@@ -13359,10 +13415,15 @@ function checkGameEnd(){
       render();
       stopExternalBattleBgm(true, true);
       stopBgm();
-      showMissionTitle('failed', ()=>{
+      const showTitle = ()=>showMissionTitle('failed', ()=>{
         playBgm('defeat');
         showMissionResult('failed','怪獣が街に到達してしまいました。');
       });
+      const endMotion = startKaijuEndMotion('roar');   // v376：咆哮を見せてから
+      if(endMotion){
+        setTimeout(()=>{ if(game.gameOver && game.kaijuEndMotion && game.kaijuEndMotion.kind==='roar') playKaijuRoarSound(); }, endMotion.roarMs);
+        setTimeout(()=>{ setInputLocked(false); showTitle(); }, endMotion.holdMs);
+      }else showTitle();
       return true;
     }
     return false;
@@ -15743,18 +15804,27 @@ function showHandPopup(index){ if(game.inputLocked) return;
   //   今までの「支援イベント（アーティファクト3択）」は、この中の大当たり枠の1つになった。
   //   枠（tier）：jackpot＝ノーリスクで大きな報酬 / risk＝リスクつき大報酬 / small＝ノーリスクで小さな報酬 / bad＝デメリット（別の代償で軽くできる）
   //   出やすさ：ROUND_EVENT_RATE（1ラウンドに起きる割合）と EVENT_TIER_WEIGHTS（枠の比）。
-  //   RP の増減は eventRp() を通す（エンドレスでは 2体目×2、3体目×3…。研究カードのインフレに合わせる）。
+  //   RP の増減は eventRp() を通す（v375：ラウンドで決まる基準の前後。R1〜10：10 / R11〜20：20 / R21〜30：30 …、
+  //   エンドレスでは捕獲済みの怪獣1体につき +30。詳しくは eventRpBase()）。
   //   そのラウンドだけの効果は game.roundEvent に入れる（機動性+1・手札上限±1・回避不可・行動不可・研究RP半減・誘導弾の命令）。
   //   イベントを足すときは GAME_EVENTS に1つ書く：{ id, tier, name, text, available()（出せるか）, choices(ctx)（選択肢の配列） }。
   //   選択肢：{ label, sub（効果の説明）, disabled, run(ctx) }。run の中で ctx.done(結果の文) を呼ぶと結果の画面へ進む。
   //   機体・カードを選ばせたいときは ctx.pickUnit / ctx.pickStat / ctx.pickCard / ctx.pickEnchant を使う。
+  //   抽選で決まるカードを渡すときは ctx.revealCard(id, cb)：カードを見せてから配備先を選ばせる（v375。選び直しはできない）。
   // ===========================================================================
   const EVENT_TIER_WEIGHTS = { jackpot:20, risk:30, small:28, bad:22 };   // v372：好機を 15→20（アーティファクトが前より出にくくなった分を少し戻す）
-  const EVENT_TIER_LABEL = { jackpot:'好機', risk:'賭け', small:'小さな恵み', bad:'凶報' };
+  const EVENT_TIER_LABEL = { jackpot:'好機', risk:'賭け', small:'小さな恵み', bad:'凶報' };   // 開発用の呼び名（v375 から画面には出さない）
   const EVENT_STAT_KEYS = ['maxHp','defense','attack','precision','mobility','observation','maintenance'];
   const EVENT_STAT_LABEL = { maxHp:'最大HP', defense:'防御力', attack:'攻撃力', precision:'精密性', mobility:'機動性', observation:'観測性能', maintenance:'整備性' };
-  function eventRpScale(){ return game.endlessMode ? (Number(game.endlessRescued)||0) + 1 : 1; }
-  function eventRp(n){ return Math.round(n * eventRpScale()); }
+  // v375：RP の基準＝ラウンドの10の倍数（R1〜10：10 / R11〜20：20 / R21〜30：30 / R31〜：40 …）＋ エンドレスの捕獲済み怪獣×30。
+  //   エンドレスのラウンドは怪獣ごとに1から数え直すので、2体目の R5 なら 30＋10＝40、3体目の R15 なら 60＋20＝80。
+  //   各イベントに書いてある数（35・40・45・50）は「40＝基準そのもの」とした比で読む（35＝基準×0.875、45＝×1.125、50＝×1.25）。
+  function eventRpBase(){
+    const roundTier=Math.max(1, Math.ceil((Number(game.round)||1)/10));
+    const caught=game.endlessMode ? (Number(game.endlessRescued)||0) : 0;
+    return caught*30 + roundTier*10;
+  }
+  function eventRp(n){ return Math.max(1, Math.round(eventRpBase() * n / 40)); }
   function eventGainRp(n){ const v=eventRp(n); game.lp += v; game.stats.totalLpProduced += v; return v; }
   function eventPayRp(n){ const v=Math.min(Math.max(0, game.lp), eventRp(n)); game.lp -= v; game.stats.totalLpSpent += v; return v; }
   function eventCanPay(n){ return game.lp >= eventRp(n); }
@@ -15802,6 +15872,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(ref.zone==='cannon') list[i]=null; else list.splice(i,1);
     return true;
   }
+  function eventDeployNote(u){ return `${stateLabels[u.state] || ''}・山札 ${u.deck.length}枚 / 精密性 ${u.precision}・攻撃力 ${u.attack}・砲身 ${activeCannons(u)}`; }
   function eventIsBasicCard(card){ const d=card && def(card.id); return !!d && (d.category==='damage' || !d.trial || d.rarity==='N'); }
 
   const GAME_EVENTS = [
@@ -15813,12 +15884,11 @@ function showHandPopup(index){ if(game.inputLocked) return;
       available:()=>eventTrialPool(['UR','LR']).length>=1,
       choices(ctx){
         const cards=shuffle(eventTrialPool(['UR','LR'])).slice(0,3);   // v372：SR以上 → UR以上（好機の枠なので、賭けの枠の「脱落した甲殻」より良い物に）
-        const list=cards.map(id=>({ label:`${def(id).name}（${def(id).rarity}）`, sub:'タップで内容を確認して、受け取る機体を選ぶ', run(){
-          openCardDetailModal(id, { actionText:'受け取る', onCloseX(){ ctx.reopen(); }, onAction(){
-            ctx.pickUnit('受け取る機体', u=>`山札 ${u.deck.length}枚`, eventUnits(), unit=>{
-              addDevelopedCardToDeck(unit,id);
+        const list=cards.map(id=>({ label:`${def(id).name}（${def(id).rarity}）`, sub:'タップで内容を確認して、配備先を選ぶ', run(){
+          openCardDetailModal(id, { actionText:'配備先を選ぶ', onCloseX(){ ctx.reopen(); }, onAction(){
+            ctx.pickDeploy(id, unit=>{
               ctx.done(`${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b> を加えました。`);
-            });
+            }, { onBack(){ ctx.reopen(); } });
           } });
         } }));
         list.push({ label:'辞退して開発費に回す', sub:`RP+${eventRp(45)}`, run(){ const v=eventGainRp(45); ctx.done(`試作品は研究班に残し、浮いた予算を受け取りました。<br>RP+${v}`); } });
@@ -15899,10 +15969,10 @@ function showHandPopup(index){ if(game.inputLocked) return;
       text:'怪獣の肩から、甲殻のかけらが剥がれて落ちた。研究班が欲しがる一級の試料だ。けれど、拾いに行けばきっと気づかれる。',
       available:()=>eventTrialPool(['UR']).length>0 && eventUnits().length>0 && eventEpRoom(6),
       choices(ctx){ return [
-        { label:'回収する', sub:`URの試作カードを1枚獲得 / EP+${eventEp(6)}`, run(){
-          ctx.pickUnit('回収する機体', u=>`山札 ${u.deck.length}枚`, eventUnits(), unit=>{
-            const id=eventRand(eventTrialPool(['UR'])); addDevelopedCardToDeck(unit,id);
-            const d=eventChangeEp(eventEp(6));
+        { label:'回収する', sub:`URの試作カードを1枚（引いてから配備先を選ぶ） / EP+${eventEp(6)}`, run(){   // v375：先に機体を選ぶ → カードを見てから配備先を選ぶ
+          const id=eventRand(eventTrialPool(['UR']));
+          const d=eventChangeEp(eventEp(6));
+          ctx.revealCard(id, unit=>{
             ctx.done(`試料から <b>${escapeHtml(def(id).name)}</b> が生まれ、${unit.name} の山札に加わりました。<br>怪獣がこちらを見ています。EP+${d}`);
           });
         } },
@@ -15929,13 +15999,19 @@ function showHandPopup(index){ if(game.inputLocked) return;
       text:'補給品の中に、出所の分からない封印コンテナが混じっていた。送り状は読めない。中で何かが、かすかに脈打っている。',
       available:()=>eventUnits().length>0 && eventTrialPool(['SR']).length>0 && eventTrialPool(['LR']).length>0,
       choices(ctx){ return [
-        { label:'開ける', sub:'20%：LRカード / 45%：SRカード / 35%：侵蝕痕が2枚山札に混ざる', run(){   // v373：30/50/20 → 20/45/35、はずれは侵蝕痕2枚
-          ctx.pickUnit('開ける機体', u=>`山札 ${u.deck.length}枚`, eventUnits(), unit=>{
-            const r=Math.random();
-            if(r<0.2){ const id=eventRand(eventTrialPool(['LR'])); addDevelopedCardToDeck(unit,id); ctx.done(`中身は、封印指定の試作兵装でした。<br>${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b>（LR）を加えました。`); }
-            else if(r<0.65){ const id=eventRand(eventTrialPool(['SR'])); addDevelopedCardToDeck(unit,id); ctx.done(`中身は、未配備の試作品でした。<br>${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b>（SR）を加えました。`); }
-            else { addDevelopedCardToDeck(unit,'corrosion_mark'); addDevelopedCardToDeck(unit,'corrosion_mark'); ctx.done(`中身は、怪獣の体組織の標本でした。封を切ったとたん、機体に取りつきます。<br>${unit.name} の山札に <b>侵蝕痕</b> が2枚混ざりました。`); }
-          });
+        { label:'開ける', sub:'20%：LRカード / 45%：SRカード（中身を見てから配備先を選ぶ） / 35%：侵蝕痕2枚が、どれかの機体の山札に混ざる', run(){   // v373：30/50/20 → 20/45/35、はずれは侵蝕痕2枚
+          // v375：先に機体を選ぶ → 中身を見てから配備先を選ぶ。はずれ（侵蝕痕）は、出撃中・基地の機体のどれかにランダムで取りつく
+          const r=Math.random();
+          if(r<0.65){
+            const rar = r<0.2 ? 'LR' : 'SR', id=eventRand(eventTrialPool([rar]));
+            ctx.revealCard(id, unit=>{
+              ctx.done(`${rar==='LR' ? '中身は、封印指定の試作兵装でした。' : '中身は、未配備の試作品でした。'}<br>${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b>（${rar}）を加えました。`);
+            });
+          } else {
+            const unit=eventRand(eventUnits());
+            addDevelopedCardToDeck(unit,'corrosion_mark'); addDevelopedCardToDeck(unit,'corrosion_mark');
+            ctx.done(`中身は、怪獣の体組織の標本でした。封を切ったとたん、近くの機体に取りつきます。<br>${unit.name} の山札に <b>侵蝕痕</b> が2枚混ざりました。`);
+          }
         } },
         { label:'開けずに基地へ送る', sub:`RP+${eventRp(35)}`, run(){ const v=eventGainRp(35); ctx.done(`封をしたまま研究班へ回しました。<br>RP+${v}`); } },
       ]; } },
@@ -16144,11 +16220,26 @@ function showHandPopup(index){ if(game.inputLocked) return;
         recordMetricHistory('round-event');
         render();
         const finish=()=>{ if(checkGameEnd()) return; afterEvent(); };
-        openModal('イベント', `<div class="eventHead"><span class="eventTier" data-tier="${ev.tier}">${EVENT_TIER_LABEL[ev.tier]}</span><b>${escapeHtml(ev.name)}</b></div><div class="eventResult">${html}</div>`, [{ text:'OK', onClick(){ finish(); } }], { onCloseX(){ finish(); } });
+        openModal('イベント', `<div class="eventHead"><b>${escapeHtml(ev.name)}</b></div><div class="eventResult">${html}</div>`, [{ text:'OK', onClick(){ finish(); } }], { onCloseX(){ finish(); } });
       },
       pickUnit(title, note, units, cb){
         const items=units.map(u=>({ label:u.name, sub:typeof note==='function' ? note(u) : '', run(){ cb(u); } }));
         openModal('イベント', `<div class="eventHead"><b>${escapeHtml(title)}</b></div>${eventChoiceListHtml(items)}`, [{ text:'戻る', onClick(){ open(); } }], { onCloseX(){ open(); } });
+        eventBindChoices(items);
+      },
+      // v375：抽選で決まったカードを見せる。もう選び直せないので、× を押しても配備先選択へ進む
+      revealCard(id, cb){
+        openCardDetailModal(id, { actionText:'配備先を選ぶ', onCloseX(){ ctx.pickDeploy(id, cb); }, onAction(){ ctx.pickDeploy(id, cb); } });
+      },
+      // v375：カードを配備する機体を選ぶ。研究開発の配備先選択と同じく全機（大破中も）から選べ、
+      //   誘導のカードを砲身の少ない鎮静役に…とならないよう、精密性・攻撃力・砲身の数も出す。
+      //   opt.onBack があれば「戻る」（まだ選び直せる時）、無ければ「カードを見る」（抽選の後）
+      pickDeploy(id, cb, opt={}){
+        const d=def(id);
+        const items=game.units.map(u=>({ label:u.name, sub:eventDeployNote(u), run(){ addDevelopedCardToDeck(u,id); cb(u); } }));
+        const back=opt.onBack ? ()=>opt.onBack() : ()=>ctx.revealCard(id, cb);
+        openModal('イベント', `<div class="eventHead"><b>${escapeHtml(d.name)}（${escapeHtml(d.rarity || '')}・${escapeHtml(categoryLabel(id))}）の配備先</b></div>${eventChoiceListHtml(items)}`,
+          [{ text:opt.onBack ? '戻る' : 'カードを見る', onClick(){ back(); } }], { onCloseX(){ opt.onBack ? back() : ctx.pickDeploy(id, cb, opt); } });
         eventBindChoices(items);
       },
       pickStat(unit, cb){
@@ -16183,7 +16274,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     };
     function open(){
       if(!choices) choices=ev.choices(ctx);      // 抽選をふくむ選択肢は、開き直しても変えない
-      const body=`<div class="eventHead"><span class="eventTier" data-tier="${ev.tier}">${EVENT_TIER_LABEL[ev.tier]}</span><b>${escapeHtml(ev.name)}</b></div><div class="eventText">${escapeHtml(ev.text)}</div>${eventChoiceListHtml(choices)}`;
+      const body=`<div class="eventHead"><b>${escapeHtml(ev.name)}</b></div><div class="eventText">${escapeHtml(ev.text)}</div>${eventChoiceListHtml(choices)}`;   // v375：枠の名前は出さない
       // 選ばずに閉じることはできない（× を押しても同じ画面に戻る）
       openModal('イベント', body, [], { onCloseX(){ open(); } });
       eventBindChoices(choices);
@@ -16930,7 +17021,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     resolveBreakageAtKaijuTurnStart(lines);
     if(checkGameEnd()){
       render();
-      setInputLocked(false);
+      if(!game.kaijuEndMotion) setInputLocked(false);   // v376：決着の動きの間は、動きが終わるまで操作を止めたまま
       return;
     }
 
@@ -17731,7 +17822,8 @@ function showCardEnchantChoice(unit,item){
     'selectedKaiju','effects','cannonAnim','pendingProgress','pendingDiscard','pendingDeckToBase','pendingBaseToDeck','pendingBaseToTopDeck',
     'inputLocked','kaijuAttackJitterUntil','kaijuAttackJitterScale','sedationShakeUntil','sedationShakeStart','sedationShakeScale',
     'researchFxUntil','researchFxLockToken','bgAnimToken','bgVisualOffsetCells','aircraftEntryProgress','introHideUnits','kaijuFadeProgress','metricSnapshot',
-    'noahAmmoImpact','kaijuMotion'   // v363 攻撃の動き（演出用）
+    'noahAmmoImpact','kaijuMotion',   // v363 攻撃の動き（演出用）
+    'kaijuEndMotion'                  // v376 決着の動き（演出用）
   ]);
   const NOAH_AUTOSAVE_DELAY_MS = 350;
   let noahAutosaveTimer = null;
@@ -17910,6 +18002,7 @@ function showCardEnchantChoice(unit,item){
     game.aircraftEntryProgress = 1;
     game.introHideUnits = false;
     game.kaijuFadeProgress = 0;
+    game.kaijuEndMotion = null;   // v376 決着の動き
     if(game.mode === 'loadAmmo'){ game.mode = null; game.pendingHandIndex = null; }
     game.metricSnapshot = { distance:game.distance, kaijuHp:game.kaijuHp, ep:game.ep, lp:game.lp };
     SUPPLY = (Array.isArray(core.supply) && core.supply.length ? core.supply : ALL_SUPPLY).filter(id=>CARD_DEFS[id]);
@@ -18221,7 +18314,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
  function bootEffectPreview(){
   resetGameFromSetup();gameStarted=true;ui.preGame.style.display='none';ui.app.classList.remove('preHidden');ui.phaseOverlay.classList.remove('show');
   game.phase='main';game.mode=null;game.lp=200;game.active=0;game.gameOver=false;game.inputLocked=false;
-  game.introHideUnits=false;game.aircraftEntryProgress=1;game.kaijuFadeProgress=0;
+  game.introHideUnits=false;game.aircraftEntryProgress=1;game.kaijuFadeProgress=0;game.kaijuEndMotion=null;
   game.units.forEach((u,i)=>{u.state='deployed';u.row=5;u.col=i;});
   game.units[0].hand=['visual','trial_fire_sr','trial_support_r','trial_research_ur','trial_operation_lr'].map(cloneCard);
   game.stageId='forest';activeStageIdForKaijuImages='forest';loadKaijuImageSet('bathynoma');
@@ -18284,6 +18377,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   // ・3Dを始められなかった（WebGL2が使えない・ファイルが読めない）ときだけ、自動で2Dに戻る。
   // ・モデルを差し替えるときは tools/noah_glb_optimize.py で models/<名前>-<版>.js を作り直し、noah3d.js の MODEL_FILES と
   //   sw.js の CORE_FILES の名前を合わせる（ファイル名ごと変える。端末に保存した古い版は使われなくなる）。
+  //   v376〜：機体（AA）は tools/noah_aa_convert.py（Meshy の立った状態のモデルを寝かせ、上にする面を選んで軽くする）。
   // ===========================================================================
   var noah3dActive = false;   // drawBoard から先に参照されても false になるよう var で宣言
   var noah3dTacticalPart = '', noah3dTacticalTagCount = 0; // v369
@@ -18384,6 +18478,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   // 戦術パネルに何を出すか：0 なし / 2 移動先・攻撃予測など動きのある表示（v359〜 HPは札で出すので、HPだけの段は無い）
   function noah3dTacticalLevel(){
     if(!gameStarted || !game) return 0;
+    if(game.gameOver) return 0;   // v376：決着したら戦術パネル（DMG のマス）は出さない（怪獣の決着の動きを見せる。HPの札・観測HUDも決着で消える）
     if((game.mode==='move' || game.mode==='sortie') && !game.gameOver) return 2;
     if(game.phase!=='attack'){
       try{ if(getKaijuBoardThreatCells().some(c=>c.danger || c.damage!=null)) return 2; }catch(e){ return 2; }
@@ -18545,11 +18640,18 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       return true;
     },
     debugFxPlacement: (effect)=>noah3dEffectPlacement(effect),
+    // テスト用（v376）：決着させて、怪獣の決着の動きを確かめる（'complete' EP0 / 'failed-hp' VSP0 / 'failed-distance' DDP0）。本当に決着する
+    debugGameEnd: (kind)=>{
+      if(game.gameOver) return false;
+      if(kind==='complete') game.ep=0; else if(kind==='failed-hp') game.kaijuHp=0; else if(kind==='failed-distance') game.distance=0; else return false;
+      return checkGameEnd();
+    },
     // テスト用（v371）：イベントを指定して開く／一覧／そのラウンドの効果／RPの倍率
     debugEvent: (id, after)=>{ const ev=gameEventById(id); if(!ev) return false; showGameEvent(ev, after || (()=>{})); return true; },
     debugEventList: ()=>GAME_EVENTS.map(e=>({ id:e.id, tier:e.tier, name:e.name, available:(()=>{ try{ return !!e.available(); }catch(err){ return 'ERR '+err.message; } })() })),
     debugEventRoll: (n)=>{ const c={}; for(let i=0;i<n;i++){ const e=rollGameEvent(); const k=e ? e.tier : 'none'; c[k]=(c[k]||0)+1; } return c; },
     debugEventRp: (n)=>eventRp(n),
+    debugEventRpBase: ()=>eventRpBase(),
     debugMaxHand: (i)=>maxHandSize(game.units[i]), debugMobility: (i)=>effectiveMobility(game.units[i]),
     // テスト用（v372）：自動テストプレイ用に、今の機体から見た各マスの被害予測・怪獣の進撃・防衛軍の予定を返す（画面に出ている予測と同じ計算）
     debugBotView: ()=>{

@@ -25,6 +25,11 @@
 //   ミサイル・麻酔弾は index.html が決めた着弾点（ef.impact）へ飛ぶ、観測HUDに進撃予測（DDP）。
 // v365〜：見た目の強化（光の当て方・縁の光・雲の影／水面からの光・霧・光の筋・鳥や魚の群れ・火花と煙・足元の影・
 //   画面の揺れ・にじむ光）。まとめて「v365 見た目の強化」の所にある。数字は STAGE_LOOK・ATMOS・BLOOM_LOOK で変えられる。
+// v376〜：機体を生体装甲の新しいモデルに（tools/noah_aa_convert.py で寝かせて軽くした models/aa*-v376.js。噴射口は AIRCRAFT_ENGINES）。
+//   怪獣の薙ぎ払いは前のめりに（motionOffsets の lean）。決着の瞬間の動き（咆哮・倒れる・眠る）は endOffsets、
+//   眠るときに目を閉じるまぶたは NOAH_EYELID（目の場所は KAIJU_MODEL.eyes）。
+// v377〜：怪獣の -X 側の脚（怪獣の右脚＝画面の左）の足の裏がいつも少し浮いていたのを直した（KAIJU_MODEL.legFix）。
+//   眠る姿勢は、平らな道の上で体のどこも地面にめり込まないように合わせ直した（尾は骨ごとに曲げる：SLEEP_TAIL_BEND）。
 // =============================================================================
 (function () {
 'use strict';
@@ -533,6 +538,12 @@ const noahU = {
   uNoahRim: { value: new THREE.Color(0, 0, 0) },      // 機体の縁の光の色（強さ込み）
   uNoahRimK: { value: new THREE.Color(0, 0, 0) },     // 怪獣の縁の光の色（v366：機体と別にした。森林ではふだんは無し）
   uNoahEdge: { value: 0 },
+  // v376：怪獣のまぶた（眠るときに目を閉じる）。0＝開いている〜1＝閉じている。目の場所は KAIJU_MODEL.eyes から入れる
+  uNoahEyeClose: { value: 0 },
+  uNoahEyeC: { value: [new THREE.Vector2(-9, -9), new THREE.Vector2(-9, -9)] },
+  uNoahEyeX: { value: [new THREE.Vector2(), new THREE.Vector2()] },
+  uNoahEyeY: { value: [new THREE.Vector2(), new THREE.Vector2()] },
+  uNoahLid: { value: new THREE.Color(0, 0, 0) },
 };
 const NOAH_LIT_PARS = `
 varying vec3 vNoahW;
@@ -569,6 +580,33 @@ const NOAH_LIT_MAIN = {
 	outgoingLight *= 1.0 - 0.62 * smoothstep( 0.16, 0.62, 1.0 - noahN.y );   // v366 起伏の急な斜面は暗く（崖・木の間の影に見える。絵が伸びた所も目立たない）
 `,
 };
+// v376：怪獣のまぶた。絵（UV）の上の目の場所に、まわりの皮膚の色のまぶたを上から下ろす（目の絵は描き替えない）。
+//   uNoahEyeC … 目の中心（UV）、uNoahEyeX・uNoahEyeY … 目の横・上の向き（UV）を目の半径で割ったもの
+const NOAH_EYELID = `
+#ifdef USE_MAP
+	if ( uNoahEyeClose > 0.001 ) {
+		float noahLid = 0.0, noahSeam = 0.0;
+		for ( int i = 0; i < 2; i ++ ) {
+			vec2 noahD = vMapUv - uNoahEyeC[ i ];
+			vec2 noahE = vec2( dot( noahD, uNoahEyeX[ i ] ), dot( noahD, uNoahEyeY[ i ] ) );
+			float noahIn = 1.0 - smoothstep( 0.8, 1.08, length( noahE ) );
+			// まぶたの縁：上（+1）から下（-1）へ下りてくる。閉じきると縁は目の中心より少し下
+			float noahEdge = 1.0 - 2.1 * uNoahEyeClose;
+			noahLid = max( noahLid, noahIn * smoothstep( -0.12, 0.12, noahE.y - noahEdge ) );
+			noahSeam = max( noahSeam, noahIn * ( 1.0 - smoothstep( 0.0, 0.22, abs( noahE.y - noahEdge - 0.05 ) ) ) );
+		}
+		diffuseColor.rgb = mix( diffuseColor.rgb, uNoahLid, noahLid );
+		diffuseColor.rgb *= 1.0 - 0.5 * noahSeam * uNoahEyeClose;   // まぶたの合わせ目（細い暗い線）
+	}
+#endif
+`;
+const NOAH_EYELID_PARS = `
+uniform float uNoahEyeClose;
+uniform vec2 uNoahEyeC[ 2 ];
+uniform vec2 uNoahEyeX[ 2 ];
+uniform vec2 uNoahEyeY[ 2 ];
+uniform vec3 uNoahLid;
+`;
 // 材質に①を書き足す。kind … 'kaiju' | 'aircraft' | 'ground'
 function patchLit(mat, kind) {
   if (!mat || !mat.isMeshStandardMaterial) return;
@@ -579,7 +617,8 @@ function patchLit(mat, kind) {
       .replace('#include <common>', '#include <common>\nvarying vec3 vNoahW;')
       .replace('#include <project_vertex>', '#include <project_vertex>\n\tvNoahW = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + NOAH_LIT_PARS)
+      .replace('#include <common>', '#include <common>\n' + NOAH_LIT_PARS + (kind === 'kaiju' ? NOAH_EYELID_PARS : ''))
+      .replace('#include <map_fragment>', '#include <map_fragment>\n' + (kind === 'kaiju' ? NOAH_EYELID : ''))
       .replace('#include <opaque_fragment>', '{' + NOAH_LIT_MAIN[kind] + '}\n\t#include <opaque_fragment>');
   };
   mat.customProgramCacheKey = () => 'noahLit-' + kind;
@@ -1138,7 +1177,7 @@ function animateKaiju(k, t, walkPhase, walkAmp, jitterX, lunge) {
 // -----------------------------------------------------------------------------
 // 仮モデル：機体（v357 までの2Dの5機の形をなぞった簡単な形。機首は奥＝-Z。本番モデルが届くまでの間だけ出す）
 // -----------------------------------------------------------------------------
-// body・accent は、モデルを読み込むまでの間に出す仮の機体の色（v358 の機体の色に合わせた）。glow は噴射の色
+// body・accent は、モデルを読み込むまでの間に出す仮の機体の色（v358 の機体の色に合わせた。v376 の機体もほぼ同じ配色）。glow は噴射の色
 const AIRCRAFT_LOOKS = [
   { body: 0x2a4cc0, accent: 0xff7a2e, glow: 0xffb35a },   // AA1 青と橙の双発機
   { body: 0x1fb0b4, accent: 0xff7a3c, glow: 0xa8ffd8 },   // AA2 青緑と橙の双発機
@@ -1281,7 +1320,7 @@ function makeProjectile(kind, glowTex) {
 const MODEL_DIR = './models/';
 // models/ のファイル名。中身を変えたときはファイル名ごと変える（端末に保存した古い版を使わないように）。
 const MODEL_FILES = {
-  celevarn: 'celevarn-v354', AA1: 'aa1-v358', AA2: 'aa2-v358', AA3: 'aa3-v358', AA4: 'aa4-v358', AA5: 'aa5-v358',   // v358：機体を新しいモデルに
+  celevarn: 'celevarn-v354', AA1: 'aa1-v376', AA2: 'aa2-v376', AA3: 'aa3-v376', AA4: 'aa4-v376', AA5: 'aa5-v376',   // v376：機体を生体装甲の新しいモデルに
 
   // HTMLビューアー（file://）用の地面の画像（v355〜）。ふつうの画像は file:// では3Dに使えないため、文字にして埋め込んだもの
   'ground-forest': 'ground-forest-v355', 'ground-seafloor': 'ground-seafloor-v355',
@@ -1451,6 +1490,11 @@ const KAIJU_MODEL = {
     tail: ['Bone_023', 'Bone_022', 'Bone_021', 'Bone_020', 'Bone_019', 'Bone_018', 'Bone_017', 'Bone_016', 'Bone_015'],
     ankles: ['Bone_006', 'Bone_011'],
   },
+  // v377：立っているときの脚の角度の直し [太もも, すね, 足首]（-X 側, +X 側。脚を動かすのと同じ「モデルの座標の軸」での回転）。
+  //       Meshy のモデルは -X 側（怪獣の右脚＝画面の左）の脚が +X 側より少し深く曲がっていて、足の裏がいつも地面から
+  //       体の高さの約2%浮いていた。太ももを少し後ろへ・ひざを少し伸ばし・足首で足の裏を水平に戻して、足の場所はそのままで地面に着ける。
+  //       歩く・攻撃・咆哮・倒れるときもこの上に足す（眠るときは、伏せるのに合わせて外す。伏せた姿勢は直す前の脚で合わせてあるため）
+  legFix: [[0.08, -0.18, 0.1], [0, 0, 0]],
   // v362：生体モニターの輪（ポインター）を付ける所。怪獣ごとに自由に決める（線は、輪がどこにあってもモニターにつながる）。
   //  bone   … この骨の位置を基準にする（体の動きに付いていく）。無い名前・書かないときは足元の中心
   //  offset … 基準からのずれ [左右(+右), 上下(+上), 前後(+手前＝カメラ側)]。単位は「怪獣の高さ＝3」（大きさを変えても同じ所を指す）
@@ -1464,6 +1508,9 @@ const KAIJU_MODEL = {
   glow: { color: 0x58d6ff, offset: [0, 0.02, 0.1], size: 0.62, alpha: 0.5 },
   // v366：爪の先の骨（-X 側, +X 側）。腕を速く振ったとき、ここに光の軌跡を出す。書かなければ出さない
   claws: ['Bone_048', 'Bone_054'],
+  // v376：目（眠るときに閉じる）。uv … 目の中心（色の絵の上の場所。0〜1）、up … 絵の上での「上（額の方）」の向き、
+  //       r … 目の半径（UV）。lid … まぶたの色（目のまわりの皮膚の色）。セレヴァーンの目は頭の甲殻の下、鼻先の左右にある小さな目
+  eyes: { lid: 0x38364a, list: [{ uv: [0.9189, 0.4671], up: [0.763, -0.646], r: 0.0033 }, { uv: [0.9128, 0.5202], up: [0.897, 0.441], r: 0.0033 }] },
 };
 
 // v360：腕（手・爪）と脚（太もも・ひざ）の両方に重みが付いている頂点を、どちらか一方にそろえる。
@@ -1564,7 +1611,7 @@ function separateArmLegWeights(meshes, byName, bones) {
 // -----------------------------------------------------------------------------
 const smoothRange = (e0, e1, p) => { const x = clamp01((p - e0) / (e1 - e0)); return x * x * (3 - 2 * x); };
 function motionOffsets(m) {
-  const o = { arm: [{ x: 0, y: 0, z: 0, f: 0 }, { x: 0, y: 0, z: 0, f: 0 }], spineX: 0, spineY: 0, headX: 0, jaw: 0, lunge: 0, glow: 0, swing: 0 };
+  const o = { arm: [{ x: 0, y: 0, z: 0, f: 0 }, { x: 0, y: 0, z: 0, f: 0 }], spineX: 0, spineY: 0, headX: 0, jaw: 0, lunge: 0, glow: 0, swing: 0, lean: 0 };
   if (!m) return o;
   const p = m.p;
   if (m.kind === 'strike') {
@@ -1593,8 +1640,13 @@ function motionOffsets(m) {
     const s1 = sweepArm(o.arm[s0 < 0 ? 0 : 1], s0, 0.0, 0.28, 0.30, 0.44);
     const s2 = sweepArm(o.arm[s0 < 0 ? 1 : 0], -s0, 0.18, 0.46, 0.50, 0.64);
     const h1 = smoothRange(0.30, 0.44, p), h2 = smoothRange(0.50, 0.64, p);
+    // v376：その場で腕を振るのではなく、前のめりに身を乗り出して払う（lean：背骨を前へ曲げ、体ごと前へ傾けて少し踏み込む。
+    //       ひざを曲げて腰を落とし、頭は起こして前を見る。animate が体・腰・脚に配る）
+    const lean = smoothRange(0.02, 0.3, p) * back;
+    o.lean = lean;
     o.spineY = s0 * (-0.16 * smoothRange(0.0, 0.28, p) + 0.34 * h1 - 0.36 * h2) * back;   // 払う向きへ体をひねる
-    o.spineX = 0.1 * Math.max(h1 * (1 - h2), h2) * back;
+    o.spineX = 0.1 * Math.max(h1 * (1 - h2), h2) * back + 0.5 * lean;
+    o.headX = -0.32 * lean;
     o.lunge = 0.45 * Math.max(s1, s2);
     o.jaw = 0.2 * smoothRange(0.0, 0.3, p) * back;
     o.swing = Math.max(s1, s2);
@@ -1614,6 +1666,104 @@ function motionOffsets(m) {
     o.swing = slash * (1 - slash) * 4;
   }
   return o;
+}
+
+// -----------------------------------------------------------------------------
+// 決着の瞬間の怪獣の動き（v376〜）。index.html が決着のときに game.kaijuEndMotion = { kind, start } を入れ（セーブしない）、
+// ここで骨の回転にする。e … 始まってからの秒数。動き終わったあとも最後の姿勢を保つ（寝息などの小さな動きは続く）
+//   roar     … DDP 0（街に到達）：身を沈めてから胸を反らし、天を仰いで咆哮する（吠え終わっても威嚇の構えは残す）
+//   collapse … VSP 0：びくっと反ったあと力が抜け、ひざが折れて左手前へ倒れ込む（倒れたあと index.html が kaijuFadeProgress で すーっと消す）
+//   sleep    … EP 0：ゆっくり身を伏せて頭を下ろし、目を閉じて眠る（深い寝息）
+// 返す値は animate が今までの動きに足す「ずれ」。角度は motionOffsets と同じ「モデルの座標の軸」での回転
+//   body*  … 体全体を足元の一点（pivot：怪獣の高さ＝3 の単位）を軸に傾ける（X：前へ、Z：+で -X 側へ倒れる）
+//   hipsY  … 腰の骨の高さ（モデルの単位。体高は約1.7）。hipsX … 腰から上と脚・尾をまとめて前へ傾ける
+//   legs   … [太もも, すね, 足首] の X の回転（太もも：マイナスで前へ、すね：プラスでひざを曲げる）
+// 長さ（秒。この間は毎秒60回描く）は index.html の KAIJU_END_MOTIONS（決着の文字を出すまでの時間）とおおよそ合わせてある
+// -----------------------------------------------------------------------------
+const KAIJU_END_SEC = { roar: 2.6, collapse: 2.4, sleep: 3.4 };
+const LEG_FIX = [0, 1].map(i => ((KAIJU_MODEL.legFix || [])[i] || [0, 0, 0]).slice(0, 3));   // v377 立っているときの脚の直し（KAIJU_MODEL.legFix）
+const SLEEP_TAIL_BEND = [0.125, -0.035, -0.2525, -0.3725, -0.305, -0.235, -0.14, -0.36, -0.5875];   // 眠るときの尾（根元→先。マイナスで下へ）
+function endZero() {
+  return {
+    bodyX: 0, bodyZ: 0, pivot: [0, 0, 0], bodyY: 0, bodyF: 0, hipsY: 0, hipsX: 0, hipsZ: 0,
+    legs: [[0, 0, 0], [0, 0, 0]], legsZ: [0, 0], spine: [0, 0, 0], spineY: 0, spineZ: 0,
+    arms: [{ c: 0, x: 0, y: 0, z: 0, f: 0 }, { c: 0, x: 0, y: 0, z: 0, f: 0 }],
+    headX: 0, headY: 0, headZ: 0, jaw: 0, tailRoot: 0, tailX: 0, tailY: 0, tailCurl: 0, tailDroop: 0, tailBend: null,
+    glow: 0, glowDim: 0, eye: 0, still: 0, shake: 0,
+  };
+}
+function endOffsets(end, t) {
+  if (!end || !end.kind) return null;
+  const e = Math.max(0, Number(end.e) || 0), N = endZero();
+  if (end.kind === 'roar') {
+    const dip = smoothRange(0.0, 0.5, e) * (1 - smoothRange(0.5, 0.85, e));      // 身を沈める
+    const r = smoothRange(0.45, 0.9, e) * (1 - 0.55 * smoothRange(2.1, 2.8, e));  // 胸を反らして天を仰ぐ（あとで少し戻す）
+    const voice = smoothRange(0.62, 0.9, e) * (1 - smoothRange(1.95, 2.45, e));  // 口を大きく開けて吠える
+    const trem = voice * Math.sin(t * 43) * 0.035;                                // 吠えている間の震え
+    for (const i of [0, 1]) {
+      const side = i ? 1 : -1;
+      N.legs[i] = [-0.32 * dip + 0.06 * r, 0.55 * dip, -0.26 * dip - 0.04 * r];
+      N.arms[i] = { c: side * 0.16 * r, x: 0.25 * dip - 0.95 * r + trem, y: 0, z: side * (0.15 * dip + 1.05 * r), f: 0.2 * dip - 0.45 * r };
+    }
+    N.hipsY = -0.1 * dip;   // ひざを曲げた分だけ腰を下ろす（足が浮かないように）
+    N.spine = [0.16 * dip - 0.18 * r, 0.12 * dip - 0.2 * r, 0.1 * dip - 0.26 * r];
+    N.bodyX = 0.06 * dip - 0.09 * r;
+    N.headX = 0.4 * dip - 0.85 * r + trem;
+    N.jaw = 0.12 * dip + 0.95 * voice + trem * 2;
+    N.tailX = 0.25 * r; N.tailY = Math.sin(t * 2.2) * 0.06 * voice;
+    N.glow = Math.max(r, voice * 1.4);
+    N.still = Math.max(dip, r);
+    N.shake = voice * 0.05;
+  } else if (end.kind === 'collapse') {
+    const jolt = smoothRange(0.0, 0.16, e) * (1 - smoothRange(0.16, 0.6, e));   // 力が抜ける瞬間のびくっとした反り
+    const sag = smoothRange(0.12, 1.1, e);                                      // ひざが折れ、体が沈む
+    const ft = clamp01((e - 0.9) / 0.95), fall = ft * ft;                        // 左手前へ倒れる（だんだん速く）
+    const land = e > 1.85 ? Math.sin(Math.min(1, (e - 1.85) / 0.45) * Math.PI) * Math.exp(-(e - 1.85) * 3) : 0;   // 地面で小さく弾む
+    for (const i of [0, 1]) {
+      const side = i ? 1 : -1;
+      N.legs[i] = [-0.75 * sag, 1.35 * sag, -0.6 * sag];
+      N.arms[i] = { c: 0, x: 0.35 * sag - 0.3 * jolt - 0.25 * fall, y: 0, z: side * (0.25 * jolt + 0.15 * sag) + 0.3 * fall, f: 0.35 * sag };
+    }
+    N.hipsY = -0.36 * sag;
+    N.spine = [0.1 * sag - 0.05 * jolt, 0.16 * sag - 0.06 * jolt, 0.2 * sag - 0.08 * jolt];
+    N.spineZ = 0.12 * fall;
+    N.headX = -0.35 * jolt + 0.55 * sag - 0.2 * fall; N.headZ = 0.25 * fall;
+    N.jaw = 0.4 * jolt + 0.15 * sag + 0.25 * fall;
+    N.bodyZ = 1.08 * fall - 0.05 * land; N.bodyX = 0.55 * fall - 0.03 * land; N.pivot = [-0.3, 0, 0.3];
+    N.tailX = -0.12 * sag - 0.45 * fall; N.tailDroop = -0.2 * fall; N.tailY = 0.25 * fall;   // 尾も地面へ落とす
+    N.glowDim = smoothRange(0.1, 1.6, e);
+    N.still = Math.max(jolt, sag);
+    N.eye = 0.75 * smoothRange(1.5, 2.3, e);
+    N.shake = e > 1.82 && e < 2.05 ? 0.09 : 0;
+  } else if (end.kind === 'sleep') {
+    // v377：伏せた姿勢は、（平らな道の上で）体のどこも地面にめり込まないように合わせた値（腰・脚・腕・尾）。脚と腕は左右で少し違う
+    //       （Meshy のモデルの骨が左右で少しずれているため）。尾は骨ごとに曲げて地面に沿わせる（SLEEP_TAIL_BEND）
+    const calm = smoothRange(0.0, 0.9, e);          // 力を抜いて、大きく息を吐く
+    const sink = smoothRange(0.4, 1.9, e);          // ひざを折って腰を下ろす
+    const lay = smoothRange(1.1, 2.8, e);           // 上体を前へ伏せ、頭を地面へ下ろす
+    const breath = Math.sin(t * 1.25) * smoothRange(2.2, 3.4, e);   // 深い寝息（約5秒の周期）
+    // 途中でもめり込まないように：腰はひざが曲がるのに合わせて後半ほど下げ（drop）、腕と尾は動いている途中だけ少し持ち上げる（bell）
+    const drop = Math.pow(sink, 1.5), bellS = Math.sin(Math.PI * sink);
+    N.hipsX = 0.8625 * drop;                        // 腰から上を前へ傾ける（腰を下ろすのと一緒に。脚と尾は根元で逆へ回して地面に残す）
+    N.legs = [[-0.9875 * sink - N.hipsX, 2.2376 * sink, -0.7938 * sink], [0.0439 * sink - N.hipsX, 2.7063 * sink, -1.075 * sink]];
+    N.legsZ = [-0.1 * sink, 0.49 * sink];
+    N.legs.forEach((l, i) => { for (let j = 0; j < 3; j++) l[j] -= LEG_FIX[i][j] * sink; });   // v377：立っているときの脚の直しは、伏せるのに合わせて外す
+    const arm = Math.max(lay, drop), bellA = Math.sin(Math.PI * arm);   // 腕は上体が傾くのに合わせて前へ出す
+    N.arms = [{ c: -0.0801 * arm, x: -0.15 * calm * (1 - arm) - 0.995 * arm - 0.45 * bellA, y: 0, z: -0.5 * arm, f: -0.525 * arm },
+      { c: 0.1112 * arm, x: -0.15 * calm * (1 - arm) - 1.325 * arm - 0.45 * bellA, y: 0, z: 0.55 * arm, f: -0.51 * arm }];   // 腕は前へ投げ出して左右に置く
+    N.hipsY = -0.5638 * drop + 0.004 * breath;
+    N.spine = [0.08 * lay + 0.025 * breath, 0.1225 * lay - 0.03 * breath, 0.075 * lay + 0.01 * breath];   // 寝息で背中が上下する
+    N.headX = 0.1 * calm * (1 - lay) - 0.8 * lay; N.headY = 0.2 * lay; N.headZ = 0.15 * lay;   // 頭は地面すれすれに下ろし、少し傾ける
+    N.jaw = 0.06 * calm * (1 - lay);
+    N.tailRoot = -N.hipsX + 0.2419 * drop + 0.3 * bellS;   // 尾は根元で腰の傾きを戻し、骨ごとに曲げて地面に沿わせる（動いている途中は少し上げておく）
+    N.tailBend = SLEEP_TAIL_BEND.map(b => b * drop);
+    N.tailY = 0.2 * lay; N.tailCurl = 0.08 * lay;
+    N.glowDim = 0.55 * lay - 0.12 * breath * lay;
+    N.still = Math.max(calm, lay);
+    N.eye = smoothRange(2.0, 3.1, e);
+  }
+  if (end.tweak) Object.assign(N, end.tweak);   // テスト用（debugKaijuPose の end.tweak で値を直接置きかえて姿勢を探す）
+  return N;
 }
 
 function makeKaijuFromModel(gltf) {
@@ -1676,53 +1826,83 @@ function makeKaijuFromModel(gltf) {
   }
   const fader = makeFader(skinned, 0);
   const head = R.head ? R.head.bone : model;
+  // v376：目の場所（まぶたのシェーダーへ。KAIJU_MODEL.eyes）
+  const EY = KAIJU_MODEL.eyes;
+  if (EY && EY.list) {
+    EY.list.slice(0, 2).forEach((ey, i) => {
+      const up = new THREE.Vector2().fromArray(ey.up).normalize();
+      noahU.uNoahEyeC.value[i].fromArray(ey.uv);
+      noahU.uNoahEyeY.value[i].copy(up).divideScalar(ey.r);
+      noahU.uNoahEyeX.value[i].set(up.y, -up.x).divideScalar(ey.r);
+    });
+    noahU.uNoahLid.value.set(EY.lid);
+  }
+  const BE = new THREE.Euler(), BV = new THREE.Vector3(), Z3 = [0, 0, 0];
 
   // scroll … 地形の流れた量（マス）。a … 歩きの強さ 0〜1。lunge … 攻撃の突進 0〜1。charge … 必殺技の溜め 0〜1
   // motion … 攻撃の動き（v363。{ kind, side, p } か null。motionOffsets）
-  function animate(t, scroll, a, jitterX, lunge, charge, motion) {
+  // end … 決着の動き（v376。{ kind, e } か null。endOffsets）
+  function animate(t, scroll, a, jitterX, lunge, charge, motion, end) {
+    const N = endOffsets(end, t);
+    if (N) { a = 0; lunge = 0; charge = 0; motion = null; }
     const ph = scroll * Math.PI * KAIJU_MODEL.stepsPerCell;
-    const breathe = Math.sin(t * 1.6);
+    const still = N ? N.still : 0;               // 決着の動きの間は、見回し・尾のゆらぎを弱める
+    const breathe = Math.sin(t * 1.6) * (1 - 0.7 * still);
     const M = motionOffsets(motion);
     const lg = lunge + M.lunge;
-    body.position.set(jitterX, 0, lg * 0.22);
-    body.rotation.x = lg * 0.05;
+    // 体：攻撃の揺れ・突進。v376：決着の動きでは、足元の一点（N.pivot）を軸に傾ける（倒れる）
+    BE.set(lg * 0.05 + M.lean * 0.1 + (N ? N.bodyX : 0), 0, N ? N.bodyZ : 0);
+    body.quaternion.setFromEuler(BE);
+    if (N) {
+      BV.fromArray(N.pivot).applyQuaternion(body.quaternion);
+      body.position.set(jitterX + N.pivot[0] - BV.x, N.pivot[1] - BV.y + N.bodyY, lg * 0.22 + N.pivot[2] - BV.z + N.bodyF);
+    } else body.position.set(jitterX, 0, lg * 0.22 + M.lean * 0.12);
     if (R.hips) {
       R.hips.bone.position.copy(R.hips.pos);
-      R.hips.bone.position.y += a * 0.012 * Math.cos(ph * 2) - charge * 0.03 + breathe * 0.002;
-      pose(R.hips, 0, a * 0.05 * Math.sin(ph), a * 0.022 * Math.sin(ph));
+      R.hips.bone.position.y += a * 0.012 * Math.cos(ph * 2) - charge * 0.03 + breathe * 0.002 - M.lean * 0.03 + (N ? N.hipsY : 0);
+      pose(R.hips, (N ? N.hipsX : 0), a * 0.05 * Math.sin(ph), a * 0.022 * Math.sin(ph) + (N ? N.hipsZ : 0));
     }
     // 脚：太もも（前後に振る）・すね（振り出すときに持ち上げる）・足首（足をほぼ水平に保つ）。溜めでは少しかがむ
+    // v377：LEG_FIX（KAIJU_MODEL.legFix）＝立っているときに両足の裏が地面に着くように直す角度
     R.legs.forEach((leg, i) => {
       const p = ph + (i ? Math.PI : 0);
-      const swing = a * 0.34 * Math.sin(p) - 0.14 * charge;
-      const lift = a * 0.5 * Math.max(0, -Math.cos(p)) + 0.24 * charge;
-      pose(leg[0], swing, 0, 0);
-      pose(leg[1], lift, 0, 0);
-      pose(leg[2], -(swing + lift) * 0.85, 0, 0);
+      const swing = a * 0.34 * Math.sin(p) - 0.14 * charge - 0.16 * M.lean;
+      const lift = a * 0.5 * Math.max(0, -Math.cos(p)) + 0.24 * charge + 0.3 * M.lean;
+      const L = N ? N.legs[i] : Z3, F = LEG_FIX[i];
+      pose(leg[0], swing + L[0] + F[0], 0, N ? N.legsZ[i] : 0);
+      pose(leg[1], lift + L[1] + F[1], 0, 0);
+      pose(leg[2], -(swing + lift) * 0.85 + L[2] + F[2], 0, 0);
     });
     // 背骨：呼吸・突進で前へ・溜めで胸を反らす
-    pose(R.spine[0], lunge * 0.09 - charge * 0.05 + breathe * 0.008 + M.spineX * 0.35, -a * 0.04 * Math.sin(ph) + M.spineY * 0.35, 0);
-    pose(R.spine[1], lunge * 0.06 - charge * 0.05 + breathe * 0.012 + M.spineX * 0.35, -a * 0.03 * Math.sin(ph) + M.spineY * 0.35, 0);
-    pose(R.spine[2], lunge * 0.05 - charge * 0.08 + breathe * 0.01 + M.spineX * 0.3, M.spineY * 0.3, 0);
+    const sp = N ? N.spine : Z3, sy = N ? N.spineY : 0, sz = N ? N.spineZ : 0;
+    pose(R.spine[0], lunge * 0.09 - charge * 0.05 + breathe * 0.008 + M.spineX * 0.35 + sp[0], -a * 0.04 * Math.sin(ph) + M.spineY * 0.35 + sy * 0.35, sz * 0.35);
+    pose(R.spine[1], lunge * 0.06 - charge * 0.05 + breathe * 0.012 + M.spineX * 0.35 + sp[1], -a * 0.03 * Math.sin(ph) + M.spineY * 0.35 + sy * 0.35, sz * 0.35);
+    pose(R.spine[2], lunge * 0.05 - charge * 0.08 + breathe * 0.01 + M.spineX * 0.3 + sp[2], M.spineY * 0.3 + sy * 0.3, sz * 0.3);
     // 腕：同じ側の脚と逆に振る。突進で刃を前へ、溜めで左右に広げる
     R.arms.forEach((arm, i) => {
       const side = i ? 1 : -1;
       const p = ph + (i ? Math.PI : 0);
-      const swing = -a * 0.2 * Math.sin(p) + Math.sin(t * 1.2 + i * 1.7) * 0.03;
-      const mo = M.arm[i];
-      pose(arm[0], 0, 0, side * (breathe * 0.015 + charge * 0.08));
-      pose(arm[1], swing - lunge * 0.75 - charge * 0.2 + mo.x, mo.y, side * (lunge * 0.22 + charge * 0.45) + mo.z);
-      pose(arm[2], -lunge * 0.45 - charge * 0.3 + mo.f, 0, 0);
+      const swing = -a * 0.2 * Math.sin(p) + Math.sin(t * 1.2 + i * 1.7) * 0.03 * (1 - still);
+      const mo = M.arm[i], en = N ? N.arms[i] : null;
+      pose(arm[0], 0, 0, side * (breathe * 0.015 + charge * 0.08) + (en ? en.c : 0));
+      pose(arm[1], swing - lunge * 0.75 - charge * 0.2 + mo.x + (en ? en.x : 0), mo.y + (en ? en.y : 0), side * (lunge * 0.22 + charge * 0.45) + mo.z + (en ? en.z : 0));
+      pose(arm[2], -lunge * 0.45 - charge * 0.3 + mo.f + (en ? en.f : 0), 0, 0);
     });
     // 頭：ゆっくり見回す。突進で前へ、溜めで上を向いて口を開く
-    pose(R.head, Math.sin(t * 0.8) * 0.035 + lunge * 0.12 - charge * 0.22 + M.headX, Math.sin(t * 0.45) * 0.14 * (1 - charge) + M.spineY * 0.25, 0);
-    pose(R.jaw, lunge * 0.35 + charge * 0.25 + M.jaw, 0, 0);
+    pose(R.head, Math.sin(t * 0.8) * 0.035 * (1 - still) + lunge * 0.12 - charge * 0.22 + M.headX + (N ? N.headX : 0),
+      Math.sin(t * 0.45) * 0.14 * (1 - charge) * (1 - still) + M.spineY * 0.25 + (N ? N.headY : 0), N ? N.headZ : 0);
+    pose(R.jaw, lunge * 0.35 + charge * 0.25 + M.jaw + (N ? N.jaw : 0), 0, 0);
     // 尾：根元から先へ伝わる波
-    R.tail.forEach((b, i) => pose(b, -charge * 0.03, 0.045 * Math.sin(t * 1.25 - i * 0.55) + a * 0.035 * Math.sin(ph - i * 0.5), 0));
-    // 喉〜胸の器官の光：呼吸に合わせて明滅、溜めで強く脈打つ
-    const gl = Math.max(charge, M.glow);
-    for (const m of glowMats) m.emissiveIntensity = 1.0 + 0.5 * (0.5 + 0.5 * breathe) + gl * (1.6 + 1.2 * Math.sin(t * 9));
-    R.glowLevel = 0.5 + 0.5 * breathe + gl * (1.5 + 0.9 * Math.sin(t * 9));   // 胸の光の強さ（v365 重ねる光に使う）
+    // v377：tailRoot は根元だけ（腰を傾けた分を戻す）、tailX は根元＋先へ少しずつ、tailBend は骨ごと（地面に沿わせる）
+    R.tail.forEach((b, i) => pose(b, -charge * 0.03 + (N ? (i ? 0 : N.tailRoot) + N.tailX * (i ? 0.12 : 1) + N.tailDroop + (N.tailBend ? N.tailBend[i] || 0 : 0) : 0),
+      0.045 * Math.sin(t * 1.25 - i * 0.55) * (1 - 0.8 * still) + a * 0.035 * Math.sin(ph - i * 0.5) + (N ? N.tailY * (i ? 0.2 : 1) + N.tailCurl : 0), 0));
+    // 喉〜胸の器官の光：呼吸に合わせて明滅、溜めで強く脈打つ。v376：倒れる・眠るときは弱める（glowDim）
+    const gl = Math.max(charge, M.glow, N ? N.glow : 0), dim = N ? clamp01(N.glowDim) : 0;
+    for (const m of glowMats) m.emissiveIntensity = (1.0 + 0.5 * (0.5 + 0.5 * breathe) + gl * (1.6 + 1.2 * Math.sin(t * 9))) * (1 - dim);
+    R.glowLevel = (0.5 + 0.5 * breathe + gl * (1.5 + 0.9 * Math.sin(t * 9))) * (1 - dim);   // 胸の光の強さ（v365 重ねる光に使う）
+    R.glowDim = dim;
+    R.shake = N ? N.shake : 0;
+    noahU.uNoahEyeClose.value = N ? clamp01(N.eye) : 0;   // v376 まぶた
   }
   // 足首の骨（-X 側, +X 側）。歩きの周期で足が地面に着くのは、地形が「1.5マス（-X 側）・0.5マス（+X 側）＋2マスごと」流れたとき
   //（前へ歩くとき。後ろへ下がるときは左右が入れ替わる）。砂ぼこりはそこに出す（v356〜）
@@ -1738,6 +1918,8 @@ function makeKaijuFromModel(gltf) {
   return {
     real: true, root, body, head, localBox, mats, skinned, animate, feet, weightFix, pointerNode, pointerOffset, aimNode, aimOffset, bonesByName: byName,
     glowLevel: () => R.glowLevel || 0,
+    glowDim: () => R.glowDim || 0,       // v376：胸の光を弱める割合（倒れる・眠る）
+    endShake: () => R.shake || 0,         // v376：決着の動きの画面の揺れ（咆哮・倒れた衝撃）
     claws: (KAIJU_MODEL.claws || []).map(n => byName[n]).filter(Boolean),
     setAlpha: a => { fader.set(a); skinned.forEach(m => { m.castShadow = a > 0.35; }); },
     dispose() { fader.dispose(); disposeObject(root); },
@@ -1747,13 +1929,15 @@ function makeKaijuFromModel(gltf) {
 // -----------------------------------------------------------------------------
 // 本番の機体。噴射口の位置（機首 -Z・全幅1にそろえた座標）に、仮モデルと同じ揺らめく炎を付ける
 // -----------------------------------------------------------------------------
-// 噴射口の位置 [x, y, z, 太さ]（v358 の機体。後ろから正射影で撮って、噴射口の中心に合わせた。太さは 1 で半径 0.028）
+// 噴射口の位置 [x, y, z, 太さ]（v376 の機体。後ろから正射影で撮って、噴射口の中心に合わせた。太さは 1 で半径 0.028）
+// v376：Meshy の生体装甲の機体は上下ほぼ同じ形で、AA3・AA5 は噴射口が上下2段ある（両方から噴く）
 const AIRCRAFT_ENGINES = [
-  [[-0.093, 0.006, 0.44, 1.25], [0.093, 0.006, 0.44, 1.25]],                                              // AA1
-  [[-0.082, 0.058, 0.44, 0.85], [0.082, 0.058, 0.44, 0.85]],                                              // AA2
-  [[-0.187, 0.005, 0.395, 1.0], [-0.078, 0.005, 0.395, 1.0], [0.079, 0.005, 0.395, 1.0], [0.187, 0.005, 0.395, 1.0]],   // AA3
-  [[-0.031, 0.022, 0.44, 0.7], [0.029, 0.022, 0.44, 0.7]],                                                // AA4
-  [[-0.186, 0.004, 0.44, 1.25], [0.182, 0.004, 0.44, 1.25]],                                              // AA5
+  [[-0.083, -0.012, 0.445, 1.2], [0.083, -0.012, 0.445, 1.2]],                                            // AA1
+  [[-0.074, 0, 0.445, 0.95], [0.072, 0, 0.445, 0.95]],                                                    // AA2
+  [[-0.198, 0.04, 0.405, 0.8], [-0.075, 0.04, 0.405, 0.8], [0.075, 0.04, 0.405, 0.8], [0.198, 0.04, 0.405, 0.8],
+   [-0.198, -0.038, 0.405, 0.8], [-0.075, -0.038, 0.405, 0.8], [0.075, -0.038, 0.405, 0.8], [0.198, -0.038, 0.405, 0.8]],   // AA3
+  [[-0.033, 0, 0.445, 0.85], [0.033, 0, 0.445, 0.85]],                                                    // AA4
+  [[-0.196, 0.052, 0.445, 1.1], [0.198, 0.052, 0.445, 1.1], [-0.198, -0.06, 0.445, 1.1], [0.2, -0.06, 0.445, 1.1]],   // AA5
 ];
 // 翼の両端（いちばん左・右の頂点）と、機体のいちばん上・後ろ（v365 航法灯を付ける所）。機体の元ごとに1回だけ調べる
 function aircraftTips(template) {
@@ -2447,7 +2631,7 @@ function start(bridge) {
       chestGlow.position.set(chestPos.x + G.offset[0] * ks, chestPos.y + G.offset[1] * ks, chestPos.z + G.offset[2] * ks);
       chestGlow.scale.setScalar(G.size * ks * (0.92 + 0.1 * Math.min(2.5, lv)));
       chestGlow.material.color.set(G.color);
-      chestGlow.material.opacity = Math.min(1, G.alpha * (0.55 + 0.45 * Math.min(2.4, lv))) * kAlpha;
+      chestGlow.material.opacity = Math.min(1, G.alpha * (0.55 + 0.45 * Math.min(2.4, lv))) * kAlpha * (1 - (kaiju.glowDim ? kaiju.glowDim() : 0));
     }
     // 足元の影
     const show = kaiju.root.visible && kAlpha > 0.02;
@@ -2517,6 +2701,31 @@ function start(bridge) {
       stageFx.footfall(tmpFoot.x, tmpFoot.z + 0.08 * kaiju.root.scale.z, KAIJU_SCALE);
       footImpact(tmpFoot.x, tmpFoot.z + 0.08 * kaiju.root.scale.z);
     }
+  }
+  // v376：決着の動きで体が地面に着いた瞬間に、砂ぼこり（海底は泡）と地面の輪を出す（倒れる：1.85秒、伏せる：2.5秒）
+  let endImpactDone = '';
+  const tmpEnd = new THREE.Vector3();
+  function endImpacts(end, alpha) {
+    if (!end || !kaiju.real) { endImpactDone = ''; return; }
+    const at = end.kind === 'collapse' ? 1.85 : end.kind === 'sleep' ? 2.5 : end.kind === 'roar' ? 0.7 : -1;
+    const key = end.kind + ':' + at;
+    if (at < 0 || end.e < at || end.e > at + 0.6 || endImpactDone === key || alpha < 0.3) return;
+    endImpactDone = key;
+    const ks = kaiju.root.scale.x, big = end.kind === 'collapse';
+    if (end.kind === 'roar') {   // 咆哮：足元から輪が広がり、砂ぼこり（海底は泡）が舞う
+      const x = kaiju.root.position.x + kaiju.body.position.x * ks;
+      footImpact(x, KAIJU_Z); footImpact(x - 0.8 * ks, KAIJU_Z + 0.3 * ks); footImpact(x + 0.8 * ks, KAIJU_Z + 0.3 * ks);
+      stageFx.footfall(x, KAIJU_Z + 0.4 * ks, KAIJU_SCALE * 1.4);
+      return;
+    }
+    const bn = kaiju.bonesByName || {}, B = KAIJU_MODEL.bones;
+    for (const node of [kaiju.head, bn[B.spine[2]], bn[B.hips]].filter(Boolean)) {
+      node.getWorldPosition(tmpEnd);
+      stageFx.footfall(tmpEnd.x, tmpEnd.z, KAIJU_SCALE * (big ? 1.25 : 0.7));
+      if (big) footImpact(tmpEnd.x, tmpEnd.z);
+    }
+    if (kaiju.feet) kaiju.feet.forEach(f => { if (!f) return; f.getWorldPosition(tmpEnd); stageFx.footfall(tmpEnd.x, tmpEnd.z, KAIJU_SCALE * (big ? 0.8 : 0.5)); });
+    if (big) addShake(0.1 * ks / KAIJU_SCALE);
   }
   // 炸裂の泡（海底）：演出が始まった瞬間に1回だけ
   const blasted = new WeakSet();
@@ -3379,6 +3588,7 @@ function start(bridge) {
     // 動きの少ないときは毎秒30回ほどに抑えて電池を節約する
     const busy = g.effects.length > 0 || walkAmp > 0.02 || pressId !== null || lunge > 0.02 || charge > 0.02 || aircraftMoving ||
       (g.kaijuMotion && now - g.kaijuMotion.start < g.kaijuMotion.duration + 100) ||
+      (g.kaijuEndMotion && now - g.kaijuEndMotion.start < 1000 * ((KAIJU_END_SEC[g.kaijuEndMotion.kind] || 0) + 0.6)) ||   // v376 決着の動き
       (typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1) || camSettling || shakeAmp > 0 || Math.abs(cam.elev - desiredPose(g).elev) > 0.3;
     if (!busy && now - lastRender < 31) return;
     lastRender = now;
@@ -3454,8 +3664,13 @@ function start(bridge) {
     const kmP = km && km.duration > 0 ? (now - km.start) / km.duration : -1;
     const motion = kmP >= 0 && kmP <= 1 ? { kind: km.kind, side: km.side || 1, p: kmP } : null;
     motionSwing = motion ? motionOffsets(motion).swing : 0;
-    if (debugPose) kaiju.animate(debugPose.t != null ? debugPose.t : t, debugPose.scroll != null ? debugPose.scroll : scroll, debugPose.walk || 0, 0, debugPose.lunge || 0, debugPose.charge || 0, debugPose.motion || null);
-    else kaiju.animate(t, scroll, walkAmp, (jitter.x || 0) / cellPx, lunge, charge, motion);
+    // v376：決着の動き（咆哮・倒れる・眠る）。始まってからの秒数で姿勢を決め、動き終わっても最後の姿勢を保つ
+    const em = g.kaijuEndMotion;
+    const end = em && em.kind && KAIJU_END_SEC[em.kind] ? { kind: em.kind, e: Math.max(0, (now - em.start) / 1000) } : null;
+    if (debugPose) kaiju.animate(debugPose.t != null ? debugPose.t : t, debugPose.scroll != null ? debugPose.scroll : scroll, debugPose.walk || 0, 0, debugPose.lunge || 0, debugPose.charge || 0, debugPose.motion || null, debugPose.end || null);
+    else kaiju.animate(t, scroll, walkAmp, (jitter.x || 0) / cellPx, lunge, charge, motion, end);
+    if (kaiju.endShake && kaiju.endShake() > 0) addShake(kaiju.endShake());
+    endImpacts(debugPose ? (debugPose.end || null) : end, kAlpha);
     kaiju.root.visible = kAlpha > 0.01;
     kaiju.setAlpha(kAlpha);
     kaiju.root.scale.setScalar(kaijuRootScale());
@@ -3609,6 +3824,7 @@ function start(bridge) {
       return stageFx.count();
     },
     // テスト用：怪獣の姿勢を固定する（null で元に戻す）。motion: { kind, side, p } で攻撃の動きの途中も止められる
+    // v376：end: { kind: 'roar' | 'collapse' | 'sleep', e: 秒 } で決着の動きの途中も止められる
     debugKaijuPose(p) { debugPose = p || null; },
     // テスト用：生体モニターの輪の場所を変える（{ bone, offset }。KAIJU_MODEL.hudPointer と同じ書き方。null で元に戻す）
     debugHudPointer(p) {
@@ -3652,5 +3868,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v374' };
+window.NOAH3D = { start, version: 'v377' };
 })();

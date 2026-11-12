@@ -27,14 +27,14 @@ const CORE_FILES = {
   './font/noah-hud.woff': 72000,
   './img/brand/icon.png': 385000,
   './img/asset-manifest.json': 30000,
-  './noah3d.js': 226000,                      // v352 3D表示（v356 で砂ぼこり・泡、v359 でHPの札、v360 で怪獣の重みの直し、v361 で観測HUD・構図、v362 で必殺技の警告・照準、v363 で怪獣の攻撃の動き、v364 で演出の顔狙い、v365・v366 で見た目の強化を足した）
+  './noah3d.js': 242000,                      // v352 3D表示（v356 で砂ぼこり・泡、v359 でHPの札、v360 で怪獣の重みの直し、v361 で観測HUD・構図、v362 で必殺技の警告・照準、v363 で怪獣の攻撃の動き、v364 で演出の顔狙い、v365・v366 で見た目の強化、v376 で決着の動きを足した、v377 で怪獣の脚・眠る姿勢の直し）
   './vendor/three-r170.min.js': 691000,          // 3D表示（three.js r170。v353〜は普通のスクリプト版。中身を変えるときはファイル名ごと変える）
   './vendor/three-r170-gltfloader.min.js': 47100, // v354 3Dモデル（GLB）の読み込み
-  './models/aa1-v358.js': 373845,
-  './models/aa2-v358.js': 442789,
-  './models/aa3-v358.js': 476373,
-  './models/aa4-v358.js': 414629,
-  './models/aa5-v358.js': 451573,   // v358 機体を新しいモデルに差し替え
+  './models/aa1-v376.js': 622525,
+  './models/aa2-v376.js': 623265,
+  './models/aa3-v376.js': 650913,
+  './models/aa4-v376.js': 672225,
+  './models/aa5-v376.js': 651557,   // v376 機体を生体装甲の新しいモデルに差し替え（v358 の機体ファイルは下の activate で消える）
   './models/celevarn-v354.js': 1511679,   // v354 3Dの本番モデル
   // v360：森林の木・海底の岩山（tree-v354.js・rock-v354.js）は使わなくなったので外した（端末に保存した分は、下の activate で消える）
 };
@@ -145,6 +145,8 @@ const RETIRED = [
   './vendor/three-r170.module.min.js',
   // v358：機体の絵を新しい3Dモデルから撮った aa*-v358.webp に替えたので、前の絵は消す
   './img/aircraft/aa1.webp', './img/aircraft/aa2.webp', './img/aircraft/aa3.webp', './img/aircraft/aa4.webp', './img/aircraft/aa5.webp',
+  // v376：機体の絵を生体装甲の新しいモデルから撮った aa*-v376.webp に替えたので、v358 の絵は消す
+  './img/aircraft/aa1-v358.webp', './img/aircraft/aa2-v358.webp', './img/aircraft/aa3-v358.webp', './img/aircraft/aa4-v358.webp', './img/aircraft/aa5-v358.webp',
 ].map(p => new URL(p, SCOPE).href);   // もう使わないファイル
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
