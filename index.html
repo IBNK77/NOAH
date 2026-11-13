@@ -267,6 +267,55 @@ SAVE / CONTINUE（v336〜）：
   ・アプリを離れたら一時停止（位置はそのまま。▶ で続きから）。サウンドテストの間は、アプリへ戻ってもタイトルの曲を流し直さない
   ・横持ち：左に見出しとデッキ、右に曲の一覧と「タイトルへ戻る」。背の低い縦画面ではデッキを詰める
   ・処理は「v378 サウンドテスト」のブロック（soundTest・renderSoundTestScreen）、見た目は CSS の .st*。テスト用：window.noahDebugSoundTest()
+- v379〜：桜井政博氏の YouTube「桜井政博のゲーム作るには」の原則（有志が字幕から要約した sakurai-skill を参照。#番号は動画の通し番号）を当てはめた手直し。
+  ・フェーズの表示（ROUND・各機体の TURN・MOVE/ATTACK/MAIN PHASE・KAIJU TURN・DF TURN・作戦開始/再開）を、少し見せて自動で進むようにした。
+    押せばすぐ進む（出てくる途中でも。ただし出てから0.25秒は効かない）。怪獣の出現と作戦の結果は今まで通り押すまで止まる。
+    1ラウンドで十数回あった「押して閉じる」が無くなる（#073 遅さは罪・#244 画面遷移は素早く・#178 必ず飛ばせるように・#248 いただく時間を意識する）。
+    見せる時間は noahPhaseAutoMs（作戦開始1.1秒・ROUND 0.65秒・TURN 0.52秒・PHASE 0.42秒・KAIJU TURN 0.72秒・DF TURN 0.6秒）
+  ・ポーズに「表示」を足した：フェーズ表示（自動で進む／タップで進む）・画面の揺れ（通常／弱め／なし）。localStorage の noah_display_settings_v1。
+    揺れは盤面の揺れ（#boardWrap.shake）・鎮静の揺れ・3D のカメラの揺れ（window.NOAH_SHAKE_SCALE → noah3d.js）に掛かる（#128 3Dゲームで酔う場合・#055 いまどきの親切設計）
+  ・作戦の結果に「同じ編成で再出撃」を足した（エンドレスで保護に成功したとき＝作戦継続のときは出さない）。タイトルと選択の画面を通らず、
+    前と同じ保護対象・機体と順番ですぐ始める（エンドレスならエンドレスの最初から）（#116 リトライは迅速に・#097 やられるとスッキリする?）
+  ・作戦成功をほめる：MISSION COMPLETE と一緒に光の紙吹雪（左右の下から打ち上げて、ゆっくり落ちて消える。約3.6秒。動きを減らす設定では出さない）、
+    結果の画面にランクに応じた一言と、良かった所の称賛（やさしい保護＝VSP を8割以上残して眠らせた／完全防衛＝DDP を減らさずに守りきった）（#095 ほめてやれ！）
+  ・RP のゲージを「次の研究開発（必要な RP）までの進み具合」にした。届いたら RP のゲージと R&D のボタン（青いランプ）が光る（#023 目の前に吊られたごほうび）
+  ・テスト用：bridge.debugRender()（表示を描き直す）
+- v380〜：カードの入れ先・右の生体モニター・長く遊ぶと重くなる件。
+  ・研究開発・臨時研究会議・イベント・試作開発の配備などで新しく増えたカード（腐食の印も）は、出撃している機体なら山札へ入れて
+    終幕のカードを除いてシャッフル、基地にいる機体（とエンドレスの幕間基地）なら基地内へ入れる（前はいつも山札だった）。
+    newCardGoesToDeck / addDevelopedCardToUnit。ポップアップ・ログ・ルール説明の文も「山札」「基地内」を状態に合わせて出し分ける
+  ・右の生体モニター（行動予測・進撃予測）を省略しない。アタックフェイズ・基地から出撃する番・作戦開始の出撃の間も出す（盤面の攻撃予測はそのまま）
+  ・長く遊ぶと重くなっていく件：
+    ① 原因の1つを直した。怪獣の詳細（盤面の怪獣を押すと開く）を開くたびに、ずっと残るポップアップの枠（#modalBody）へ受け取り口が
+      1つずつ増え、前の中身も捨てられずに残っていた（15回開くと画面の部品が 641 → 1419 に。怪獣の絵を押すと開く音が10回重なった）。
+      受け取り口を今回の中身（怪獣カード）に付けるようにして、16回開いても増えないことを確かめた。開いている小窓をもう一度開こうとしても音は重ねない。
+      ほかのポップアップ（カード・山札・基地内・研究開発・ステータス・防衛軍・ログ・ポーズ・数値の説明）も開閉をくり返して、増えないことを確かめた。
+      作戦を10回くり返しても、タイマー・毎フレームの処理・3D の GPU の物（形・絵・シェーダー）・音の部品は増えていかなかった。
+    ② 本体が熱くなりにくいように：ポーズ中は 3D を描かない（止まった絵のまま）。ポップアップの下では、動きの少ないとき毎秒15回ほどに抑える
+      （後ろは暗く・ぼかして見せているので気づかれにくい。ぼかしも描き直すたびに重い）。動いている間（攻撃・演出など）はいつも通り。bridge.renderBudget
+    ③ ソフトリフレッシュ：ページを読み直さずに（BGM・効果音は止めない。画面も白くならない）、盤面の 3D だけを作り直して、アプリを開いたときと同じ状態に戻す。
+      3D の盤面を合わせて10分出したら、次の区切りで行う。区切りは、タイトル・作戦準備の画面（盤面が出ていない）と、
+      作戦の結果・エンドレスの幕間基地のポップアップが開いていて盤面が止まっているとき（いまの盤面を写した1枚をかぶせておき、
+      新しい 3D のモデルと下ごしらえがそろったら、そっと消す。ポップアップを閉じた・次の作戦が始まったらすぐ消す。最長12秒）。
+      作戦の途中には行わない。画質の段（本体が熱くて下がっていたら）は作り直したあとも同じ。noahSoftRefreshAtBreak / noah3dRebuild
+      作り直しの間、内蔵BGM（タイトル・結果などの、その場で音を組み立てる曲）は先の予約を0.24秒→3秒に伸ばして、処理がまとまって
+      止まっても音が途切れないようにした（noahBoostBgmLookahead。アプリを開いたときの3Dの準備の間も同じ）。読み込みBGM（mp3）はもともと影響を受けない。
+      3D のシェーダーの下ごしらえ（warmUp）は、1回で全部を描かずに5回に分けた（1回に止まる時間を短く）
+  ・テスト用：bridge.debugSoftRefreshBoardMs(ms) / debugSoftRefreshNow(withCover) / debugSoftRefreshCoverMax(ms) / debugSoftRefreshState()。
+    noah3d.js：handle.snapshot() / isIdle() / loaded() / ready()、stats().mem（GPU の物と場面の物の数）・stats().warm
+- v381〜：作戦の途中で重くなっていく件（本体の熱）への工夫と、メンテナンスモード。
+  ・1つの作戦を14ラウンド自動で遊んで数えたところ、v380 で怪獣の詳細を直したあとは、作戦の中でたまっていく物は見つからなかった
+    （メモリは戦闘ログが上限の220行に届くまで少し増えて横ばい、画面の部品・受け取り口・3Dの物の数は上下するだけ）。残る原因は本体の熱と見て、
+    熱をためにくくする工夫を入れた。
+  ・おまかせの画質：iPhone が毎秒30回に抑える状態（本体が熱い・低電力モード）が3分続いたら、画質を1段だけ下げる（描く点の数が約56%・
+    影の細かさ1/4・にじむ光なし）。下げたときは「本体が熱いか、低電力モードのようです。表示を少し軽くしました」と知らせる（noah3d.js の watchSpeed）。
+    2段目へは、今まで通り本当に遅いときだけ。
+  ・画面に6秒触っていないときは、動きのないときの描く回数を毎秒30回 → 20回ほどに（bridge.lastInputAt）。動いている間はいつも通り。
+  ・ポーズの「表示」に「画質」：おまかせ / 軽め（1段目に固定）/ 最軽量（2段目に固定）。すぐ効き、覚えておく。ソフトリフレッシュで作り直しても同じ。
+  ・ポーズに「メンテナンス」の枠：「メンテナンスモード」をオンにすると、盤面の左上に診断表示を出す（1秒ごと。タップは素通り）。
+    画面の更新回数・3Dを描いた回数・1回の処理時間・画質とその理由・毎秒30回に抑えられている時間・画面の部品の数・3Dの物の数・描画命令の数・
+    作戦の経過時間・ソフトリフレッシュの回数。オンのまま閉じても覚えておく。
+  ・テスト用：noah3d.js の handle.debugHeatStep(ms)、stats() の frameMsTotal / renderMsTotal / qualityLocked / qualityReason / heatMs / rafMedian / pace / busy
 
 ===============================================================================
 -->
@@ -765,7 +814,21 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
   transition:width .5s var(--ease);
 }
 .metric-lp .gauge{ background:repeating-linear-gradient(90deg,rgba(var(--rp-rgb),.35) 0 2px,transparent 2px 5px); }
-.metric-lp .gauge i{ display:none; }
+.metric-lp .gauge i{ width:calc(var(--pct,0) * 100%); }   /* v379：次の研究開発までの進み具合（満タン＝研究開発できる） */
+.metric-lp.ready .gauge i{ animation:noahRpReady 1.6s ease-in-out infinite; }
+@keyframes noahRpReady{ 0%,100%{ opacity:.7; } 50%{ opacity:1; box-shadow:0 0 10px var(--rp); } }
+#supplyBtn.rdReady::before{   /* v379：研究開発できる RP がある */
+  content:"";
+  position:absolute;
+  right:4px;
+  top:4px;
+  width:5px;
+  height:5px;
+  border-radius:50%;
+  background:var(--rp);
+  box-shadow:0 0 6px rgba(var(--rp-rgb),.95),0 0 12px rgba(var(--rp-rgb),.55);
+  animation:noahLamp 1.2s ease-in-out infinite;
+}
 .metric.low .value{ color:#ffd2d8; }
 
 /* 6 ───────────────────────────────────────────────────────── Board bezel */
@@ -1598,6 +1661,14 @@ button:disabled:active{ transform:none; filter:saturate(.35); }
 #boardWrap.hitFlash .bezel::after{ animation:noahBoardHit .5s ease-out; }
 @keyframes noahBoardHit{ 0%{ opacity:0; } 18%{ opacity:1; } 100%{ opacity:0; } }
 #boardWrap.shake{ animation:noahShake .18s steps(5,end); }
+body[data-shake="weak"] #boardWrap.shake{ animation-name:noahShakeWeak; }   /* v379：画面の揺れ「弱め」「なし」 */
+body[data-shake="off"] #boardWrap.shake{ animation:none; }
+@keyframes noahShakeWeak{
+  0%,100%{ transform:translate(0,0); }
+  25%{ transform:translate(-1px,1px); }
+  50%{ transform:translate(1px,-1px); }
+  75%{ transform:translate(-1px,0); }
+}
 @keyframes noahShake{
   0%{ transform:translate(0,0); }
   20%{ transform:translate(-3px,2px); }
@@ -2180,6 +2251,62 @@ body.criticalBgmTestRed::after{
   font-weight:700;
   letter-spacing:.06em;
 }
+/* v379 ポーズの「表示」：押して選ぶ切りかえ */
+.settingSegRow{
+  display:grid;
+  grid-template-columns:78px 1fr;
+  gap:8px;
+  align-items:center;
+  margin:8px 0;
+  font-size:12px;
+  font-weight:700;
+  color:var(--text-2);
+}
+.settingSeg{ display:flex; gap:4px; padding:3px; border-radius:var(--r-s); border:1px solid var(--hair); background:rgba(2,5,10,.55); }
+.settingSeg button{
+  flex:1 1 0;
+  min-height:32px;
+  min-width:0;
+  padding:0 6px;
+  border-radius:calc(var(--r-s) - 2px);
+  border:1px solid transparent;
+  background:transparent;
+  box-shadow:none;
+  font-size:12px;
+  font-weight:700;
+  color:var(--text-2);
+  white-space:nowrap;
+}
+.settingSeg button.isOn{
+  color:#0a1120;
+  border-color:rgba(255,255,255,.8);
+  background:var(--chrome);
+  box-shadow:inset 0 1px 0 #fff, 0 2px 6px rgba(0,0,0,.4);
+}
+/* v381 メンテナンス：名前が長い行は、名前の幅に合わせる */
+.settingSegRow.wide{ grid-template-columns:auto minmax(120px,1fr); }
+/* v381 メンテナンスモードの診断表示（盤面の左上。タップは素通り） */
+#noahMaint{
+  position:absolute;
+  left:10px;
+  top:24px;
+  z-index:6;
+  max-width:calc(100% - 20px);
+  padding:5px 8px 5px 8px;
+  font:600 9.5px/1.4 ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  letter-spacing:.02em;
+  color:#c4f4ff;
+  white-space:pre;
+  background:rgba(2,6,14,.74);
+  border:1px solid rgba(120,220,255,.32);
+  border-left:2px solid rgba(120,220,255,.85);
+  border-radius:4px;
+  pointer-events:none;
+  text-shadow:0 1px 0 rgba(0,0,0,.6);
+}
+#noahMaint b{ color:#7fe3ff; font-weight:700; }
+#noahMaint .mWarn{ color:#ffcf6b; }
+#noahMaint .mHot{ color:#ff8f6b; }
 .audioSliderRow{
   display:grid;
   grid-template-columns:66px 1fr 46px;
@@ -2304,6 +2431,25 @@ input[type="range"]::-webkit-slider-thumb{
 .criticalBgmTestBox h4{ margin:0 0 8px; color:#ffd6d6; font-weight:800; letter-spacing:.04em; }
 .criticalBgmState{ margin-top:8px; font-size:12px; line-height:1.45; color:var(--text-2); }
 #criticalBgmTestToggle{ margin-top:10px; min-height:38px; width:100%; }
+/* v379 作戦成功：光の紙吹雪・ほめる一言と称賛 */
+canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index:95; pointer-events:none; }
+.resultPraise{ position:relative; margin-top:10px; }
+.resultPraiseLine{ font-size:13px; font-weight:800; line-height:1.5; color:var(--ep); letter-spacing:.02em; }
+.resultPraiseChips{ display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin-top:8px; }
+.resultPraiseChip{
+  display:inline-flex;
+  align-items:baseline;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  border:1px solid rgba(var(--ep-rgb),.5);
+  background:rgba(var(--ep-rgb),.1);
+  font-size:11px;
+  font-weight:700;
+  line-height:1.4;
+  color:var(--text-1);
+}
+.resultPraiseChip b{ font-size:11.5px; color:var(--ep); letter-spacing:.04em; }
 /* リザルト */
 .resultHero{
   position:relative;
@@ -4371,6 +4517,7 @@ input[type="range"]::-webkit-slider-thumb{
 @media (prefers-reduced-motion:reduce){
   .titleSonar i,.bzLive i,.railKaiju .kLamp,.handCardFace.rarity-LR{ animation:none; }
   .stJacket::after,.stEq i,.stLamp i{ animation:none !important; }
+  .metric-lp.ready .gauge i,#supplyBtn.rdReady::before{ animation:none !important; }
 }
 
 /* ==========================================================================
@@ -4892,7 +5039,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v378',
+    currentPrototypeVersion:'v381',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -6442,6 +6589,39 @@ function noahDrawKaijuGroundShadow(cell) {
   function saveAudioSettings(){
     try{ localStorage.setItem(AUDIO_SETTINGS_KEY, JSON.stringify(audioSettings)); }catch(e){}
   }
+  // v379：表示の設定（ポーズ画面の「表示」）。桜井政博氏の動画（YouTube「桜井政博のゲーム作るには」）の原則から：
+  //   phaseAuto … ROUND・TURN・PHASE の表示を少し見せて自動で進める（押せばすぐ進む）。#073「遅さは罪」・#244「画面遷移は素早く」・#178「必ず飛ばせるように」
+  //   shake     … 画面の揺れ 'normal'（通常）/ 'weak'（弱め）/ 'off'（なし）。#128「3Dゲームで酔う場合」・#055「いまどきの親切設計」
+  //   v381：quality … 3Dの画質 'auto'（おまかせ：重いとき・本体が熱い状態が続いたときに自動で軽くする）/ 'light'（軽め＝1段目に固定）/ 'lightest'（最軽量＝2段目に固定）
+  //         maint   … メンテナンスモード（盤面の左上に診断表示を出す）
+  const DISPLAY_SETTINGS_KEY = 'noah_display_settings_v1';
+  const NOAH_SHAKE_LEVELS = { normal:1, weak:0.45, off:0 };
+  const NOAH_QUALITY_PREFS = { auto:null, light:1, lightest:2 };
+  const displaySettings = (()=>{
+    const d = { phaseAuto:true, shake:'normal', quality:'auto', maint:false };
+    try{
+      const saved = JSON.parse(localStorage.getItem(DISPLAY_SETTINGS_KEY) || '{}');
+      return {
+        phaseAuto: typeof saved.phaseAuto === 'boolean' ? saved.phaseAuto : d.phaseAuto,
+        shake: Object.prototype.hasOwnProperty.call(NOAH_SHAKE_LEVELS, saved.shake) ? saved.shake : d.shake,
+        quality: Object.prototype.hasOwnProperty.call(NOAH_QUALITY_PREFS, saved.quality) ? saved.quality : d.quality,
+        maint: typeof saved.maint === 'boolean' ? saved.maint : d.maint,
+      };
+    }catch(e){ return d; }
+  })();
+  // v381：最後に画面へ触った時刻（3Dは、しばらく触っていないとき描く回数をさらに減らす）
+  let noahLastInputAt = performance.now();
+  ['pointerdown', 'touchstart', 'keydown', 'wheel'].forEach(type=>document.addEventListener(type, ()=>{ noahLastInputAt = performance.now(); }, { capture:true, passive:true }));
+  function noahShakeScale(){ return NOAH_SHAKE_LEVELS[displaySettings.shake] ?? 1; }
+  function applyDisplaySettings(){
+    if(document.body) document.body.dataset.shake = displaySettings.shake;   // CSS の盤面の揺れ（#boardWrap.shake）
+    window.NOAH_SHAKE_SCALE = noahShakeScale();                                // noah3d.js のカメラの揺れ
+  }
+  function saveDisplaySettings(){
+    try{ localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(displaySettings)); }catch(e){}
+    applyDisplaySettings();
+  }
+  applyDisplaySettings();
   function audioPercent(v){ return Math.round((Number(v)||0) * 100); }
   function bgmDisplayPercent(v){ return Math.round(((Number(v)||0) / BGM_UI_REFERENCE) * 100); }
   function bgmSettingFromDisplayPercent(percent){
@@ -7872,12 +8052,21 @@ function noahDrawKaijuGroundShadow(cell) {
     }
   }
   function bgmStepDur(track){ return (60 / track.bpm) / 2; }
+  // v380：内蔵BGM（タイトル・研究・結果の曲など、その場で音を組み立てる曲）は、0.24秒先までを少しずつ予約している。
+  //   ソフトリフレッシュ（3Dの作り直し）の間は、画面の処理がまとまって止まることがあるので、先の予約を3秒まで伸ばして音が途切れないようにする
+  let noahBgmLookaheadBoostUntil = 0;
+  function noahBgmLookahead(base){ return performance.now() < noahBgmLookaheadBoostUntil ? 3.0 : base; }
+  function noahBoostBgmLookahead(ms){
+    noahBgmLookaheadBoostUntil = Math.max(noahBgmLookaheadBoostUntil, performance.now() + ms);
+    try{ bgmScheduler(); }catch(e){}
+    try{ criticalScheduler(); }catch(e){}
+  }
   function bgmScheduler(){
     if(!bgmPlaying || !audioCtx || audioCtx.state !== 'running') return;
     const track = BGM_TRACKS[bgmCurrentTrack];
     if(!track) return;
     const stepDur = bgmStepDur(track);
-    while(bgmScheduledUntil < audioCtx.currentTime + 0.24){
+    while(bgmScheduledUntil < audioCtx.currentTime + noahBgmLookahead(0.24)){
       bgmScheduleStep(track, bgmNextStep, bgmScheduledUntil, stepDur);
       bgmNextStep = (bgmNextStep + 1) % track.steps;
       bgmScheduledUntil += stepDur;
@@ -8088,7 +8277,7 @@ function noahDrawKaijuGroundShadow(cell) {
     const beatDur = 60 / CRITICAL_BGM_TRACK.bpm;
     const stepDur = beatDur / 4;
     if(criticalScheduledUntil < audioCtx.currentTime) criticalScheduledUntil = audioCtx.currentTime + 0.03;
-    while(criticalScheduledUntil < audioCtx.currentTime + 0.26){
+    while(criticalScheduledUntil < audioCtx.currentTime + noahBgmLookahead(0.26)){
       criticalScheduleStep(criticalNextStep, criticalScheduledUntil, stepDur, beatDur);
       criticalNextStep = (criticalNextStep + 1) % CRITICAL_BGM_LOOP_STEPS;
       criticalScheduledUntil += stepDur;
@@ -8653,7 +8842,7 @@ function noahDrawKaijuGroundShadow(cell) {
   function getKaijuDrawJitter(cell, now=performance.now()){
     const sedationUntil = game.sedationShakeUntil || 0;
     if(now < sedationUntil){
-      const scale = Number.isFinite(game.sedationShakeScale) ? game.sedationShakeScale : 1;
+      const scale = (Number.isFinite(game.sedationShakeScale) ? game.sedationShakeScale : 1) * noahShakeScale();   // v379：画面の揺れの設定
       const phase = (now - (game.sedationShakeStart || 0)) * 0.095;
       return {
         x:Math.sin(phase * Math.PI * 2) * cell * 0.030 * scale,
@@ -11560,12 +11749,29 @@ function getRandomExplosionCell(){
     else if(sound === 'operationStart') playOperationStartSound();
     else if(sound !== 'none') playPhaseSound();
 
+    // v379：自動で進む表示は、押せばすぐ先へ（桜井政博氏の動画 #178「必ず飛ばせるように」）。出てくる途中に押しても効く。
+    //   出した操作と同じタップが遅れて届いて、すぐ消えてしまわないよう、出てから 0.25秒は押しても効かない
+    let skipped = null;
+    if(autoMs !== null){
+      const shownAt = performance.now();
+      let skip = null;
+      skipped = new Promise(resolve=>{ skip = resolve; });
+      ui.phaseOverlay.style.pointerEvents = 'auto';
+      ui.phaseOverlay.onclick = ()=>{
+        if(performance.now() - shownAt < 250) return;
+        ui.phaseOverlay.onclick = null;
+        skip();
+      };
+    }
+
     ui.phaseText.style.transform = 'translateX(-115vw)';
     ui.phaseText.style.opacity = '0.18';
     await slidePhaseText(-115, 0, enterMs);
 
     if(autoMs !== null){
-      await wait(autoMs);
+      await Promise.race([wait(autoMs), skipped]);
+      ui.phaseOverlay.onclick = null;
+      ui.phaseOverlay.style.pointerEvents = 'none';
       await slidePhaseText(0, 115, exitMs);
       ui.phaseOverlay.classList.remove('show','alert','success');
       resetPhaseOverlayVisuals();
@@ -11610,8 +11816,20 @@ function getRandomExplosionCell(){
     ov.dataset.tone = tone;
     ov.dataset.caption = caption;
   }
+  // v379：決まった流れの表示の見せる時間（設定が「自動で進む」のとき。押せばすぐ進む）。怪獣の出現と作戦の結果は押すまで止まる
+  function noahPhaseAutoMs(title){
+    if(!displaySettings.phaseAuto) return null;
+    const t = String(title || '');
+    if(t === 'START') return 1100;          // 作戦開始・作戦再開・エンドレスの次の保護対象
+    if(/^ROUND\b/.test(t)) return 650;
+    if(/^KAIJU TURN/.test(t)) return 720;
+    if(/^DF TURN/.test(t)) return 600;
+    if(/PHASE$/.test(t)) return 420;        // MOVE PHASE・ATTACK PHASE
+    if(/TURN$/.test(t)) return 520;         // 各機体の TURN
+    return 560;
+  }
   function showQuickTitle(title, afterTap){
-    showPhaseOverlayAnimated({ text:title, logText:title, afterTap });
+    showPhaseOverlayAnimated({ text:title, logText:title, afterTap, autoMs:noahPhaseAutoMs(title) });
   }
   function showAutoTitle(title, ms=1250, after){
     showPhaseOverlayAnimated({ text:title, logText:title.replace(/\n/g,' '), autoMs:ms, afterTap:after });
@@ -11655,6 +11873,82 @@ function getRandomExplosionCell(){
       enterMs:300,
       exitMs:260
     });
+    if(complete) noahCelebrate();   // v379：#095「ほめてやれ！」
+  }
+  // v379：作戦成功をほめる（桜井政博氏の動画 #095「ほめてやれ！」）。MISSION COMPLETE の文字と一緒に、
+  //   画面の左右の下から光の紙吹雪（EP の緑・N.O.A.H. の青・白・金）を打ち上げる。約3秒で消える。動きを減らす設定のときは出さない
+  function noahCelebrate(){
+    try{ if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; }catch(e){}
+    const old = document.querySelector('canvas.noahConfetti');
+    if(old) old.remove();
+    const c = document.createElement('canvas');
+    c.className = 'noahConfetti';
+    c.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(c);
+    const W = window.innerWidth, H = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+    c.width = Math.round(W * dpr);
+    c.height = Math.round(H * dpr);
+    const g = c.getContext('2d');
+    if(!g){ c.remove(); return; }
+    g.scale(dpr, dpr);
+    const colors = ['#3fe0a3', '#6ea8ff', '#a6c4ff', '#f2f6ff', '#ffc35a'];
+    const P = [];
+    const N = 90, G = H * 1.0;
+    for(let i = 0; i < N; i++){
+      const left = i % 2 === 0, d = 0.18 + Math.random() * 0.44;
+      const ang = -Math.PI / 2 + (left ? d : -d);
+      const sp = H * (1.1 + Math.random() * 0.7);
+      P.push({
+        x: left ? -8 : W + 8, y: H * (0.78 + Math.random() * 0.14),
+        vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+        w: 4 + Math.random() * 4, h: 7 + Math.random() * 7,
+        rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 12,
+        flip: Math.random() * 6.28, vf: 7 + Math.random() * 9,
+        sway: Math.random() * 6.28, vs: 2.4 + Math.random() * 1.6, color: colors[i % colors.length],
+        delay: Math.random() * 0.22, dot: Math.random() < 0.16,
+      });
+    }
+    const LIFE = 3.6;
+    let t0 = 0, last = 0;
+    const step = now=>{
+      if(!c.isConnected) return;
+      if(!t0){ t0 = now; last = now; }
+      const t = (now - t0) / 1000, dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      g.clearRect(0, 0, W, H);
+      const fade = Math.max(0, Math.min(1, (LIFE - t) / 0.9));
+      for(const p of P){
+        if(t < p.delay) continue;
+        p.vy += G * dt;
+        const drag = Math.pow(p.vy > 0 ? 0.02 : 0.5, dt);   // 打ち上げは画面の上の方まで、落ちるときは紙らしくゆっくり
+        p.vx *= drag;
+        p.vy *= drag;
+        p.sway += dt * p.vs;
+        p.x += (p.vx + Math.sin(p.sway) * 30) * dt;
+        p.y += p.vy * dt;
+        p.rot += p.vr * dt;
+        p.flip += p.vf * dt;
+        if(p.y > H + 20) continue;
+        g.globalAlpha = fade;
+        g.fillStyle = p.color;
+        g.save();
+        g.translate(p.x, p.y);
+        g.rotate(p.rot);
+        if(p.dot){
+          g.beginPath();
+          g.arc(0, 0, p.w * 0.4, 0, Math.PI * 2);
+          g.fill();
+        }else{
+          g.scale(1, Math.max(0.12, Math.abs(Math.cos(p.flip))));   // くるくる裏返る
+          g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        }
+        g.restore();
+      }
+      g.globalAlpha = 1;
+      if(t < LIFE) requestAnimationFrame(step);
+      else c.remove();
+    };
+    requestAnimationFrame(step);
   }
   function categoryLabel(id){
     const d=def(id);
@@ -11977,7 +12271,7 @@ function getRandomExplosionCell(){
       const k=game.selectedKaiju || kaijuDef(setupState.kaiju);
       showKaijuIntroTitle(k, async ()=>{
         await animateAircraftEntry(500);
-        showPhaseOverlayAnimated({ text:game.endlessMode ? 'ENDLESS\n作戦開始' : 'N.O.A.H.\n作戦開始', logText:game.endlessMode ? 'ENDLESS 作戦開始' : 'N.O.A.H. 作戦開始', sound:'operationStart', afterTap:()=>{
+        showPhaseOverlayAnimated({ text:game.endlessMode ? 'ENDLESS\n作戦開始' : 'N.O.A.H.\n作戦開始', logText:game.endlessMode ? 'ENDLESS 作戦開始' : 'N.O.A.H. 作戦開始', sound:'operationStart', autoMs:noahPhaseAutoMs('START'), afterTap:()=>{
           addLog(game.endlessMode ? 'エンドレス作戦開始' : '作戦開始');
           if(game.endlessMode) addLog(`第${game.endlessRunNo}保護対象：${k.fullName} / 危険度${dangerLevel()}`);
           startRoundOpeningPhase();
@@ -12139,7 +12433,7 @@ function getRandomExplosionCell(){
         <div class="ruleParagraph">基地状態の機体は盤面上に存在しないため、怪獣の攻撃対象になりません。</div>
         <div class="ruleParagraph">基地状態では、研究開発、機体強化、カード除外、防衛軍攻撃中止要請、ターン終了を行えます。</div>
 
-        <div class="ruleParagraphGap">研究開発では、RPを消費して新しいカードを配備できます。研究開発候補一覧では、配備可能なカードの内容を確認できます。研究開発開始を行うと、属性が重複しない形で3枚の候補カードが提示され、その中から1枚を選んで、好きなアサイラムアーク1機の山札へ追加し、終幕を除いてシャッフルします。</div>
+        <div class="ruleParagraphGap">研究開発では、RPを消費して新しいカードを配備できます。研究開発候補一覧では、配備可能なカードの内容を確認できます。研究開発開始を行うと、属性が重複しない形で3枚の候補カードが提示され、その中から1枚を選んで、好きなアサイラムアーク1機へ配備します。配備先の機体が出撃状態なら山札へ追加して終幕を除いてシャッフルし、基地にいる機体なら基地内へ入ります（出撃するときに、基地内カードと山札をまとめてシャッフルして山札になります）。</div>
 
         <div class="ruleParagraphGap">機体強化では、RPを消費して機体性能を上昇させます。強化できる項目は、最大HP、防御力、攻撃力、精密性、機動性、観測性能、整備性、ドローン性能、ドローン制御、砲身です。強化コストは各項目ごとに1段階目がRP60で、強化するたびに必要RPが40ずつ上昇します。ドローン制御は最大5、砲身は最大4まで強化できます。</div>
 
@@ -12173,8 +12467,8 @@ function getRandomExplosionCell(){
         <div class="ruleParagraph">研究開発は、出撃状態のアタックフェイズ・移動フェイズ・メインフェイズ、または基地状態の機体ターン中に行えます。</div>
         <div class="ruleParagraph">研究開発候補一覧では、現在配備可能なカードの内容を確認できます。カード名を選択すると、そのカードの効果、属性、レアリティを確認できます。</div>
         <div class="ruleParagraph">研究開発開始を行うと、RPを消費して3枚の候補カードが提示されます。候補カードは、鎮静、誘導、研究、作戦の4属性の中から、属性が重複しない形で提示されます。</div>
-        <div class="ruleParagraph">提示された候補カードは、内容を確認した上で、そのうち1枚を選んで開発できます。開発したカードは、好きなアサイラムアーク1機を選んで、その機体の山札へ追加し、終幕を除いてシャッフルします。</div>
-        <div class="ruleParagraph">開発したカードは、すぐに手札へ入るわけではありません。開発直後から山札に入り、次のドローから使用できます。終幕カードは順番を保ち、山札の底に残ります。</div>
+        <div class="ruleParagraph">提示された候補カードは、内容を確認した上で、そのうち1枚を選んで開発できます。開発したカードは、好きなアサイラムアーク1機を選んで配備します。出撃状態の機体なら山札へ追加し、終幕を除いてシャッフルします。基地状態など、基地にいる機体なら基地内へ入ります。</div>
+        <div class="ruleParagraph">開発したカードは、すぐに手札へ入るわけではありません。出撃状態の機体なら開発直後から山札に入り、次のドローから使用できます。終幕カードは順番を保ち、山札の底に残ります。基地内へ入ったカードは、その機体が基地から出撃するときに山札へ加わります。研究開発以外（臨時研究会議・イベントなど）で新しくカードが増えるときも同じです。</div>
         <div class="ruleParagraph">候補カードをスルーすることもできます。ただし、スルーした場合でも、研究開発開始に消費したRPは戻りません。</div>
         <div class="ruleParagraph">研究開発カードには、N、R、SR、UR、LRのレアリティがあります。通常の研究開発開始では、各レアリティの排出率は以下の通りです。</div>
         <div class="ruleFlow" style="margin:18px 0 8px;">
@@ -12296,6 +12590,38 @@ function getRandomExplosionCell(){
       <div class="muted" style="font-size:12px;line-height:1.45;">旧設定150%相当をBGMの新100%として扱います。読込BGMは200%まで増幅でき、変更は再生中へ即時反映されます。</div>
     </div>`;
   }
+  // v379：ポーズ画面の「表示」（フェーズ表示・画面の揺れ）。押した所がすぐ効く
+  function pauseDisplaySettingsHtml(){
+    const seg = (key, items)=>`<div class="settingSeg" data-setting="${key}">${items.map(([v, label])=>{
+      const on = String(displaySettings[key]) === String(v);
+      return `<button type="button" data-v="${v}" aria-pressed="${on}" class="${on ? 'isOn' : ''}">${label}</button>`;
+    }).join('')}</div>`;
+    return `<div class="audioSettingsBox displaySettingsBox"><h4>表示</h4>
+      <div class="settingSegRow"><span>フェーズ表示</span>${seg('phaseAuto', [[true, '自動で進む'], [false, 'タップで進む']])}</div>
+      <div class="settingSegRow"><span>画面の揺れ</span>${seg('shake', [['normal', '通常'], ['weak', '弱め'], ['off', 'なし']])}</div>
+      <div class="settingSegRow"><span>画質</span>${seg('quality', [['auto', 'おまかせ'], ['light', '軽め'], ['lightest', '最軽量']])}</div>
+      <div class="muted" style="font-size:12px;line-height:1.45;">「自動で進む」は ROUND・TURN・PHASE の表示を少し見せて先へ進めます（押せばすぐ進みます）。怪獣の出現と作戦の結果は押すまで止まります。<br>「軽め」「最軽量」にすると、本体が熱くなりにくくなります（見た目は少しやわらかくなります）。「おまかせ」は、重いときや、本体が熱い状態が続いたときに自動で軽くします。</div>
+    </div>
+    <div class="audioSettingsBox displaySettingsBox maintSettingsBox"><h4>メンテナンス</h4>
+      <div class="settingSegRow wide"><span>メンテナンスモード</span>${seg('maint', [[false, 'オフ'], [true, 'オン']])}</div>
+      <div class="muted" style="font-size:12px;line-height:1.45;">オンにすると、盤面の左上に診断表示（画面の更新回数・3Dを描いた回数・画質・作戦の経過時間など）を出します。重くなったときに、原因を確かめるためのものです。</div>
+    </div>`;
+  }
+  function bindPauseDisplaySettings(){
+    document.querySelectorAll('#pauseBody .settingSeg').forEach(box=>{
+      box.addEventListener('click', e=>{
+        const b = e.target.closest('button[data-v]');
+        if(!b) return;
+        const key = box.dataset.setting;
+        displaySettings[key] = (key === 'phaseAuto' || key === 'maint') ? b.dataset.v === 'true' : b.dataset.v;
+        saveDisplaySettings();
+        if(key === 'quality') noah3dApplyQualityPreference(0);   // v381：画質はすぐ 3D へ
+        if(key === 'maint') noahMaintApply();                     // v381：診断表示を出す・消す
+        box.querySelectorAll('button[data-v]').forEach(x=>{ const on = x === b; x.classList.toggle('isOn', on); x.setAttribute('aria-pressed', String(on)); });
+        playTapSound();
+      });
+    });
+  }
   function bindPauseAudioSettings(){
     const bgmSlider = document.getElementById('bgmVolumeSlider');
     const seSlider = document.getElementById('seVolumeSlider');
@@ -12357,14 +12683,14 @@ function getRandomExplosionCell(){
     game.stats.trialRollStats=createEmptyTrialRollStats();
     showTrialRollStatsPause();
   }
-  function showPausePopup(playOpenSound=true){ if(game.inputLocked) return; if(playOpenSound) playPauseOpenSound(); setPausePanel('ポーズ', 'ゲームを一時停止しています。<div class="muted" style="font-size:12px;line-height:1.55;margin-top:4px;">進行は自動でセーブされます。アプリを閉じても、タイトルの「CONTINUE」から続きを遊べます。</div>' + pauseAudioSettingsHtml(), [
+  function showPausePopup(playOpenSound=true){ if(game.inputLocked) return; if(playOpenSound) playPauseOpenSound(); setPausePanel('ポーズ', 'ゲームを一時停止しています。<div class="muted" style="font-size:12px;line-height:1.55;margin-top:4px;">進行は自動でセーブされます。アプリを閉じても、タイトルの「CONTINUE」から続きを遊べます。</div>' + pauseAudioSettingsHtml() + pauseDisplaySettingsHtml(), [
     {text:'ルール説明', onClick(){ showRulesRoot(); }},
     {text:'ログ確認', onClick(){ showPauseLog(); }},
     {text:'開発抽選統計', onClick(){ showTrialRollStatsPause(); }},
     {text:'中断してタイトルへ', onClick(){ noahSuspendToTitle(); }},
     {text:'新規ゲーム', onClick(){ showNewGameConfirm(); }},
     {text:'閉じる', onClick(){ closePause(); }}
-  ]); bindPauseAudioSettings(); }
+  ]); bindPauseAudioSettings(); bindPauseDisplaySettings(); }
   function showPauseLog(){ const logs = game.logs.length ? game.logs.map(x=>`<div class="statusBlock" style="margin-bottom:6px;">${x}</div>`).join('') : '<div class="muted">まだログはありません。</div>'; setPausePanel('ログ', logs, [
     {text:'戻る', onClick(){ showPausePopup(false); }},
     {text:'閉じる', onClick(){ closePause(); }}
@@ -12388,6 +12714,25 @@ function getRandomExplosionCell(){
     stopExternalBattleBgm(true, true);
     stopBgm();
     renderTitleScreen();
+  }
+  // v379：同じ編成ですぐ再出撃（桜井政博氏の動画 #116「リトライは迅速に」）。タイトルと選択の画面を通らず、
+  //   前と同じ選択（保護対象・機体と順番。エンドレスならエンドレスの最初から）で作戦を始める。後片付けはタイトルへ戻るときと同じ
+  function retryMissionWithSameSetup(){
+    stopSoundTestBgm(true, true);
+    rememberCurrentMissionResult();
+    if(ui.pauseBg) closePause();
+    if(typeof closeModal === 'function') closeModal();
+    game.inputLocked = false;
+    game.pendingProgress = null;
+    game.pendingDiscard = null;
+    game.pendingDeckToBase = null;
+    game.pendingBaseToDeck = null;
+    game.pendingBaseToTopDeck = null;
+    if(typeof criticalDisableBgmTest==='function') criticalDisableBgmTest(false);
+    document.body.classList.remove('defenseAlert-warning','defenseAlert-danger');
+    stopExternalBattleBgm(true, true);
+    stopBgm();
+    beginSelectedGame();
   }
   function resetToTitleFromPause(){
     noahClearSave();
@@ -12576,6 +12921,7 @@ function getRandomExplosionCell(){
     const n=Math.max(0, Number(count)||0);
     if(n<=0) return 0;
     const marks=[...Array(n)].map(()=>cloneCard('corrosion_mark'));
+    if(!newCardGoesToDeck(unit)){ if(!Array.isArray(unit.discard)) unit.discard=[]; unit.discard.push(...marks); return marks.length; }   // v380：出撃していない機体は基地内へ
     unit.deck=shuffleDeckRespectEnding(unit.deck.concat(marks));
     return marks.length;
   }
@@ -13551,14 +13897,19 @@ function getRandomExplosionCell(){
     const notePopup = ui.modalBody.querySelector('[data-note-popup]');
     const noteClose = ui.modalBody.querySelector('[data-close-note]');
     if(notePopup){
-      const openNote = ()=>{ if(tooSoon()) return; playPopupOpenSound(); notePopup.classList.add('show'); };
+      // v380：もう開いているときは何もしない（1回のタップで開く音が重ならないように）
+      const openNote = ()=>{ if(tooSoon() || notePopup.classList.contains('show')) return; playPopupOpenSound(); notePopup.classList.add('show'); };
       const closeNote = ()=>{ playModalCancelSound(); notePopup.classList.remove('show'); };
       ui.modalBody.querySelectorAll('[data-open-note]').forEach(noteBtn=>{
         noteBtn.addEventListener('click', openNote);
         noteBtn.addEventListener('touchend',e=>{ e.preventDefault(); openNote(); }, {passive:false});
         noteBtn.addEventListener('keydown',e=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); openNote(); } });
       });
-      ui.modalBody.addEventListener('click', e=>{
+      // v380：長く遊ぶと重くなる原因の1つだった。前はポップアップの枠（ずっと残る #modalBody）に付けていたので、怪獣の詳細を開くたびに
+      //   受け取り口が1つずつ増え、前の中身（古い怪獣カードの部品）も捨てられずに残っていた（15回開くと部品が2倍以上に、
+      //   怪獣の絵を押すと開く音が10回重なって鳴った）。今回の中身（怪獣カード）に付けるので、次に開いたときに中身ごと消える
+      const noteRoot = ui.modalBody.querySelector('.kaijuProtoCard') || notePopup.parentElement;
+      if(noteRoot && noteRoot !== ui.modalBody) noteRoot.addEventListener('click', e=>{
         const trigger = e.target.closest && e.target.closest('[data-open-note]');
         if(trigger){ openNote(); }
       }, {capture:true});
@@ -13671,6 +14022,26 @@ function getRandomExplosionCell(){
     const raw = Math.round(d*10 + hp*20 - r*5);
     if(complete) return Math.max(1000, 1000 + raw);
     return Math.max(0, Math.min(999, raw));
+  }
+  // v379：作戦成功のときの一言と、特に良かった所の称賛（桜井政博氏の動画 #095「ほめてやれ！」）。
+  //   やさしい保護：VSP を最大の8割以上残して眠らせた / 完全防衛：DDP を始めより減らさずに守りきった
+  const NOAH_PRAISE_LINES = {
+    S:'見事な保護作戦です。文句なしの結果です！',
+    A:'すばらしい保護作戦です。',
+    B:'保護に成功しました。よくやりました。',
+    C:'保護に成功しました。怪獣は静かに眠っています。',
+    endless:'保護に成功しました。この調子で次の保護対象へ。',
+  };
+  function noahPraiseHtml(complete, rank, finalHp, finalD){
+    if(!complete) return '';
+    const line = game.endlessMode ? NOAH_PRAISE_LINES.endless : (NOAH_PRAISE_LINES[rank] || NOAH_PRAISE_LINES.C);
+    const chips = [];
+    const hpMax = Number(game.kaijuHpMax) || 0, d0 = Number(game.initialDistance) || 0;
+    if(hpMax > 0 && finalHp / hpMax >= 0.8) chips.push(['やさしい保護', `VSP を${Math.round(finalHp / hpMax * 100)}%残して眠らせた`]);
+    if(d0 > 0 && finalD >= d0) chips.push(['完全防衛', 'DDP を減らさずに守りきった']);
+    return `<div class="resultPraise"><div class="resultPraiseLine">${line}</div>`
+      + (chips.length ? `<div class="resultPraiseChips">${chips.map(([t, d])=>`<span class="resultPraiseChip"><b>${t}</b>${d}</span>`).join('')}</div>` : '')
+      + `</div>`;
   }
   function resultRank(score, complete){
     if(!complete) return score>=800 ? 'C' : 'D';
@@ -13836,7 +14207,7 @@ function getRandomExplosionCell(){
     }else{
       heroMain = `<div style="margin-top:10px;"><span class="resultScore">${score}</span><span class="resultRank">${rank}</span></div><div class="muted">暫定スコア：DDP×10 + HP×20 - R×5 + 成功ボーナス</div>`;
     }
-    let summary = `<div class="resultHero"><div class="${complete?'winTitle':'loseTitle'}" style="font-size:22px;font-weight:950;">${resultTitle}</div><div class="muted" style="margin-top:6px;">${reasonText}</div>${heroMain}</div>`;
+    let summary = `<div class="resultHero"><div class="${complete?'winTitle':'loseTitle'}" style="font-size:22px;font-weight:950;">${resultTitle}</div><div class="muted" style="margin-top:6px;">${reasonText}</div>${heroMain}${noahPraiseHtml(complete, rank, finalHp, finalD)}</div>`;
     summary += `<div class="resultStatsGrid">`;
     summary += resultMetricHtml('クリアR', game.round);
     summary += resultMetricHtml('最終DDP', finalD);
@@ -13943,6 +14314,7 @@ function getRandomExplosionCell(){
     const complete = outcome === 'complete';
     const buttons = [];
     if(complete && game.endlessMode) buttons.push({text:'基地へ', flashKind:'support', onClick(){ enterEndlessIntermission(); }});
+    else buttons.push({text:'同じ編成で再出撃', onClick(){ retryMissionWithSameSetup(); }});   // v379：#116「リトライは迅速に」
     buttons.push({text:'タイトルへ戻る', onClick(){ returnToTitleScreen(); }});
     buttons.push({text:'閉じる',onClick(){}});
     const rescuedCount = Number(game.endlessRescued) || 0;
@@ -13953,6 +14325,7 @@ function getRandomExplosionCell(){
         : (complete ? '<span class="winTitle">作戦成功</span>' : '<span class="loseTitle">作戦失敗</span>'));
     openModal(modalTitle, buildMissionResultHtml(outcome, game.resultReasonHtml), buttons);
     setupResultTabs();
+    noahSoftRefreshAtBreak('result');   // v380 ソフトリフレッシュ（結果のポップアップの後ろで）
   }
   function reopenMissionResult(){
     if(!game.gameOver || !game.resultOutcome){
@@ -13994,6 +14367,7 @@ function getRandomExplosionCell(){
     actions.push({text:'次の怪獣へ', flashKind:'support', onClick(){ advanceToNextEndlessKaiju(); }});
     openModal('幕間基地', body, actions);
     ui.modalCloseX.style.display='none';
+    noahSoftRefreshAtBreak('intermission');   // v380 ソフトリフレッシュ（幕間基地のポップアップの後ろで）
   }
   function showEndlessIntermissionUnitMenu(index){
     if(!game.endlessMode || !game.endlessIntermission) return;
@@ -14147,7 +14521,7 @@ function getRandomExplosionCell(){
     render();
     showKaijuIntroTitle(k, async ()=>{
       await animateAircraftEntry(500);
-      showPhaseOverlayAnimated({ text:`ENDLESS\n第${game.endlessRunNo}保護対象`, logText:`エンドレス継続：第${game.endlessRunNo}保護対象 ${k.fullName} 出現 / 危険度${dangerLevel()}`, sound:'operationStart', afterTap:()=>{
+      showPhaseOverlayAnimated({ text:`ENDLESS\n第${game.endlessRunNo}保護対象`, logText:`エンドレス継続：第${game.endlessRunNo}保護対象 ${k.fullName} 出現 / 危険度${dangerLevel()}`, sound:'operationStart', autoMs:noahPhaseAutoMs('START'), afterTap:()=>{
         addLog(`エンドレス継続：第${game.endlessRunNo}保護対象 ${k.fullName}`);
         addLog(`危険度${dangerLevel()}から作戦開始`);
         const epBonus = (Number(game.endlessRescued) || 0) * ENDLESS_EP_BONUS_PER_RESCUE;
@@ -14311,6 +14685,15 @@ function checkGameEnd(){
       el.style.setProperty('--pct', pct.toFixed(3));
       el.classList.toggle('low', !!warnLow && pct <= .25);
     });
+    // v379：RP のゲージ＝次の研究開発（必要な RP）までの進み具合。届いたら RP と R&D のボタンを光らせる
+    //   （桜井政博氏の動画 #023「目の前に吊られたごほうび」：手の届く目標を、遊んでいる間ずっと見せる）
+    if(ui.lpMetric){
+      const rdCost = Math.max(1, trialDevelopmentCost());
+      const rdReady = (Number(game.lp) || 0) >= rdCost && !game.gameOver;
+      ui.lpMetric.style.setProperty('--pct', Math.max(0, Math.min(1, (Number(game.lp) || 0) / rdCost)).toFixed(3));
+      ui.lpMetric.classList.toggle('ready', rdReady);
+      if(ui.supplyBtn) ui.supplyBtn.classList.toggle('rdReady', rdReady && !ui.supplyBtn.disabled);
+    }
     noahCheckGameOverSave();
     noahScheduleAutosave();
   }
@@ -15444,7 +15827,7 @@ function checkGameEnd(){
       actionText:'開発',
       actionDisabled:game.lp < d.cost,
       effectText:cardEffectSummary(id, unit),
-      noteHtml:`${cardEffectDetail(id, unit)}<br><br>開発すると、このカードは${unit.name}の山札へ加え、終幕を除いてシャッフルします。<br>所持RP：${game.lp}`,
+      noteHtml:`${cardEffectDetail(id, unit)}<br><br>開発すると、このカードは${unit.name}の${newCardGoesToDeck(unit) ? '山札へ加え、終幕を除いてシャッフルします' : '基地内へ入ります（出撃するときに山札とまとめてシャッフルされます）'}。<br>所持RP：${game.lp}`,
       costText:`RP ${d.cost}`,
       onCloseX:returnToList ? backToSupplyList : undefined,
       onAction(){
@@ -15453,9 +15836,10 @@ function checkGameEnd(){
         game.stats.totalLpSpent += d.cost;
         game.stats.developedCards += 1;
         recordMetricHistory('develop');
-        addDevelopedCardToDeck(unit,id);
-        showToast(d.name + ' を開発、山札へ追加してシャッフル');
-        addLog(`${unit.name}：${d.name}を開発。山札へ追加してシャッフル。RP-${d.cost}`);
+        const toDeck = newCardGoesToDeck(unit);
+        addDevelopedCardToUnit(unit,id);
+        showToast(d.name + (toDeck ? ' を開発、山札へ追加してシャッフル' : ' を開発、基地内へ追加'));
+        addLog(`${unit.name}：${d.name}を開発。${toDeck ? '山札へ追加してシャッフル' : '基地内へ追加'}。RP-${d.cost}`);
         render();
         showSupplyListPopup();
       }
@@ -16705,7 +17089,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(ref.zone==='cannon') list[i]=null; else list.splice(i,1);
     return true;
   }
-  function eventDeployNote(u){ return `${stateLabels[u.state] || ''}・山札 ${u.deck.length}枚 / 精密性 ${u.precision}・攻撃力 ${u.attack}・砲身 ${activeCannons(u)}`; }
+  function eventDeployNote(u){ return `${newCardPlaceLabel(u)}へ配備・${stateLabels[u.state] || ''}・山札 ${u.deck.length}枚 / 精密性 ${u.precision}・攻撃力 ${u.attack}・砲身 ${activeCannons(u)}`; }   // v380：入れ先を先頭に
   function eventIsBasicCard(card){ const d=card && def(card.id); return !!d && (d.category==='damage' || !d.trial || d.rarity==='N'); }
 
   const GAME_EVENTS = [
@@ -16720,7 +17104,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
         const list=cards.map(id=>({ label:`${def(id).name}（${def(id).rarity}）`, sub:'タップで内容を確認して、配備先を選ぶ', run(){
           openCardDetailModal(id, { actionText:'配備先を選ぶ', onCloseX(){ ctx.reopen(); }, onAction(){
             ctx.pickDeploy(id, unit=>{
-              ctx.done(`${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b> を加えました。`);
+              ctx.done(`${unit.name} の${newCardPlaceLabel(unit)}に <b>${escapeHtml(def(id).name)}</b> を加えました。`);
             }, { onBack(){ ctx.reopen(); } });
           } });
         } }));
@@ -16806,7 +17190,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
           const id=eventRand(eventTrialPool(['UR']));
           const d=eventChangeEp(eventEp(6));
           ctx.revealCard(id, unit=>{
-            ctx.done(`試料から <b>${escapeHtml(def(id).name)}</b> が生まれ、${unit.name} の山札に加わりました。<br>怪獣がこちらを見ています。EP+${d}`);
+            ctx.done(`試料から <b>${escapeHtml(def(id).name)}</b> が生まれ、${unit.name} の${newCardPlaceLabel(unit)}に加わりました。<br>怪獣がこちらを見ています。EP+${d}`);
           });
         } },
         { label:'そっとしておく', sub:`EP−${eventEp(3)}`, run(){ const d=eventChangeEp(-eventEp(3)); ctx.done(`誰も近づかないと分かると、怪獣は少し落ち着きました。<br>EP${d}`); } },
@@ -16832,18 +17216,18 @@ function showHandPopup(index){ if(game.inputLocked) return;
       text:'補給品の中に、出所の分からない封印コンテナが混じっていた。送り状は読めない。中で何かが、かすかに脈打っている。',
       available:()=>eventUnits().length>0 && eventTrialPool(['SR']).length>0 && eventTrialPool(['LR']).length>0,
       choices(ctx){ return [
-        { label:'開ける', sub:'20%：LRカード / 45%：SRカード（中身を見てから配備先を選ぶ） / 35%：侵蝕痕2枚が、どれかの機体の山札に混ざる', run(){   // v373：30/50/20 → 20/45/35、はずれは侵蝕痕2枚
+        { label:'開ける', sub:'20%：LRカード / 45%：SRカード（中身を見てから配備先を選ぶ） / 35%：侵蝕痕2枚が、どれかの機体のカードに混ざる', run(){   // v373：30/50/20 → 20/45/35、はずれは侵蝕痕2枚
           // v375：先に機体を選ぶ → 中身を見てから配備先を選ぶ。はずれ（侵蝕痕）は、出撃中・基地の機体のどれかにランダムで取りつく
           const r=Math.random();
           if(r<0.65){
             const rar = r<0.2 ? 'LR' : 'SR', id=eventRand(eventTrialPool([rar]));
             ctx.revealCard(id, unit=>{
-              ctx.done(`${rar==='LR' ? '中身は、封印指定の試作兵装でした。' : '中身は、未配備の試作品でした。'}<br>${unit.name} の山札に <b>${escapeHtml(def(id).name)}</b>（${rar}）を加えました。`);
+              ctx.done(`${rar==='LR' ? '中身は、封印指定の試作兵装でした。' : '中身は、未配備の試作品でした。'}<br>${unit.name} の${newCardPlaceLabel(unit)}に <b>${escapeHtml(def(id).name)}</b>（${rar}）を加えました。`);
             });
           } else {
             const unit=eventRand(eventUnits());
-            addDevelopedCardToDeck(unit,'corrosion_mark'); addDevelopedCardToDeck(unit,'corrosion_mark');
-            ctx.done(`中身は、怪獣の体組織の標本でした。封を切ったとたん、近くの機体に取りつきます。<br>${unit.name} の山札に <b>侵蝕痕</b> が2枚混ざりました。`);
+            addDevelopedCardToUnit(unit,'corrosion_mark'); addDevelopedCardToUnit(unit,'corrosion_mark');
+            ctx.done(`中身は、怪獣の体組織の標本でした。封を切ったとたん、近くの機体に取りつきます。<br>${unit.name} の${newCardPlaceLabel(unit)}に <b>侵蝕痕</b> が2枚混ざりました。`);
           }
         } },
         { label:'開けずに基地へ送る', sub:`RP+${eventRp(35)}`, run(){ const v=eventGainRp(35); ctx.done(`封をしたまま研究班へ回しました。<br>RP+${v}`); } },
@@ -17069,7 +17453,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
       //   opt.onBack があれば「戻る」（まだ選び直せる時）、無ければ「カードを見る」（抽選の後）
       pickDeploy(id, cb, opt={}){
         const d=def(id);
-        const items=game.units.map(u=>({ label:u.name, sub:eventDeployNote(u), run(){ addDevelopedCardToDeck(u,id); cb(u); } }));
+        const items=game.units.map(u=>({ label:u.name, sub:eventDeployNote(u), run(){ addDevelopedCardToUnit(u,id); cb(u); } }));
         const back=opt.onBack ? ()=>opt.onBack() : ()=>ctx.revealCard(id, cb);
         openModal('イベント', `<div class="eventHead"><b>${escapeHtml(d.name)}（${escapeHtml(d.rarity || '')}・${escapeHtml(categoryLabel(id))}）の配備先</b></div>${eventChoiceListHtml(items)}`,
           [{ text:opt.onBack ? '戻る' : 'カードを見る', onClick(){ back(); } }], { onCloseX(){ opt.onBack ? back() : ctx.pickDeploy(id, cb, opt); } });
@@ -17157,7 +17541,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     const artifactItems = game.emergencyCouncilLineup.filter(item=>item.kind==='artifact');
     const remaining=trialItems.filter(item=>!item.sold).length;
     const remainingArtifacts=artifactItems.filter(item=>!item.sold).length;
-    let body=`<div class="muted">臨時研究会議で提示された研究開発カードとアーティファクトです。採用した研究開発カードは選択したAA機の山札へ加え、終幕を除いてシャッフルします。<br>残り提案数：${remaining} / ${trialItems.length}<br>残りアーティファクト：${remainingArtifacts} / ${artifactItems.length}<br>所持RP：${game.lp}</div><div class="artifactSectionTitle">研究開発カード</div><div style="margin-top:10px;">`;
+    let body=`<div class="muted">臨時研究会議で提示された研究開発カードとアーティファクトです。採用した研究開発カードは選択したAA機へ配備します（出撃中の機体は山札へ加えて終幕を除いてシャッフル、基地にいる機体は基地内へ）。<br>残り提案数：${remaining} / ${trialItems.length}<br>残りアーティファクト：${remainingArtifacts} / ${artifactItems.length}<br>所持RP：${game.lp}</div><div class="artifactSectionTitle">研究開発カード</div><div style="margin-top:10px;">`;
     body += trialItems.map((item,index)=>{
       const d=def(item.id);
       const soldText=item.sold ? '採用済' : `RP ${item.cost}`;
@@ -17310,7 +17694,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
       actionText:item.sold ? '採用済' : `採用 RP ${item.cost}`,
       actionDisabled:item.sold || game.lp < item.cost,
       effectText:cardEffectSummary(item.id, unit),
-      noteHtml:`${cardEffectDetail(item.id, unit)}<br><br>臨時研究会議で提示された研究開発カードです。採用すると、選択したAA機の山札へ加え、終幕を除いてシャッフルします。<br>所持RP：${game.lp} / 必要RP：${item.cost}`,
+      noteHtml:`${cardEffectDetail(item.id, unit)}<br><br>臨時研究会議で提示された研究開発カードです。採用すると、選択したAA機へ配備します（出撃中の機体は山札へ加えて終幕を除いてシャッフル、基地にいる機体は基地内へ）。<br>所持RP：${game.lp} / 必要RP：${item.cost}`,
       onCloseX(){ showEmergencyCouncilPopup(); },
       onAction(){
         if(item.sold){ showToast('この提案は既に採用済みです'); showEmergencyCouncilPopup(); return; }
@@ -17324,7 +17708,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(!item || item.sold) return showEmergencyCouncilPopup();
     const d=def(item.id);
     let body=`<div class="muted">${d.name} の配備先を選択してください。<br>採用コスト：RP ${item.cost}</div><div style="margin-top:10px;">`;
-    body += game.units.map((u,i)=>`<button class="listCard" data-council-deploy="${i}"><div><div class="name">${u.name}</div><div class="sub">状態：${game.endlessIntermission ? '幕間基地' : stateLabels[u.state]} / 山札 ${u.deck.length} / 手札 ${u.hand.length} / 基地内 ${u.discard.length}</div></div><div>配備</div></button>`).join('');
+    body += game.units.map((u,i)=>`<button class="listCard" data-council-deploy="${i}"><div><div class="name">${u.name}</div><div class="sub">状態：${game.endlessIntermission ? '幕間基地' : stateLabels[u.state]} / 山札 ${u.deck.length} / 手札 ${u.hand.length} / 基地内 ${u.discard.length}</div></div><div>${newCardPlaceLabel(u)}へ</div></button>`).join('');
     body += '</div>';
     openModal('配備先選択', body, [{text:'戻る',onClick(){ showEmergencyCouncilCardPopup(index); }}]);
     ui.modalBody.querySelectorAll('[data-council-deploy]').forEach(btn=>{
@@ -17339,7 +17723,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
         game.stats.totalLpSpent += current.cost;
         game.stats.developedCards += 1;
         current.sold = true;
-        addDevelopedCardToDeck(target,current.id);
+        addDevelopedCardToUnit(target,current.id);
         addLog(`臨時研究会議：${d.name}を${target.name}へ配備。RP-${current.cost}`);
         showToast(`${target.name}へ${d.name}を配備`);
         recordMetricHistory('emergency-council');
@@ -17464,15 +17848,15 @@ function showHandPopup(index){ if(game.inputLocked) return;
     openCardDetailModal(id, {
       actionText:'開発',
       effectText:cardEffectSummary(id, unit),
-      noteHtml:`${cardEffectDetail(id, unit)}<br><br>このカードをAA機の山札へ加え、終幕を除いてシャッフルします。`,
+      noteHtml:`${cardEffectDetail(id, unit)}<br><br>このカードをAA機へ配備します。出撃中の機体は山札へ加えて終幕を除いてシャッフル、基地にいる機体は基地内へ入ります。`,
       onCloseX(){ showTrialDevelopmentChoices(choices, costPaid); },
       onAction(){ showTrialDeployTargetSelection(id, choices, costPaid); }
     });
   }
   function showTrialDeployTargetSelection(id, choices, costPaid){
     const d=def(id);
-    let body=`<div class="muted">${d.name} の配備先を選択してください。<br>選択したAA機の山札へ追加し、終幕を除いてシャッフルします。</div><div style="margin-top:10px;">`;
-    body += game.units.map((u,i)=>`<button class="listCard" data-trial-deploy="${i}"><div><div class="name">${u.name}</div><div class="sub">状態：${game.endlessIntermission ? '幕間基地' : stateLabels[u.state]} / 山札 ${u.deck.length} / 手札 ${u.hand.length} / 基地内 ${u.discard.length}</div></div><div>配備</div></button>`).join('');
+    let body=`<div class="muted">${d.name} の配備先を選択してください。<br>出撃中の機体は山札へ追加して終幕を除いてシャッフル、基地にいる機体は基地内へ入ります。</div><div style="margin-top:10px;">`;
+    body += game.units.map((u,i)=>`<button class="listCard" data-trial-deploy="${i}"><div><div class="name">${u.name}</div><div class="sub">状態：${game.endlessIntermission ? '幕間基地' : stateLabels[u.state]} / 山札 ${u.deck.length} / 手札 ${u.hand.length} / 基地内 ${u.discard.length}</div></div><div>${newCardPlaceLabel(u)}へ</div></button>`).join('');
     body += '</div>';
     openModal('配備先選択', body, [{text:'戻る', keepOpen:false, onClick(){ showTrialDevelopmentChoices(choices, costPaid); }}]);
     ui.modalBody.querySelectorAll('[data-trial-deploy]').forEach(btn=>{
@@ -17480,9 +17864,10 @@ function showHandPopup(index){ if(game.inputLocked) return;
         const i=Number(btn.getAttribute('data-trial-deploy'));
         const target=game.units[i];
         if(!target) return;
-        addDevelopedCardToDeck(target,id);
+        const toDeck = newCardGoesToDeck(target);
+        addDevelopedCardToUnit(target,id);
         game.stats.developedCards += 1;
-        addLog(`研究開発：${d.name}（${d.rarity}）を${target.name}の山札へ追加してシャッフル`);
+        addLog(`研究開発：${d.name}（${d.rarity}）を${target.name}の${toDeck ? '山札へ追加してシャッフル' : '基地内へ追加'}`);
         showToast(`${target.name}へ${d.name}を配備`);
         recordMetricHistory('trial-develop');
         closeModal();
@@ -18271,8 +18656,18 @@ function showHandPopup(index){ if(game.inputLocked) return;
   }
 // New cards are usable on the next draw without returning to base. Ending cards
 // never enter this shuffle and retain their relative order at the deck bottom.
-function addDevelopedCardToDeck(unit,id){
+// v380：研究開発・臨時研究会議・イベントなどで新しく増えたカードの入れ先。
+//   出撃状態の機体 → 山札へ加えて、終幕を除いてシャッフル
+//   それ以外（基地・帰還・大破の機体、エンドレスの幕間基地）→ 基地内へ（基地から出撃するとき、基地内と山札をまとめてシャッフルして山札になる）
+function newCardGoesToDeck(unit){ return !!unit && unit.state === 'deployed' && !game.endlessIntermission; }
+function newCardPlaceLabel(unit){ return newCardGoesToDeck(unit) ? '山札' : '基地内'; }
+function addDevelopedCardToUnit(unit,id){
   const card=cloneCard(id);
+  if(!newCardGoesToDeck(unit)){
+    if(!Array.isArray(unit.discard)) unit.discard=[];
+    unit.discard.push(card);
+    return card;
+  }
   const ending=unit.deck.filter(c=>hasCardEnchant(c,'ending'));
   const normal=unit.deck.filter(c=>!hasCardEnchant(c,'ending'));
   unit.deck=shuffle(normal.concat(card)).concat(ending);
@@ -18617,6 +19012,8 @@ function showCardEnchantChoice(unit,item){
   let lastAircraftAnimFrame = -1;
   function kaijuAnimationLoop(){
     const now = performance.now();
+    noahCountBoardTime(now);   // v380 ソフトリフレッシュ：3Dの盤面を出していた時間
+    noahRafCount++;            // v381 診断表示：1秒に画面が更新された回数
     pruneExpiredEffects(now);
     const frame = noahKaijuWalkFrame();
     const aircraftFrame = Math.floor(now / 50);
@@ -18894,7 +19291,7 @@ function showCardEnchantChoice(unit,item){
       // BGMはカットインを閉じた瞬間に showKaijuIntroTitle 側で開始する。
       const resumeKaiju = game.selectedKaiju || kaijuDef(core.selectedKaijuId);
       showKaijuIntroTitle(resumeKaiju, ()=>{
-        showPhaseOverlayAnimated({ text:'N.O.A.H.\n作戦再開', logText:'作戦再開', sound:'operationStart', afterTap:()=>{
+        showPhaseOverlayAnimated({ text:'N.O.A.H.\n作戦再開', logText:'作戦再開', sound:'operationStart', autoMs:noahPhaseAutoMs('START'), afterTap:()=>{
           noahAutosaveBlocked = false;
           if(kind === 'round') startRoundOpeningPhase();
           else if(kind === 'turn') startTurn();
@@ -19076,6 +19473,7 @@ function showCardEnchantChoice(unit,item){
     }
   }
   function noahOnTitleRendered(label){
+    noahSoftRefreshAtBreak('title');   // v380 ソフトリフレッシュ（盤面が出ていない区切り）
     noahUpdateLabel = label;
     noahRenderVersionLabel();
     if(!noahUpdateSupported()) return;
@@ -19473,6 +19871,13 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       return true;
     },
     debugFxPlacement: (effect)=>noah3dEffectPlacement(effect),
+    debugRender: ()=>render(),   // テスト用（v379）：表示を描き直す
+    // テスト用（v380）：ソフトリフレッシュ。盤面を出していた時間を ms にする（区切りの判定を試す）／今の様子
+    debugSoftRefreshBoardMs: (ms)=>{ noah3dBoardMs = Math.max(0, Number(ms) || 0); return noah3dBoardMs; },
+    debugSoftRefreshNow: (withCover)=>noah3dRebuild(!!withCover),
+    debugBgmMargin: ()=>(audioCtx && bgmPlaying) ? +(bgmScheduledUntil - audioCtx.currentTime).toFixed(3) : null,   // テスト用（v380）：内蔵BGMをどこまで先に予約しているか（秒）
+    debugSoftRefreshCoverMax: (ms)=>{ noahSoftRefreshCoverMaxMs = Math.max(1000, Number(ms) || 12000); return noahSoftRefreshCoverMaxMs; },
+    debugSoftRefreshState: ()=>({ boardMs:Math.round(noah3dBoardMs), due:noahSoftRefreshDue(), busy:noahSoftRefreshBusy, count:noahSoftRefreshCount, last:noahSoftRefreshLast, waiting:!!noahSoftRefreshWaitTimer }),
     // テスト用（v376）：決着させて、怪獣の決着の動きを確かめる（'complete' EP0 / 'failed-hp' VSP0 / 'failed-distance' DDP0）。本当に決着する
     debugGameEnd: (kind)=>{
       if(game.gameOver) return false;
@@ -19501,7 +19906,9 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       try{ out.danger=dangerLevel(); }catch(e){}
       return out;
     },
-    // v361：観測HUD（高度スケール・生体モニター・行動予測）に出す数字。行動予測は、盤面の攻撃予測と同じくアタックフェイズの間は出さない
+    // v361：観測HUD（高度スケール・生体モニター・行動予測）に出す数字。
+    // v380：右の生体モニターは省略しない。行動予測・進撃予測は、アタックフェイズや基地から出撃するとき・作戦開始の出撃の間も出す
+    //       （前は盤面の攻撃予測に合わせてアタックフェイズなどの間は消していた。盤面の攻撃予測はそのまま）
     // v362：必殺技の状態も渡す（special：'charging' 準備中＝次のラウンドに撃つ / 'ready' 発動＝このラウンドに撃つ / 'redirected' 音響誘導で逸らした）。
     //       前は怪獣の頭の上に「！」を出していたが、3Dではやめて生体モニターで知らせる（2Dの盤面の「！」はそのまま）
     hud: ()=>{
@@ -19510,7 +19917,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       let action = null, special = null, specialName = '';
       try{
         const a = currentKaijuAction();
-        if(!game.gameOver && !game.introHideUnits && game.phase!=='attack' && a && a.name) action = { name:a.name };
+        if(!game.gameOver && a && a.name) action = { name:a.name };
         if(!game.gameOver){
           if(isBathynomaSpecialCharging()){
             special = 'charging';
@@ -19554,6 +19961,21 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       return out;
     },
     boardVisible: ()=>gameStarted && !ui.app.classList.contains('preHidden') && !document.hidden,
+    // v380：3Dの描き方の重さ。2＝ポーズ中（描かない）、1＝ポップアップの下（動きの少ないとき毎秒15回ほど）、0＝ふつう。
+    //   ポップアップの後ろは暗く・ぼかして見せているので、描く回数を減らしても気づかれにくい（ぼかしも描き直すたびに重い）
+    //   ソフトリフレッシュで前の絵をかぶせている間は、新しい3Dのモデルと下ごしらえがそろうまで描かない（読み込みを先に進める）
+    renderBudget: ()=>{
+      if(noahSoftRefreshCover && !(noah3dHandle && noah3dHandle.loaded && noah3dHandle.loaded())) return 2;
+      return (ui.pauseBg && ui.pauseBg.style.display==='flex') ? 2 : ((ui.modalBg && ui.modalBg.style.display==='flex') ? 1 : 0);
+    },
+    boardCovered: ()=>!!noahSoftRefreshCover,
+    lastInputAt: ()=>noahLastInputAt,   // v381：しばらく触っていないとき、3Dは動きのないときの描く回数を減らす
+    // v381：3Dの画質が自動で下がったとき（reason：'slow' 本当に遅い／'heat' 本体が熱い・低電力モードで毎秒30回に抑えられた状態が続いた）
+    qualityChanged: (q, reason)=>{
+      noahQualityAutoLog.push({ q, reason, at:Math.round(performance.now()/1000) });
+      if(noahQualityAutoLog.length > 8) noahQualityAutoLog.shift();
+      if(reason === 'heat' && gameStarted && !game.gameOver) showToast('本体が熱いか、低電力モードのようです。表示を少し軽くしました（ポーズ →「表示」→「画質」で変えられます）', 3800);
+    },   // v380：ソフトリフレッシュで前の絵をかぶせている間（その間なら下ごしらえしてよい）
     tap: (cell, pt)=>{ onBoardTap({ noahCell:cell }); if(pt) noahGuardGhostClick(pt.x, pt.y); },
     onFatal: err=>noah3dFail(err),
   };
@@ -19582,13 +20004,25 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
       .catch(err=>{ noah3dLib = null; throw err; });
     return noah3dLib;
   }
-  function noah3dStart(){
+  // v381：画質の設定（ポーズ →「表示」→「画質」）を 3D に伝える。「おまかせ」のときは carry の段から（作り直す前に、熱などで下がっていた段）
+  function noah3dApplyQualityPreference(carry=0, carryReason=''){
+    const h = noah3dHandle;
+    if(!h || !h.setQuality) return;
+    try{
+      const lock = NOAH_QUALITY_PREFS[displaySettings.quality];
+      if(lock != null) h.setQuality(lock, true);
+      else h.setQuality(Math.max(0, Math.min(2, Number(carry) || 0)), false, carryReason);
+    }catch(e){}
+  }
+  function noah3dStart(carryQuality=0, carryReason=''){
     if(noah3dHandle || noah3dLoading) return;
+    noahBoostBgmLookahead(12000);   // v380：3Dの準備（モデル・シェーダー）の間は、内蔵BGMを先まで予約しておく
     noah3dLoading = noah3dLoadLib()
       .then(mod=>{
         if(!noah3dWanted || noah3dHandle) return;
         noah3dHandle = mod.start(noah3dBridge);
         noah3dActive = true;
+        noah3dApplyQualityPreference(carryQuality, carryReason);
       })
       .catch(err=>{ console.warn('[N.O.A.H. 3D] 3D表示を開始できませんでした', err); noah3dFail(err); })
       .finally(()=>{ noah3dLoading = null; noah3dUpdateChips(); resizeBoard(); });
@@ -19612,8 +20046,177 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     if(noah3dWanted) noah3dStart(); else noah3dStop();
     noah3dUpdateChips();
   }
+  // ===========================================================================
+  // v380 ソフトリフレッシュ（長く遊ぶと重くなっていくのを、ページを読み直さずに整える。BGM・効果音には触らない＝音は途切れず、画面も白くならない）
+  // ---------------------------------------------------------------------------
+  // ・盤面の3Dを表示していた時間が合わせて NOAH_SOFT_REFRESH_AFTER_MS（10分）を超えたら、次の「区切り」で 3D の盤面だけを作り直す。
+  //   WebGL（GPU の中の物・シェーダー・場面）をまるごと捨てて、アプリを開いたときと同じ状態から作り直す。
+  // ・区切り：
+  //   ① タイトル・作戦の準備の画面（盤面が出ていない）：そのまま作り直す。ついでに閉じているポップアップの中身も空にする。
+  //   ② 作戦の結果・エンドレスの幕間基地のポップアップが開いていて、盤面が止まっているとき：いまの盤面を写した1枚を
+  //      かぶせておき（ポップアップの後ろは暗く・ぼかして見えている）、新しい3Dの本番のモデルがそろったら、そっと消す。
+  //      写せなかったときは作り直さない（盤面が一瞬でも空にならないように）。
+  // ・作戦の途中（ラウンドの間）には作り直さない。
+  // ===========================================================================
+  const NOAH_SOFT_REFRESH_AFTER_MS = 10 * 60 * 1000;
+  let noahSoftRefreshCoverMaxMs = 12000;   // かぶせた絵は、新しい3Dがそろわなくてもこの時間で消す（テストでは変えられる）
+  let noah3dBoardMs = 0;
+  let noah3dBoardLastAt = 0;
+  let noahSoftRefreshCount = 0;
+  let noahSoftRefreshBusy = false;
+  let noahSoftRefreshWaitTimer = null;
+  let noahSoftRefreshLast = null;
+  let noahSoftRefreshCover = null;   // かぶせている絵（消し始めたら null）
+  function noahBoardShown(){ return gameStarted && !ui.app.classList.contains('preHidden') && !document.hidden; }
+  // 毎フレーム（kaijuAnimationLoop）：3Dの盤面が見えている時間を足していく
+  function noahCountBoardTime(now){
+    const dt = noah3dBoardLastAt ? Math.min(100, Math.max(0, now - noah3dBoardLastAt)) : 0;
+    noah3dBoardLastAt = now;
+    if(noah3dActive && noahBoardShown()) noah3dBoardMs += dt;
+  }
+  function noahSoftRefreshDue(){ return !!noah3dHandle && noah3dActive && !noah3dLoading && noah3dWanted && !noahSoftRefreshBusy && noah3dBoardMs >= NOAH_SOFT_REFRESH_AFTER_MS; }
+  function noahTidyClosedPopups(){
+    try{ if(ui.modalBg.style.display !== 'flex') ui.modalBody.replaceChildren(); }catch(e){}
+    try{ if(ui.pauseBg.style.display !== 'flex') ui.pauseBody.replaceChildren(); }catch(e){}
+  }
+  function noah3dRebuild(withCover){
+    const h = noah3dHandle;
+    if(!h || noahSoftRefreshBusy) return false;
+    let cover = null;
+    if(withCover){
+      try{ cover = h.snapshot ? h.snapshot() : null; }catch(e){ cover = null; }
+      if(!cover) return false;
+    }
+    // 画質の段（本体が熱いなどで下がっていたら）は、作り直したあとも同じにする（いきなり重くならないように）
+    let quality = 0, qualityReason = '';
+    try{ const st = h.stats(); quality = Number(st.quality) || 0; qualityReason = st.qualityReason || ''; }catch(e){}
+    noahBoostBgmLookahead(cover ? 20000 : 15000);   // 内蔵BGMは先まで予約しておく（作り直しの重い所で音が途切れないように）
+    noahSoftRefreshBusy = true;
+    noahSoftRefreshCount++;
+    noahSoftRefreshCover = cover;
+    noah3dBoardMs = 0;
+    const t0 = performance.now();
+    noah3dStop();
+    noah3dStart(quality, qualityReason);   // v381：画質の設定が「おまかせ」なら前の段（と下げた理由）を引き継ぐ（「軽め」「最軽量」ならその段）
+    const finish = how=>{
+      noahSoftRefreshBusy = false;
+      noahSoftRefreshCover = null;
+      noahSoftRefreshLast = { how, ms:Math.round(performance.now() - t0), cover:!!cover, count:noahSoftRefreshCount, quality };
+      if(cover){
+        const fast = how === 'left';
+        cover.style.transition = `opacity ${fast ? '.18s' : '.45s'} ease`;
+        requestAnimationFrame(()=>{ cover.style.opacity = '0'; });
+        setTimeout(()=>{ try{ cover.remove(); }catch(e){} }, fast ? 300 : 650);
+      }
+    };
+    if(!cover){ finish('hidden'); return true; }
+    const waitReady = ()=>{
+      const nh = noah3dHandle;
+      if(nh && nh.ready && nh.ready()){ finish('ready'); return; }
+      // ポップアップを閉じた・次の作戦が始まったら、待たずに消す（止まった絵のまま遊ぶことにならないように）
+      const stillBreak = !noahBoardShown() || (ui.modalBg.style.display === 'flex' && (game.gameOver || game.endlessIntermission));
+      if(!stillBreak){ finish('left'); return; }
+      if(performance.now() - t0 > noahSoftRefreshCoverMaxMs || !noah3dWanted){ finish('timeout'); return; }
+      setTimeout(waitReady, 120);
+    };
+    setTimeout(waitReady, 120);
+    return true;
+  }
+  // 区切りで呼ぶ（kind：'title' | 'result' | 'intermission'）。まだ時間に達していなければ何もしない
+  function noahSoftRefreshAtBreak(kind){
+    if(noahSoftRefreshWaitTimer){ clearTimeout(noahSoftRefreshWaitTimer); noahSoftRefreshWaitTimer = null; }
+    if(!noahSoftRefreshDue()) return;
+    const started = performance.now();
+    const attempt = ()=>{
+      noahSoftRefreshWaitTimer = null;
+      if(!noahSoftRefreshDue()) return;
+      if(!noahBoardShown()){
+        if(document.hidden) return;              // 裏に回っている間はしない（次の区切りで）
+        noahTidyClosedPopups();
+        noah3dRebuild(false);
+        return;
+      }
+      if(kind === 'title') return;
+      const popupOpen = ui.modalBg.style.display === 'flex' && ui.pauseBg.style.display !== 'flex';
+      const atBreak = game.gameOver || game.endlessIntermission;
+      const h = noah3dHandle;
+      if(popupOpen && atBreak && h && h.isIdle && h.isIdle()){ noah3dRebuild(true); return; }
+      // 決着の動きが終わるまで少し待つ（ポップアップを閉じたら、そこでやめて次の区切りへ）
+      if(popupOpen && atBreak && performance.now() - started < 20000) noahSoftRefreshWaitTimer = setTimeout(attempt, 500);
+    };
+    noahSoftRefreshWaitTimer = setTimeout(attempt, kind === 'title' ? 600 : 900);
+  }
+
+  // ===========================================================================
+  // v381 メンテナンスモード（ポーズ →「メンテナンス」→「メンテナンスモード」）：盤面の左上に診断表示を出す。
+  //   1秒ごとに文字を書き換えるだけ（タップは素通り。表示そのものはほとんど重くならない）。盤面が出ていないときは隠す。
+  //   画面 …… 1秒に画面が更新された回数（iPhone は本体が熱いときや低電力モードのとき、30回に抑える）
+  //   描画 …… 1秒に3Dを描いた回数（動きのないとき・ポップアップの下・しばらく触っていないときは減らしている）
+  //   処理 …… 3Dを1回描くのにかかった時間（画面の処理の側）
+  //   画質 …… 0 がいちばんきれい・2 がいちばん軽い。（設定／おまかせ／熱で下げた／重くて下げた）
+  //   30回 …… 「毎秒30回に抑えられた状態」が続いている時間（3分続くと、おまかせなら画質を1段下げる）
+  //   部品 …… 画面の部品の数 / 3D …… 3Dの場面の物の数 / 命令 …… 1枚描くときの描画命令の数 / メモリ …… 分かる端末だけ（iPhone は出ない）
+  //   作戦 …… この作戦を始めてから（続きから再開したときは再開してから）の時間 / 更新 …… ソフトリフレッシュの回数と、盤面を出していた時間
+  // ===========================================================================
+  const noahQualityAutoLog = [];   // 画質が自動で下がった記録（新しい8件）
+  let noahMaintEl = null, noahMaintTimer = null, noahMaintPrev = null, noahMaintObs = null, noahMaintMissionAt = 0, noahRafCount = 0;
+  function noahMaintApply(){
+    if(displaySettings.maint){
+      if(!noahMaintEl){
+        noahMaintEl = document.createElement('div');
+        noahMaintEl.id = 'noahMaint';
+        noahMaintEl.setAttribute('aria-hidden', 'true');
+        (document.getElementById('boardWrap') || document.body).appendChild(noahMaintEl);
+      }
+      if(!noahMaintTimer){ noahMaintPrev = null; noahMaintTimer = setInterval(noahMaintUpdate, 1000); }
+      noahMaintUpdate();
+    }else{
+      if(noahMaintTimer){ clearInterval(noahMaintTimer); noahMaintTimer = null; }
+      if(noahMaintEl){ noahMaintEl.remove(); noahMaintEl = null; }
+      noahMaintPrev = null;
+    }
+  }
+  function noahMaintClock(ms){ const t = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); return `${Math.floor(t/60)}:${String(t%60).padStart(2, '0')}`; }
+  function noahMaintUpdate(){
+    if(!noahMaintEl) return;
+    const now = performance.now();
+    const shown = noahBoardShown();
+    noahMaintEl.style.display = shown ? '' : 'none';
+    if(!shown){ noahMaintPrev = null; return; }
+    if(game.observationNo !== noahMaintObs){ noahMaintObs = game.observationNo; noahMaintMissionAt = now; }
+    let st = null;
+    try{ st = noah3dHandle && noah3dActive ? noah3dHandle.stats() : null; }catch(e){ st = null; }
+    const cur = { t:now, raf:noahRafCount, frames:st ? st.frames : 0, frameMs:st ? st.frameMsTotal : 0 };
+    const prev = noahMaintPrev;
+    noahMaintPrev = cur;
+    const dt = prev ? (cur.t - prev.t) / 1000 : 0;
+    const perSec = (a, b)=>dt > 0.2 ? String(Math.round((a - b) / dt)) : '—';
+    const rafRate = prev ? perSec(cur.raf, prev.raf) : '—';
+    const drawRate = prev && st ? perSec(cur.frames, prev.frames) : '—';
+    const work = prev && st && cur.frames > prev.frames ? ((cur.frameMs - prev.frameMs) / (cur.frames - prev.frames)).toFixed(1) + 'ms' : '—';
+    const budget = noah3dBridge.renderBudget ? noah3dBridge.renderBudget() : 0;
+    const paceLabel = !st ? '' : budget >= 2 ? ' ポーズ中' : st.busy ? '' : st.pace >= 60 ? ' 窓の下' : st.pace >= 45 ? ' 待機' : '';
+    const reasonLabel = !st ? '' : st.qualityLocked ? '設定' : st.qualityReason === 'heat' ? '<span class="mHot">熱/省電力で下げた</span>' : st.qualityReason === 'slow' ? '<span class="mWarn">重くて下げた</span>' : 'おまかせ';
+    const heat = st ? st.heatMs : 0;
+    const heatLabel = heat > 0 ? `<span class="${heat >= 60000 ? 'mHot' : 'mWarn'}">${noahMaintClock(heat)}</span>` : '0:00';
+    const rafLabel = rafRate !== '—' && Number(rafRate) <= 32 ? `<span class="mWarn">${rafRate}</span>` : rafRate;
+    const dom = document.getElementsByTagName('*').length;
+    const objs = st && st.mem ? st.mem.objects : '—';
+    const calls = st ? st.calls : '—';
+    const memMB = performance.memory && performance.memory.usedJSHeapSize ? ` メモリ ${(performance.memory.usedJSHeapSize / 1048576).toFixed(1)}MB` : '';
+    const lines = [
+      `<b>MAINT</b>  R${game.round || 0}  作戦 ${noahMaintClock(now - noahMaintMissionAt)}  起動 ${noahMaintClock(now)}`,
+      `画面 ${rafLabel}/s  描画 ${drawRate}/s${paceLabel}  処理 ${work}`,
+      st ? `画質 ${st.quality} ${reasonLabel}  30回 ${heatLabel}` : '画質 —（3Dなし）',
+      `部品 ${dom}  3D ${objs}  命令 ${calls}${memMB}`,
+      `更新 ${noahSoftRefreshCount}回  盤面 ${noahMaintClock(noah3dBoardMs)}`,
+    ];
+    noahMaintEl.innerHTML = lines.join('\n');
+  }
+
   if(noah3dSupported) noah3dSetWanted(noah3dReadPref(), false);
   else noah3dUpdateChips();
+  noahMaintApply();   // v381：メンテナンスモードがオンのまま閉じていたら、診断表示を出しておく（盤面が出るまでは隠れている）
 
   resizeBoard(); render(); renderTitleScreen(); requestAnimationFrame(kaijuAnimationLoop);
 })();

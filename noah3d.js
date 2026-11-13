@@ -30,6 +30,12 @@
 //   眠るときに目を閉じるまぶたは NOAH_EYELID（目の場所は KAIJU_MODEL.eyes）。
 // v377〜：怪獣の -X 側の脚（怪獣の右脚＝画面の左）の足の裏がいつも少し浮いていたのを直した（KAIJU_MODEL.legFix）。
 //   眠る姿勢は、平らな道の上で体のどこも地面にめり込まないように合わせ直した（尾は骨ごとに曲げる：SLEEP_TAIL_BEND）。
+// v379〜：カメラの揺れに「画面の揺れ」の設定を掛ける（window.NOAH_SHAKE_SCALE。index.html のポーズ →「表示」）。
+// v380〜：長く遊んでも重くならないように。ポーズ中は描かない・ポップアップの下では動きの少ないとき毎秒15回ほど（bridge.renderBudget）。
+//   ソフトリフレッシュ（index.html が区切りで3Dを作り直す）のために snapshot（いまの絵を2Dに写してかぶせる）・isIdle・ready を足した。
+//   シェーダーの下ごしらえ（warmUp）は5回に分けて少しずつ作る（WARM_GROUPS）。かぶせている間（bridge.boardCovered）は盤面が出ていても下ごしらえする。
+// v381〜：熱のための工夫。iPhone が毎秒30回に抑える状態（熱い・低電力モード）が3分続いたら画質を1段だけ下げる（bridge.qualityChanged で知らせる）。
+//   画面に6秒触っていないときは、動きのないときの描く回数を毎秒20回ほどに（bridge.lastInputAt）。stats() に診断表示用の数を足した。
 // =============================================================================
 (function () {
 'use strict';
@@ -2597,7 +2603,9 @@ function start(bridge) {
   let footY0 = [null, null];
   // 画面の揺れ（怪獣の足音・炸裂）。盤面の上の文字（HPの札・計器）は揺らさず、3Dの景色だけを揺らす
   let shakeAmp = 0;
-  const addShake = v => { if (quality < 2) shakeAmp = Math.min(0.11, Math.max(shakeAmp, v)); };
+  // v379：画面の揺れの設定（index.html のポーズ →「表示」→「画面の揺れ」。window.NOAH_SHAKE_SCALE：通常 1・弱め 0.45・なし 0）
+  const shakeScale = () => { const k = Number(window.NOAH_SHAKE_SCALE); return Number.isFinite(k) ? Math.max(0, Math.min(1, k)) : 1; };
+  const addShake = v => { const k = shakeScale(); if (quality < 2 && k > 0) shakeAmp = Math.min(0.11 * k, Math.max(shakeAmp, v * k)); };
   let rimHot = 0;
   const rimBase = new THREE.Color(), rimHotC = new THREE.Color();
   function footImpact(x, z) {
@@ -3453,11 +3461,16 @@ function start(bridge) {
   // ---------------------------------------------------------------------------
   let warmed = false;
   // 1回分：仮の物を置いて1枚描き、すぐ片付ける（描く合間に盤面が出ても、仮の物が映らないように）
-  function warmPass(transparent) {
+  // v380：1回で全部を描くと、シェーダーを作る間ずっと画面（と内蔵BGMの予約）が止まるので、5回に分けて少しずつ作る
+  //   base：今の場面だけ / fx：ミサイル・麻酔弾と軌跡・追従ドローン / ui：戦術パネル・枠・輪・光の柱・足元の影・胸の光 /
+  //   air：砂ぼこり・泡・空気・機体（とにじむ光） / clear：半透明の機体・怪獣、研究URの網目
+  const WARM_GROUPS = ['base', 'fx', 'ui', 'air', 'clear'];
+  function warmPass(group) {
     const temps = [], shown = [];
     const show = o => { if (o && !o.visible) { o.visible = true; shown.push(o); } };
+    const transparent = group === 'clear';
     try {
-      if (!transparent) {
+      if (group === 'fx') {
         // ミサイル・麻酔弾と軌跡、追従ドローン
         for (const kind of ['fire', 'support']) {
           const pm = makeProjectile(kind, glowTex);
@@ -3470,19 +3483,22 @@ function start(bridge) {
         drone.castShadow = true; drone.position.set(0, FLY_Y, 1.5);
         scene.add(drone);
         temps.push({ obj: drone, dispose: () => drone.material.dispose() });
-        // 移動先の光の柱・押しているマスの枠・怪獣の足元の輪・行動中の輪・戦術パネル
+      }
+      if (group === 'ui') {
+        // 移動先の光の柱・押しているマスの枠・怪獣の足元の輪・行動中の輪・戦術パネル、v365：足元の影・足音の輪・胸の光
         show(tacticalPlane); show(tagPlane); show(pickFrame); show(pickRing); show(activeRing);
         if (pillars[0]) show(pillars[0].g);
-        // 砂ぼこり・泡（見えない粒を1つずつ）
-        stageFx.warm(true);
-        temps.push({ obj: null, dispose: () => stageFx.warm(false) });
-        // v365：空気・足元の影・足音の輪・胸の光
-        atmos.warm(true);
-        temps.push({ obj: null, dispose: () => atmos.warm(false) });
         contact.forEach(show); show(rings[0].m); show(chestGlow);
       }
-      // 機体：ふつうのもの／半透明のもの（移動先・帰還中）
-      const tplName = AIRCRAFT_MODEL_NAMES.find(n => templates[n]);
+      if (group === 'air') {
+        // 砂ぼこり・泡（見えない粒を1つずつ）、v365：空気
+        stageFx.warm(true);
+        temps.push({ obj: null, dispose: () => stageFx.warm(false) });
+        atmos.warm(true);
+        temps.push({ obj: null, dispose: () => atmos.warm(false) });
+      }
+      // 機体：ふつうのもの（air）／半透明のもの（clear：移動先・帰還中）
+      const tplName = (group === 'air' || transparent) ? AIRCRAFT_MODEL_NAMES.find(n => templates[n]) : null;
       if (tplName) {
         const type = AIRCRAFT_MODEL_NAMES.indexOf(tplName);
         const m = makeAircraftFromModel(templates[tplName], type);
@@ -3498,35 +3514,40 @@ function start(bridge) {
       placeCamera(cam.elev, fitDistance(cam.elev, cam.target, cam.fov, aspect, poseFit(CAMERA_POSES.oblique, kaijuRootScale())), cam.target, cam.fov, aspect);
       kaiju.root.updateMatrixWorld(true);
       renderer.render(scene, camera);
-      if (!transparent && bloomOn && quality === 0) bloom.apply(0.01, 0.99);   // にじむ光の絵の作り方も作っておく
+      if (group === 'air' && bloomOn && quality === 0) bloom.apply(0.01, 0.99);   // にじむ光の絵の作り方も作っておく
     } finally {
       if (transparent) { try { kaiju.setAlpha(1); } catch (e) {} scanMeshes.forEach(w => { w.visible = false; }); }
       shown.forEach(o => { o.visible = false; });
       temps.forEach(t => { if (t.obj) scene.remove(t.obj); try { t.dispose(); } catch (e) {} });
     }
   }
+  // v380：ソフトリフレッシュで作り直すときは、盤面に前の絵をかぶせている間（bridge.boardCovered）なら、盤面が出ていても下ごしらえする
+  let warmState = 'pending';   // pending → running → done / skipped（ready() はこれが終わるのを待つ）
   async function warmUp() {
-    if (warmed || !running || contextLost) return;
-    if (bridge.boardVisible()) return;          // もうゲームが始まっていたら、その場その場で作る
-    warmed = true;
+    if (warmed || !running || contextLost) { if (warmState === 'pending') warmState = 'skipped'; return; }
+    const covered = () => !!(bridge.boardCovered && bridge.boardCovered());
+    if (bridge.boardVisible() && !covered()) { warmState = 'skipped'; return; }   // もうゲームが始まっていたら、その場その場で作る
+    warmed = true; warmState = 'running';
     const t0 = performance.now();
     try {
       applyStage(bridge.stageId());            // 霧・光・映り込みの空・景色
-      for (const transparent of [false, true]) {
+      for (const group of WARM_GROUPS) {
         await yieldToUi(50);                   // 1回ごとにひと息つく（タップや音を先に通す）
-        if (!running || contextLost || bridge.boardVisible()) break;
-        warmPass(transparent);
+        if (!running || contextLost || (bridge.boardVisible() && !covered())) break;
+        warmPass(group);
       }
     } catch (e) {
       console.warn('[N.O.A.H. 3D] 下ごしらえで問題がありました（ゲームには影響しません）', e);
     }
     stats.warmMs = Math.round(performance.now() - t0);
+    warmState = 'done';
   }
 
   // ---------------------------------------------------------------------------
   // 毎フレーム
   // ---------------------------------------------------------------------------
-  let raf = 0, last = performance.now(), running = true, lastRender = 0, errors = 0;
+  let raf = 0, last = performance.now(), running = true, lastRender = 0, errors = 0, lastBusy = true, pace = 0;
+  const IDLE_DEEP_MS = 6000;
   let walkAmp = 0, lastScroll = null, lunge = 0, charge = 0, aircraftMoving = false, motionSwing = 0;
   let debugPose = null;   // テスト用：怪獣の姿勢を固定する（{ walk, scroll, lunge, charge, t }）
   const stats = { frames: 0, renderMs: 0, frameMs: 0, tacticalMs: 0, tacticalDraws: 0, effectsMs: 0 };
@@ -3551,19 +3572,30 @@ function start(bridge) {
     atmos.setLevel(quality);
     resize();
   }
+  // v381：本体が熱い（または低電力モード）とき、iPhone は画面の更新を毎秒30回に抑える。それが heatStepMs（3分）続いたら、
+  //   熱をためないように1段だけ軽くする（1段目：描く点の数が約56%・影の細かさ1/4・にじむ光なし）。毎秒30回に抑えられている間は
+  //   軽くしても速くはならないが、本体の仕事が減るので熱がたまりにくくなる。2段目へは、今まで通り「本当に遅いとき」だけ下げる
+  let heatStepMs = 3 * 60 * 1000;   // テストでは debugHeatStep で短くできる
+  let heatMs = 0, qualityReason = '', rafMedian = 0;
+  function notifyQuality(reason) { qualityReason = reason; try { if (bridge.qualityChanged) bridge.qualityChanged(quality, reason); } catch (e) {} }
   function watchSpeed(now) {
     if (lastRaf && now - lastRaf < 1000) intervals.push(now - lastRaf);
     lastRaf = now;
     if (!windowStart) windowStart = now;
     if (now - windowStart < 4000) return;
-    if (!qualityLocked && now - startedAt > 5000 && intervals.length > 30 && quality < 2) {
+    if (intervals.length > 30) {
       const sorted = intervals.slice().sort((a, b) => a - b);
       const at = p => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
+      rafMedian = at(0.5);
       // v355: 低電力モードや本体が熱いとき、iPhone は描く回数を毎秒30回に抑える（ブラウザ側の制限）。
-      // そのときは軽くしても速くならないので、毎秒30回できれいに揃っている間は段を下げない
-      // （画質が粗くなったり、木・岩山が消えたりしないように）。
+      // そのときは軽くしても速くならないので、毎秒30回できれいに揃っている間は「遅い」とは見なさない
+      // （画質が粗くなったり、木・岩山が消えたりしないように）。v381：ただし長く続いたら、熱のために1段だけ軽くする
       const steady30 = at(0.2) > 30 && at(0.8) < 37;
-      if (at(0.5) > 26 && !steady30) { quality++; applyQuality(); }
+      heatMs = steady30 ? heatMs + (now - windowStart) : 0;
+      if (!qualityLocked && now - startedAt > 5000 && quality < 2) {
+        if (at(0.5) > 26 && !steady30) { quality++; applyQuality(); notifyQuality('slow'); }
+        else if (steady30 && quality === 0 && heatMs >= heatStepMs) { quality = 1; applyQuality(); notifyQuality('heat'); }
+      }
     }
     intervals.length = 0; windowStart = now;
   }
@@ -3584,13 +3616,20 @@ function start(bridge) {
     if (contextLost || !bridge.boardVisible()) { lastRaf = 0; windowStart = 0; intervals.length = 0; return; }
     const g = bridge.game;
     if (!g) return;
+    // v380：ポーズ中は描かない（止まった絵のまま。本体が熱くなりにくいように）。1 はポップアップの下（下の行で毎秒15回ほどに抑える）
+    const budget = bridge.renderBudget ? bridge.renderBudget() : 0;
+    if (budget >= 2) { lastRaf = 0; windowStart = 0; intervals.length = 0; return; }
     watchSpeed(now);
-    // 動きの少ないときは毎秒30回ほどに抑えて電池を節約する
+    // 動きの少ないときは毎秒30回ほどに抑えて電池を節約する（v380：ポップアップの下では毎秒15回ほど）
     const busy = g.effects.length > 0 || walkAmp > 0.02 || pressId !== null || lunge > 0.02 || charge > 0.02 || aircraftMoving ||
       (g.kaijuMotion && now - g.kaijuMotion.start < g.kaijuMotion.duration + 100) ||
       (g.kaijuEndMotion && now - g.kaijuEndMotion.start < 1000 * ((KAIJU_END_SEC[g.kaijuEndMotion.kind] || 0) + 0.6)) ||   // v376 決着の動き
       (typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1) || camSettling || shakeAmp > 0 || Math.abs(cam.elev - desiredPose(g).elev) > 0.3;
-    if (!busy && now - lastRender < 31) return;
+    lastBusy = busy;
+    // v381：画面に IDLE_DEEP_MS 触っていないときは、動きのないときの描く回数を毎秒20回ほどに（考えている間の熱を減らす）
+    const untouched = bridge.lastInputAt ? now - bridge.lastInputAt() > IDLE_DEEP_MS : false;
+    pace = busy ? 0 : (budget === 1 ? 64 : (untouched ? 48 : 31));
+    if (!busy && now - lastRender < pace) return;
     lastRender = now;
     try {
       const f0 = performance.now();
@@ -3786,8 +3825,47 @@ function start(bridge) {
     stop,
     // v363：本番の怪獣のモデルが出ているか（仮モデルの間は攻撃の動きができないので、index.html は今まで通り三日月弾を出す）
     kaijuReal() { return !!kaiju.real; },
+    // v380 ソフトリフレッシュ（3Dの作り直し）用。
+    //   snapshot：いまの盤面を1枚描いて2Dのキャンバスに写し、3Dの絵のすぐ上にかぶせて返す（作り直す間はこの絵を見せておく。
+    //             片付けるのは呼んだ側。止めても消えない）。描けなければ null
+    //   isIdle：動いている物がない（作り直しても気づかれない）か / ready：本番のモデルがそろい、何枚か描き終えたか
+    snapshot() {
+      if (!running || contextLost) return null;
+      const src = renderer.domElement;
+      try { const g = bridge.game; if (g) renderFrame(g, performance.now(), 0); } catch (e) { return null; }
+      if (!src.width || !src.height) return null;
+      const c = document.createElement('canvas');
+      c.width = src.width; c.height = src.height;
+      const ctx = c.getContext('2d');
+      if (!ctx) return null;
+      try { ctx.drawImage(src, 0, 0); } catch (e) { return null; }
+      c.className = 'noah3dCover';
+      c.style.cssText = src.style.cssText;
+      Object.assign(c.style, { pointerEvents: 'none', touchAction: 'none' });
+      src.after(c);
+      return c;
+    },
+    isIdle() { return running && !contextLost && !lastBusy && projectiles.size === 0 && pressId === null; },
+    //   loaded：怪獣と今の機体のモデルを読み終え（読めなかった物は仮のままでよい）、下ごしらえも済んだか（描かなくても判る。
+    //           かぶせている間は、これがそろうまで描かずに読み込みを先に進める）
+    loaded() {
+      if (!running || contextLost) return false;
+      const g = bridge.game, names = new Set();
+      try { ((g && g.units) || []).forEach(u => names.add(AIRCRAFT_MODEL_NAMES[bridge.aircraftIndex(u)] || AIRCRAFT_MODEL_NAMES[0])); } catch (e) {}
+      return (!!kaiju.real || !!modelErrors[KAIJU_MODEL_NAME]) && [...names].every(n => templates[n] || modelErrors[n]) && warmState !== 'pending' && warmState !== 'running';
+    },
+    ready() { return this.loaded() && [...aircraft.values()].every(a => a.model.real || modelErrors[AIRCRAFT_MODEL_NAMES[a.type]]) && stats.frames >= 3; },
     setCameraMode() {},   // v359：視点はフェイズで自動（移動フェイズは真上・それ以外は斜め）。古い呼び出しのために残す
-    setQuality(q, lock) { qualityLocked = !!lock; quality = Math.max(0, Math.min(2, q | 0)); if (quality === 0) { renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); tacticalInterval = 100; } applyQuality(); },
+    debugHeatStep(ms) { heatStepMs = Math.max(1000, ms | 0); return heatStepMs; },   // テスト用（v381）
+    // テスト用（v381）：画面の更新の間隔が ms ずつで sec 秒続いたことにして、画質の自動の判断（watchSpeed）をそのまま通す
+    debugWatch(ms, sec) {
+      let t = performance.now(); lastRaf = 0; windowStart = 0; intervals.length = 0;
+      const n = Math.round(sec * 1000 / ms);
+      for (let i = 0; i < n; i++) { t += ms; watchSpeed(t); }
+      lastRaf = 0; windowStart = 0; intervals.length = 0;
+      return { quality, qualityReason, heatMs: Math.round(heatMs), rafMedian };
+    },
+    setQuality(q, lock, reason) { qualityLocked = !!lock; quality = Math.max(0, Math.min(2, q | 0)); qualityReason = lock ? 'setting' : (quality ? (reason || qualityReason) : ''); if (quality === 0) { renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); tacticalInterval = 100; heatMs = 0; } applyQuality(); },
     get cameraMode() { const g = bridge.game; return desiredPose(g) === CAMERA_POSES.top ? 'top' : 'oblique'; },
     stats() {
       return {
@@ -3801,6 +3879,8 @@ function start(bridge) {
         aircraft: aircraft.size, projectiles: projectiles.size, stage: lookStage,
         pillars: pillars.filter(p => p.g.visible).length,
         running, contextLost, errors, visible: bridge.boardVisible(), quality,
+        // v381 診断表示（メンテナンスモード）用：合計の時間（差を取って1秒ごとの値にする）・画質の理由・30回に抑えられている時間・今の描く間隔
+        frameMsTotal: stats.frameMs, renderMsTotal: stats.renderMs, qualityLocked, qualityReason, heatMs: Math.round(heatMs), rafMedian: +rafMedian.toFixed(1), pace, busy: lastBusy,
         models: {
           kaiju: kaiju.real ? 'real' : 'placeholder',
           kaijuWeightFix: kaiju.weightFix || null,
@@ -3809,10 +3889,12 @@ function start(bridge) {
           loaded: Object.keys(templates).concat(kaiju.real ? [KAIJU_MODEL_NAME] : []),
           errors: Object.assign({}, modelErrors),
         },
-        charge, warmMs: stats.warmMs == null ? null : stats.warmMs,
+        charge, warmMs: stats.warmMs == null ? null : stats.warmMs, warm: warmState,
         fx: stageFx.count(),
         look: { atmos: atmos.count(), bloom: bloomUsed, bloomFailed: bloom.failed, shake: +shakeAmp.toFixed(3), rimHot: +rimHot.toFixed(2) },
         cameraPose: desiredPose(bridge.game) === CAMERA_POSES.top ? 'top' : 'oblique',
+        // v380：長く遊んだときに増えていく物を調べるための数（GPU の形・絵・シェーダー、場面の中の物の数）
+        mem: (() => { let objects = 0; scene.traverse(() => { objects++; }); return { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, programs: renderer.info.programs ? renderer.info.programs.length : null, objects }; })(),
         hp: [...hpPlates.entries()].map(([u, p]) => ({ unit: bridge.game && bridge.game.units ? bridge.game.units.indexOf(u) : -1, hp: p.hp, max: p.max, dmg: p.dmg, breakRisk: p.brk, shown: p.shown, x: Math.round(p.x), y: Math.round(p.y), w: p.w, h: p.h })),
       };
     },
@@ -3868,5 +3950,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v377' };
+window.NOAH3D = { start, version: 'v381' };
 })();
