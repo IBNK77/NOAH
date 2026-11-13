@@ -255,6 +255,18 @@ SAVE / CONTINUE（v336〜）：
     伏せていく途中もめり込まないように動きの順番を直した（腰はひざが曲がるのに合わせて後半ほど下げ、腕と尾は途中だけ少し持ち上げる）。
     森林の道の両側の盛り上がり（起伏）にかかる尾の先だけは、止まった場所によって少し埋まることがある
   ・DDP 0 の咆哮で身を沈めるとき、足が少し浮いていたので腰をもう少し下げた（-0.07 → -0.1）
+- v378〜：サウンドテスト（タイトル画面の ♪）を、一般的なゲームのサウンドテスト（音楽プレーヤー）の形に一から作り直した。
+  ・上のデッキ：ジャケット（img/brand/icon.webp）・状態のランプ（PLAYING / PAUSED / STOPPED）・TRACK 番号・曲名・スペクトラム（28本・LED風）、
+    シークバー（押した所・ドラッグした所へ移る。動かしている間は時間の表示だけ変わり、離した所から流れる）、経過時間 / 曲の長さ、
+    操作ボタン：リピート（1曲 → 全曲 → なし。最初は1曲＝ゲームと同じループ）・前の曲（3秒より先なら今の曲の頭へ）・▶/❚❚・次の曲・■ 停止
+  ・下の曲の一覧：番号・曲名・長さ（EXTERNAL_BATTLE_BGM_TRACKS の length。読み込めた曲は本当の長さ）。押すとその曲を頭から、
+    流している曲をもう一度押すと一時停止／再開。流している曲は番号の所がイコライザーの動きになる
+  ・キーボード：スペース 再生/一時停止、←/→ 5秒戻る/進む、↑/↓ 前の曲/次の曲
+  ・音は HTMLAudioElement。Web Audio が動いているときは AnalyserNode（スペクトラム）と GainNode（音量。iOS は要素の音量が効かない）を通す。
+    通すと無音になる環境（file:// で開いた Chrome など）や、AudioContext が止まった・作り直されたときは、要素から直接鳴らし直す
+  ・アプリを離れたら一時停止（位置はそのまま。▶ で続きから）。サウンドテストの間は、アプリへ戻ってもタイトルの曲を流し直さない
+  ・横持ち：左に見出しとデッキ、右に曲の一覧と「タイトルへ戻る」。背の低い縦画面ではデッキを詰める
+  ・処理は「v378 サウンドテスト」のブロック（soundTest・renderSoundTestScreen）、見た目は CSS の .st*。テスト用：window.noahDebugSoundTest()
 
 ===============================================================================
 -->
@@ -3653,45 +3665,356 @@ input[type="range"]::-webkit-slider-thumb{
 .confirmUnit .acOrder{ left:6px; top:6px; border-radius:3px; }
 .confirmUnit .nm{ font-family:var(--f-hud); font-size:14px; font-weight:700; letter-spacing:.06em; }
 .confirmUnit .rl{ font-size:10px; font-weight:700; color:var(--text-2); text-align:center; line-height:1.3; }
-/* サウンドテスト */
-.soundTestNow{
-  position:relative;
-  padding:12px 12px 12px 34px;
-  border-radius:var(--r-m);
-  border:1px solid var(--hair-2);
-  background:rgba(4,8,15,.55);
-  color:var(--plat);
-  font-size:13px;
-  font-weight:700;
-  line-height:1.45;
+/* サウンドテスト（v378〜。一般的なゲームのサウンドテスト＝音楽プレーヤーの形）
+   上：デッキ（ジャケット・状態・曲名・スペクトラム・シークバー・時間・操作ボタン）、下：曲の一覧。処理は index.html の「v378 サウンドテスト」 */
+.stPlayer{
+  flex:1 1 auto;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
 }
-.soundTestNow::before{
+.stDeck{
+  flex:0 0 auto;
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  padding:12px 12px 8px;
+  border-radius:var(--r-l);
+  border:1px solid var(--hair-2);
+  background:
+    radial-gradient(120% 100px at 50% 0%, rgba(var(--noah-rgb),.16), transparent 100%),
+    linear-gradient(180deg, rgba(11,19,35,.94), rgba(4,8,15,.96));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.35);
+}
+.stDeck::before{
   content:"";
   position:absolute;
-  left:13px;
-  top:50%;
-  width:8px;
-  height:8px;
-  margin-top:-4px;
-  border-radius:50%;
-  background:var(--ep);
-  box-shadow:0 0 8px var(--ep);
-  animation:noahLamp 1.2s ease-in-out infinite;
+  inset:5px;
+  pointer-events:none;
+  color:rgba(166,196,255,.28);
+  background:var(--brackets);
 }
-#preActions .soundTestTrackBtn{
-  min-height:48px;
-  padding:0 14px;
+.stInfo{
+  position:relative;
+  display:grid;
+  grid-template-columns:62px minmax(0,1fr);
+  gap:12px;
+  align-items:center;
+}
+.stJacket{ position:relative; width:62px; height:62px; }
+.stJacket img{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  border-radius:8px;
+  border:1px solid rgba(214,226,246,.26);
+  box-shadow:0 6px 14px rgba(0,0,0,.5);
+}
+.stJacket::after{   /* 流している間、ジャケットから広がる輪（観測ソナー） */
+  content:"";
+  position:absolute;
+  inset:-1px;
+  border-radius:10px;
+  border:1px solid rgba(var(--ep-rgb),.7);
+  opacity:0;
+  pointer-events:none;
+}
+.stPlayer[data-state="play"] .stJacket::after{ animation:stPing 2.4s var(--ease) infinite; }
+@keyframes stPing{ 0%{ opacity:.9; transform:scale(1); } 100%{ opacity:0; transform:scale(1.34); } }
+.stMeta{ min-width:0; display:flex; flex-direction:column; gap:4px; }
+.stMetaTop{
   display:flex;
   align-items:center;
-  justify-content:flex-start;
-  text-align:left;
-  font-size:14px;
+  justify-content:space-between;
+  gap:8px;
+  font-family:var(--f-hud);
+  font-size:9.5px;
+  font-weight:700;
+  letter-spacing:.2em;
+  color:var(--text-3);
 }
-#preActions .soundTestStopBtn,
-#preActions .soundTestReturnBtn{ min-height:40px; font-size:13px; box-shadow:none; }
-#preActions .soundTestStopBtn{ color:#ffd0d6; border-color:rgba(var(--order-rgb),.35); background:rgba(var(--order-rgb),.08); }
-#preActions .soundTestReturnBtn{ color:var(--text-2); background:transparent; border-color:var(--hair); }
-#prePanel.soundTestPanel #preActions{ overflow:auto; max-height:72%; }
+.stLamp{ display:inline-flex; align-items:center; gap:6px; }
+.stLamp i{ width:7px; height:7px; border-radius:50%; background:var(--plat-4); }
+.stPlayer[data-state="play"] .stLamp{ color:var(--ep); }
+.stPlayer[data-state="play"] .stLamp i{ background:var(--ep); box-shadow:0 0 8px var(--ep); animation:noahLamp 1.2s ease-in-out infinite; }
+.stPlayer[data-state="pause"] .stLamp{ color:var(--warn); }
+.stPlayer[data-state="pause"] .stLamp i{ background:var(--warn); box-shadow:0 0 6px rgba(var(--warn-rgb),.7); }
+.stNum{ white-space:nowrap; }
+.stNum b{ margin-left:5px; font-size:13px; letter-spacing:.06em; color:var(--plat); }
+.stNum small{ margin-left:3px; font-size:9.5px; }
+.stTitle{
+  font-size:16px;
+  font-weight:800;
+  line-height:1.3;
+  letter-spacing:.02em;
+  color:var(--plat);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.stPlayer[data-state="stop"] .stNo + .stCount{ opacity:.8; }
+.stTag{ font-family:var(--f-hud); font-size:9px; font-weight:700; letter-spacing:.26em; color:var(--noah-hi); }
+.stViz{ display:block; width:100%; height:42px; }
+/* シークバー（見た目の溝は ::before。つまみの中心と端がそろうよう、溝はつまみの半径ぶん内側から）。
+   指・マウスは .stSeek 全体で受け（::after で上下に広げる）、input はつまみの表示とキーボード用 */
+.stSeek{ position:relative; height:26px; margin:0 -2px; --p:0%; --b:0%; cursor:pointer; touch-action:none; -webkit-tap-highlight-color:transparent; }
+.stSeek::after{ content:""; position:absolute; left:0; right:0; top:-8px; bottom:-6px; }
+.stSeek.isOff{ cursor:default; }
+.stSeek::before{
+  content:"";
+  position:absolute;
+  left:9px;
+  right:9px;
+  top:50%;
+  height:4px;
+  margin-top:-2px;
+  border-radius:2px;
+  pointer-events:none;
+  background:
+    linear-gradient(90deg, var(--noah) 0, var(--noah-hi) var(--p), transparent var(--p)) no-repeat,
+    linear-gradient(90deg, rgba(168,190,226,.30) 0 var(--b), transparent var(--b)) no-repeat,
+    rgba(168,190,226,.12);
+  box-shadow:0 0 10px rgba(var(--noah-rgb),.18);
+}
+.stSeek input.stSeekBar[type="range"]{
+  -webkit-appearance:none;
+  appearance:none;
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  margin:0;
+  padding:0;
+  border:none;
+  outline:none;
+  background:transparent;
+  pointer-events:none;
+}
+.stSeek input.stSeekBar[type="range"]::-webkit-slider-runnable-track{ height:100%; border:none; border-radius:0; background:transparent; }
+.stSeek input.stSeekBar[type="range"]::-moz-range-track{ height:100%; border:none; background:transparent; }
+.stSeek input.stSeekBar[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  appearance:none;
+  width:18px;
+  height:18px;
+  margin-top:4px;
+  border-radius:50%;
+  border:2px solid #fff;
+  background:var(--noah-hi);
+  box-shadow:0 0 0 4px rgba(var(--noah-rgb),.22), 0 0 14px rgba(var(--noah-rgb),.85), 0 2px 5px rgba(0,0,0,.55);
+}
+.stSeek input.stSeekBar[type="range"]::-moz-range-thumb{
+  width:14px;
+  height:14px;
+  border-radius:50%;
+  border:2px solid #fff;
+  background:var(--noah-hi);
+  box-shadow:0 0 0 4px rgba(var(--noah-rgb),.22), 0 0 14px rgba(var(--noah-rgb),.85);
+}
+.stSeek.isDragging input.stSeekBar[type="range"]::-webkit-slider-thumb{ transform:scale(1.18); }
+.stSeek.isDragging input.stSeekBar[type="range"]::-moz-range-thumb{ transform:scale(1.18); }
+.stSeek input.stSeekBar[type="range"]:focus-visible::-webkit-slider-thumb{ box-shadow:0 0 0 4px rgba(255,255,255,.4), 0 0 14px rgba(var(--noah-rgb),.85); }
+.stSeek input.stSeekBar[type="range"]:disabled{ cursor:default; opacity:1; filter:none; }
+.stSeek input.stSeekBar[type="range"]:disabled::-webkit-slider-thumb{ visibility:hidden; }
+.stSeek input.stSeekBar[type="range"]:disabled::-moz-range-thumb{ visibility:hidden; }
+.stTimes{
+  display:flex;
+  justify-content:space-between;
+  margin-top:-6px;
+  padding:0 2px;
+  font-family:var(--f-hud);
+  font-size:11.5px;
+  font-weight:600;
+  letter-spacing:.08em;
+  font-variant-numeric:tabular-nums;
+  color:var(--text-2);
+}
+.stTimes .stCur{ color:var(--plat); }
+/* 操作ボタン */
+.stTransport{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 4px 2px;
+}
+.stBtn{
+  position:relative;
+  flex:0 0 auto;
+  width:46px;
+  height:46px;
+  min-height:0;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  color:var(--plat-2);
+  border:1px solid transparent;
+  background:transparent;
+  box-shadow:none;
+}
+.stBtn .ic{ display:block; width:26px; height:26px; fill:currentColor; }
+.stBtn .ic-repeat{ width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.stBtn:active{ background:rgba(168,190,226,.12); }
+@media (hover:hover){ .stBtn:not(.stPlay):hover{ color:var(--plat); background:rgba(168,190,226,.08); } }
+.stBtn.stPlay{
+  width:64px;
+  height:64px;
+  color:#0a1120;
+  border:1px solid rgba(255,255,255,.85);
+  background:var(--chrome);
+  box-shadow:
+    inset 0 -2px 0 rgba(58,70,92,.32),
+    inset 0 1px 0 #fff,
+    0 0 0 1px rgba(0,0,0,.55),
+    0 8px 20px rgba(0,0,0,.5),
+    0 0 24px rgba(var(--noah-rgb),.28);
+}
+.stBtn.stPlay .ic{ width:30px; height:30px; }
+.stPlay .ic-pause{ display:none; }
+.stPlay.isPlaying .ic-play{ display:none; }
+.stPlay.isPlaying .ic-pause{ display:block; }
+.stRepeat em{
+  position:absolute;
+  right:6px;
+  top:6px;
+  min-width:13px;
+  height:13px;
+  padding:0 2px;
+  border-radius:7px;
+  font-family:var(--f-hud);
+  font-size:9px;
+  font-style:normal;
+  font-weight:800;
+  line-height:13px;
+  text-align:center;
+  color:#06101f;
+  background:var(--noah-hi);
+}
+.stPlayer[data-repeat="one"] .stRepeat,
+.stPlayer[data-repeat="all"] .stRepeat{ color:var(--noah-hi); }
+.stPlayer[data-repeat="off"] .stRepeat{ color:var(--plat-4); }
+.stPlayer:not([data-repeat="one"]) .stRepeat em{ display:none; }
+/* 曲の一覧 */
+.stListWrap{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:6px; }
+.stListHead{
+  flex:0 0 auto;
+  display:flex;
+  justify-content:space-between;
+  padding:0 4px;
+  font-family:var(--f-hud);
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:.28em;
+  color:var(--text-3);
+}
+.stList{
+  position:relative;
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:2px;
+  margin:-2px;
+}
+.stItem{
+  position:relative;
+  flex:0 0 auto;
+  width:100%;
+  min-height:50px;
+  display:grid;
+  grid-template-columns:30px minmax(0,1fr) auto;
+  align-items:center;
+  gap:10px;
+  padding:6px 12px 6px 10px;
+  text-align:left;
+  border-radius:var(--r-m);
+  border:1px solid var(--hair);
+  background:rgba(9,16,28,.72);
+  box-shadow:none;
+}
+.stItem.isCurrent{
+  border-color:rgba(var(--noah-rgb),.55);
+  background:
+    linear-gradient(90deg, rgba(var(--noah-rgb),.22), rgba(var(--noah-rgb),.04) 75%),
+    rgba(9,16,28,.86);
+}
+.stItem.isCurrent::before{
+  content:"";
+  position:absolute;
+  left:-1px;
+  top:9px;
+  bottom:9px;
+  width:3px;
+  border-radius:2px;
+  background:var(--noah-hi);
+  box-shadow:0 0 8px rgba(var(--noah-rgb),.9);
+}
+.stItemNo{
+  position:relative;
+  height:22px;
+  display:grid;
+  place-items:center;
+  font-family:var(--f-hud);
+  font-size:13px;
+  font-weight:700;
+  letter-spacing:.06em;
+  color:var(--text-3);
+}
+.stItem.isCurrent .stItemNo{ color:var(--noah-hi); }
+.stEq{ position:absolute; inset:0; display:none; align-items:flex-end; justify-content:center; gap:2px; padding:3px 0 4px; }
+.stEq i{ width:3px; height:100%; border-radius:1px; background:var(--ep); transform-origin:50% 100%; }
+.stEq i:nth-child(1){ transform:scaleY(.45); }
+.stEq i:nth-child(2){ transform:scaleY(.8); }
+.stEq i:nth-child(3){ transform:scaleY(.6); }
+.stPlayer:not([data-state="stop"]) .stItem.isCurrent .stEq{ display:flex; }
+.stPlayer:not([data-state="stop"]) .stItem.isCurrent .stItemNo b{ visibility:hidden; }
+.stPlayer[data-state="pause"] .stItem.isCurrent .stEq i{ background:var(--warn); }
+.stPlayer[data-state="play"] .stItem.isCurrent .stEq i:nth-child(1){ animation:stEq .82s ease-in-out infinite; }
+.stPlayer[data-state="play"] .stItem.isCurrent .stEq i:nth-child(2){ animation:stEq .64s ease-in-out -.3s infinite; }
+.stPlayer[data-state="play"] .stItem.isCurrent .stEq i:nth-child(3){ animation:stEq 1.02s ease-in-out -.55s infinite; }
+@keyframes stEq{ 0%,100%{ transform:scaleY(.25); } 50%{ transform:scaleY(1); } }
+.stItemBody{ min-width:0; display:flex; flex-direction:column; gap:2px; }
+.stItemName{
+  font-size:14px;
+  font-weight:700;
+  line-height:1.35;
+  color:var(--text-1);
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.stItem.isCurrent .stItemName{ color:var(--plat); }
+.stItemTag{ font-family:var(--f-hud); font-size:8.5px; font-weight:700; letter-spacing:.24em; color:var(--text-3); }
+.stLen{
+  font-family:var(--f-hud);
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:.06em;
+  font-variant-numeric:tabular-nums;
+  color:var(--text-2);
+}
+#preActions .stBackBtn{ min-height:42px; font-size:13px; }
+/* 背の低い縦画面：デッキを詰める */
+@media (orientation:portrait) and (max-height:620px){
+  .stPlayer{ gap:8px; }
+  .stListHead{ display:none; }
+  .stDeck{ gap:6px; padding:10px 10px 6px; }
+  .stInfo{ grid-template-columns:50px minmax(0,1fr); gap:10px; }
+  .stJacket{ width:50px; height:50px; }
+  .stTitle{ font-size:15px; }
+  .stViz{ height:26px; }
+  .stBtn{ width:42px; height:42px; }
+  .stBtn.stPlay{ width:54px; height:54px; }
+  .stBtn.stPlay .ic{ width:26px; height:26px; }
+  .stItem{ min-height:44px; padding-top:4px; padding-bottom:4px; }
+  .stItemTag{ display:none; }
+}
 
 /* タイトル画面 */
 #prePanel.titleScreenPanel{
@@ -4015,7 +4338,24 @@ input[type="range"]::-webkit-slider-thumb{
   #prePanel:not(.titleScreenPanel) #preTitle{ grid-area:title; }
   #prePanel:not(.titleScreenPanel) #preBody{ grid-area:body; min-height:0; }
   #prePanel:not(.titleScreenPanel) #preActions{ grid-area:actions; align-self:end; }
-  #prePanel.soundTestPanel #preActions{ align-self:stretch; max-height:none; overflow:auto; }
+  /* サウンドテスト（v378）：左に見出しとデッキ、右に曲の一覧と「タイトルへ戻る」 */
+  #prePanel.soundTestPanel:not(.titleScreenPanel){
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr) auto;
+    grid-template-areas:"title list" "deck list" "deck actions";
+  }
+  #prePanel.soundTestPanel #preBody,
+  #prePanel.soundTestPanel .stPlayer{ display:contents; }
+  #prePanel.soundTestPanel .stDeck{ grid-area:deck; align-self:start; gap:6px; padding:10px 10px 6px; }
+  #prePanel.soundTestPanel .stListWrap{ grid-area:list; }
+  #prePanel.soundTestPanel #preActions{ grid-area:actions; align-self:end; }
+  #prePanel.soundTestPanel .stInfo{ grid-template-columns:46px minmax(0,1fr); gap:10px; }
+  #prePanel.soundTestPanel .stJacket{ width:46px; height:46px; }
+  #prePanel.soundTestPanel .stViz{ height:26px; }
+  #prePanel.soundTestPanel .stBtn{ width:40px; height:40px; }
+  #prePanel.soundTestPanel .stBtn.stPlay{ width:52px; height:52px; }
+  #prePanel.soundTestPanel .stBtn.stPlay .ic{ width:24px; height:24px; }
+  #prePanel.soundTestPanel .stItem{ min-height:44px; }
   /* 怪獣出現テロップ：高さ基準で収める */
   #phaseOverlay.alert{ --band-h:84vh; }
   #phaseOverlay.alert::after{ top:calc(50% - var(--band-h) / 2 + 14px); }
@@ -4030,6 +4370,7 @@ input[type="range"]::-webkit-slider-thumb{
 /* 17 ──────────────────────────────────────────────────────── Reduced motion */
 @media (prefers-reduced-motion:reduce){
   .titleSonar i,.bzLive i,.railKaiju .kLamp,.handCardFace.rarity-LR{ animation:none; }
+  .stJacket::after,.stEq i,.stLamp i{ animation:none !important; }
 }
 
 /* ==========================================================================
@@ -4551,7 +4892,7 @@ input[type="range"]::-webkit-slider-thumb{
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v377',
+    currentPrototypeVersion:'v378',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -6296,12 +6637,13 @@ function noahDrawKaijuGroundShadow(cell) {
   // Failure to load or play the file never blocks game progression.
   // ---------------------------------------------------------------------------
   const EXTERNAL_BATTLE_BGM_TRACKS = [
-    { id:'bgmN1', displayNo:'1', name:'駆けよ、方舟よ(メインテーマ)', src:'./audio/bgmN1.mp3', battle:false },
-    { id:'bgmN2', displayNo:'2', name:'駆けよ、方舟よ', src:'./audio/bgmN2.mp3', battle:true },
-    { id:'bgmN3', displayNo:'3', name:'世界が君を憎んでも', src:'./audio/bgmN3.mp3', battle:true },
-    { id:'bgmN4', displayNo:'4', name:'最後の守護者', src:'./audio/bgmN4.mp3', battle:true },
-    { id:'bgmN5', displayNo:'5', name:'逆撃の機 反転攻勢', src:'./audio/bgmN5.mp3', battle:true },
-    { id:'bgmN6', displayNo:'6', name:'地響きの涙', src:'./audio/bgmN6.mp3', battle:true }
+    // v378：length … 曲の長さ（秒）。サウンドテストの一覧に出す（mp3 を差し替えたら書き直す。読み込めた曲は本当の長さを使う）
+    { id:'bgmN1', displayNo:'1', name:'駆けよ、方舟よ(メインテーマ)', src:'./audio/bgmN1.mp3', battle:false, length:202.8 },
+    { id:'bgmN2', displayNo:'2', name:'駆けよ、方舟よ', src:'./audio/bgmN2.mp3', battle:true, length:187.2 },
+    { id:'bgmN3', displayNo:'3', name:'世界が君を憎んでも', src:'./audio/bgmN3.mp3', battle:true, length:196.8 },
+    { id:'bgmN4', displayNo:'4', name:'最後の守護者', src:'./audio/bgmN4.mp3', battle:true, length:206.4 },
+    { id:'bgmN5', displayNo:'5', name:'逆撃の機 反転攻勢', src:'./audio/bgmN5.mp3', battle:true, length:139.9 },
+    { id:'bgmN6', displayNo:'6', name:'地響きの涙', src:'./audio/bgmN6.mp3', battle:true, length:208.2 }
   ];
   const EXTERNAL_BATTLE_BGM_BASE_VOLUME = 0.72;
   const EXTERNAL_BATTLE_BGM_HEALTH_INTERVAL_MS = 1800;
@@ -6738,97 +7080,600 @@ function noahDrawKaijuGroundShadow(cell) {
   }
 
   // ---------------------------------------------------------------------------
-  // Title-only sound test / タイトル画面限定サウンドテスト
+  // v378 サウンドテスト（タイトル画面の ♪ から）。一般的なゲームのサウンドテスト（音楽プレーヤー）の形に一から作り直した。
+  //   上（デッキ）：ジャケット・状態のランプ（PLAYING / PAUSED / STOPPED）・曲番号・曲名・スペクトラム、
+  //                 シークバー（押した所・ドラッグした所へ移る）、経過時間 / 曲の長さ、
+  //                 操作ボタン：リピート（1曲 → 全曲 → なし）・前の曲・▶/❚❚・次の曲・■ 停止
+  //   下（曲の一覧）：番号・曲名・長さ。押すとその曲を頭から。再生中の曲をもう一度押すと一時停止／再開
+  //   音は HTMLAudioElement。Web Audio が動いているときは AnalyserNode（スペクトラム）と GainNode（音量。iOS は要素の
+  //   音量が効かないため）を通す。通すと無音になる環境（file:// で開いたときなど）を見つけたら、要素から直接鳴らし直す
+  //   （そのときのスペクトラムは音に合わせない動きだけ）。曲の長さは EXTERNAL_BATTLE_BGM_TRACKS の length（読み込めたら本当の長さ）。
+  //   キーボード：スペース 再生/一時停止、←/→ 5秒戻る/進む、↑/↓ 前の曲/次の曲。
+  //   アプリを離れたら一時停止（位置はそのまま。▶ で続きから）。タイトルへ戻ると止めて片付ける。
   // ---------------------------------------------------------------------------
-  let soundTestBgm = null;
-  let soundTestCurrentTrackIndex = -1;
+  const SOUND_TEST_REPEAT = ['one', 'all', 'off'];
+  const SOUND_TEST_REPEAT_LABEL = { one:'1曲リピート', all:'全曲リピート', off:'リピートなし' };
+  const SOUND_TEST_BARS = 28;               // スペクトラムの本数
+  const SOUND_TEST_SILENT_MS = 1200;        // 鳴っているはずなのに Web Audio の中がこの時間ずっと無音なら、要素から直接鳴らし直す（曲の中に1秒を超える無音は無い）
+  const soundTest = {
+    open:false, els:null, raf:0, keyHandler:null,
+    audio:null, source:null, analyser:null, gain:null, graphCtx:null, noGraph:false, freq:null, wave:null, bins:null,
+    index:-1, repeat:'one', seeking:false, seekValue:0, lengths:{}, playToken:0,
+    levels:new Float32Array(SOUND_TEST_BARS), peaks:new Float32Array(SOUND_TEST_BARS), peakHold:new Float32Array(SOUND_TEST_BARS),
+    target:new Float32Array(SOUND_TEST_BARS), silentSince:0, ctxBadSince:0, lastFrame:0, drawnIdle:false, graphPaused:false,
+  };
 
+  function soundTestFmt(sec){
+    if(!Number.isFinite(sec) || sec < 0) return '--:--';
+    const s = Math.floor(sec + 1e-6);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+  function soundTestTrack(i = soundTest.index){ return EXTERNAL_BATTLE_BGM_TRACKS[i] || null; }
+  function soundTestTrackTag(track){ return track ? (track.tag || (track.battle === false ? 'MAIN THEME' : 'BATTLE')) : ''; }
+  function soundTestLength(i){
+    const t = soundTestTrack(i);
+    if(!t) return NaN;
+    const real = soundTest.lengths[t.id];
+    return Number.isFinite(real) && real > 0 ? real : (Number(t.length) || NaN);
+  }
+  function soundTestDuration(){
+    const a = soundTest.audio, d = a ? Number(a.duration) : NaN;
+    return Number.isFinite(d) && d > 0 ? d : soundTestLength(soundTest.index);
+  }
+  function soundTestIsPlaying(){ const a = soundTest.audio; return !!(a && !a.paused && !a.ended); }
+  function soundTestReducedMotion(){ try{ return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } }
+
+  // 音量（戦闘の読込BGMと同じ設定）。Web Audio を通しているときは GainNode、通していないときは要素の音量
   function soundTestBgmVolume(){
-    return Math.max(0, Math.min(1, EXTERNAL_BATTLE_BGM_BASE_VOLUME * (Number(audioSettings.bgm) || 0)));
+    return Math.max(0, EXTERNAL_BATTLE_BGM_BASE_VOLUME * (Number(audioSettings.bgm) || 0));
   }
-
   function applySoundTestBgmVolume(){
-    if(!soundTestBgm) return;
+    const a = soundTest.audio;
+    if(!a) return;
     const level = soundTestBgmVolume();
-    soundTestBgm.muted = level <= 0;
-    soundTestBgm.volume = level;
+    if(soundTest.gain && soundTest.graphCtx && soundTest.graphCtx.state === 'running'){
+      const now = soundTest.graphCtx.currentTime;
+      soundTest.gain.gain.cancelScheduledValues(now);
+      soundTest.gain.gain.setTargetAtTime(level, now, 0.02);
+      a.muted = false;     // 要素をミュートするとスペクトラムも止まるので、0% も GainNode で消す
+      a.volume = 1;
+    }else{
+      a.muted = level <= 0;
+      a.volume = Math.max(0, Math.min(1, level));
+    }
   }
 
-  function ensureSoundTestBgm(){
-    if(soundTestBgm) return soundTestBgm;
-    const audio = new Audio();
-    audio.preload = 'auto';
-    audio.loop = true;
-    audio.playsInline = true;
-    audio.setAttribute('playsinline', '');
-    audio.addEventListener('error', ()=>{
-      const track = EXTERNAL_BATTLE_BGM_TRACKS[soundTestCurrentTrackIndex];
-      console.warn('Sound test BGM could not be loaded:', track ? track.src : '(none)');
-      if(typeof showToast === 'function') showToast('サウンドテスト曲を読み込めませんでした', 2600);
-      updateSoundTestNowPlaying();
+  function soundTestEnsureAudio(){
+    if(soundTest.audio) return soundTest.audio;
+    const a = new Audio();
+    a.preload = 'auto';
+    a.loop = soundTest.repeat === 'one';
+    a.playsInline = true;
+    a.setAttribute('playsinline', '');
+    const sync = ()=>{ if(a === soundTest.audio) soundTestSyncUi(); };
+    ['play', 'playing', 'pause', 'waiting', 'seeked'].forEach(type=>a.addEventListener(type, sync));
+    const noteLength = ()=>{
+      if(a !== soundTest.audio) return;
+      const t = soundTestTrack(), d = Number(a.duration);
+      if(t && Number.isFinite(d) && d > 0 && soundTest.lengths[t.id] !== d){
+        soundTest.lengths[t.id] = d;
+        soundTestRenderLength(soundTest.index);
+      }
+      soundTestSyncUi();
+    };
+    a.addEventListener('loadedmetadata', noteLength);
+    a.addEventListener('durationchange', noteLength);
+    a.addEventListener('ended', ()=>{ if(a === soundTest.audio) soundTestOnEnded(); });
+    a.addEventListener('error', ()=>{
+      if(a !== soundTest.audio || !a.getAttribute('src')) return;
+      const t = soundTestTrack();
+      console.warn('Sound test BGM could not be loaded:', t ? t.src : '(none)');
+      showToast('曲を読み込めませんでした', 2600);
+      soundTestSyncUi();
     });
-    soundTestBgm = audio;
-    return audio;
+    soundTest.audio = a;
+    return a;
   }
-
-  function updateSoundTestNowPlaying(){
-    const el = document.getElementById('soundTestNow');
-    if(!el) return;
-    const track = EXTERNAL_BATTLE_BGM_TRACKS[soundTestCurrentTrackIndex];
-    el.textContent = track ? `再生中：${track.displayNo}. ${track.name}` : '停止中';
-  }
-
-  function playSoundTestTrack(index){
-    const track = EXTERNAL_BATTLE_BGM_TRACKS[index];
-    if(!track){
-      showToast('曲データが見つかりません');
+  // Web Audio を通す（要素 → AnalyserNode → GainNode → スピーカー）。AudioContext が動いていないときは通さない
+  function soundTestEnsureGraph(){
+    const a = soundTest.audio, ctx = audioCtx;
+    if(soundTest.source) return true;
+    if(!a || soundTest.noGraph || soundTest.graphPaused || !ctx || ctx.state !== 'running') return false;
+    try{
+      const src = ctx.createMediaElementSource(a);
+      const an = ctx.createAnalyser();
+      an.fftSize = 2048;
+      an.smoothingTimeConstant = 0.55;
+      const g = ctx.createGain();
+      src.connect(an); an.connect(g); g.connect(ctx.destination);
+      Object.assign(soundTest, { source:src, analyser:an, gain:g, graphCtx:ctx, freq:new Float32Array(an.frequencyBinCount), wave:new Uint8Array(an.fftSize), bins:null, silentSince:0 });
+      applySoundTestBgmVolume();
+      return true;
+    }catch(err){
+      console.warn('Sound test Web Audio graph could not be created:', err);
+      soundTest.noGraph = true;
       return false;
     }
-    stopBgm();
-    const audio = ensureSoundTestBgm();
-    soundTestCurrentTrackIndex = index;
-    if(audio.src !== new URL(track.src, location.href).href){
-      try{ audio.pause(); }catch(e){}
-      audio.src = track.src;
-      try{ audio.load(); }catch(e){}
-    }else{
-      try{ audio.currentTime = 0; }catch(e){}
+  }
+  function soundTestDisposeAudio(){
+    const a = soundTest.audio;
+    for(const n of [soundTest.source, soundTest.analyser, soundTest.gain]){ try{ if(n) n.disconnect(); }catch(e){} }
+    Object.assign(soundTest, { audio:null, source:null, analyser:null, gain:null, graphCtx:null, freq:null, wave:null, bins:null, silentSince:0 });
+    if(a){   // 先に soundTest.audio から外してあるので、片付けで出るイベントは無視される
+      try{ a.pause(); }catch(e){}
+      try{ a.removeAttribute('src'); a.load(); }catch(e){}
     }
-    audio.loop = true;
+  }
+  // 要素を作り直す（同じ曲・同じ位置）。AudioContext が作り直されたとき・Web Audio を通すと無音になる環境のとき
+  //   useGraph：false なら Web Audio を通さない（permanent：この環境ではずっと / そうでなければ次に ▶ を押すまで）
+  function soundTestReplaceElement(useGraph, permanent){
+    const old = soundTest.audio;
+    const src = old ? old.getAttribute('src') : '';
+    const time = old ? (Number(old.currentTime) || 0) : 0;
+    soundTestDisposeAudio();
+    if(!useGraph){ if(permanent) soundTest.noGraph = true; else soundTest.graphPaused = true; }
+    const a = soundTestEnsureAudio();
+    if(src){
+      a.src = src;
+      if(time > 0){
+        const go = ()=>{ try{ a.currentTime = time; }catch(e){} };
+        if(a.readyState >= 1) go(); else a.addEventListener('loadedmetadata', go, { once:true });
+      }
+    }
+    return a;
+  }
+  // permanent：Web Audio を通すと無音になる環境（ずっと通さない）／そうでなければ AudioContext が止まった・作り直されたとき（次の ▶ まで）
+  function soundTestFallbackToDirect(permanent){
+    if(soundTest.noGraph) return;
+    console.warn(permanent ? 'Sound test: Web Audio の出力が無音のため、要素から直接鳴らします（file:// など）'
+      : 'Sound test: AudioContext が止まったため、要素から直接鳴らします');
+    const wasPlaying = soundTestIsPlaying();
+    const a = soundTestReplaceElement(false, permanent);
     applySoundTestBgmVolume();
-    const p = audio.play();
-    if(p && typeof p.then === 'function'){
-      p.then(updateSoundTestNowPlaying).catch(err=>{
-        console.warn('Sound test BGM playback was blocked:', err);
-        showToast('曲を再生できませんでした');
-        updateSoundTestNowPlaying();
-      });
+    if(wasPlaying){
+      const p = a.play();
+      if(p && typeof p.catch === 'function') p.catch(()=>soundTestSyncUi());
+    }
+    soundTestSyncUi();
+  }
+
+  // 曲を選ぶ（autoplay：すぐ流す）。同じ曲なら頭に戻す
+  function soundTestSelect(index, autoplay){
+    const track = soundTestTrack(index);
+    if(!track){ showToast('曲データが見つかりません'); return; }
+    const a = soundTestEnsureAudio();
+    soundTest.index = index;
+    if(a.src !== new URL(track.src, location.href).href){
+      try{ a.pause(); }catch(e){}
+      a.src = track.src;
+      try{ a.load(); }catch(e){}
     }else{
-      updateSoundTestNowPlaying();
+      try{ a.currentTime = 0; }catch(e){}
     }
-    return true;
+    a.loop = soundTest.repeat === 'one';
+    soundTestRenderTrack();
+    if(autoplay) soundTestPlay();
+    else soundTestSyncUi();
+  }
+  function soundTestPlay(){
+    if(soundTest.index < 0){ soundTestSelect(0, true); return; }
+    let a = soundTestEnsureAudio();
+    if(!a.getAttribute('src')){ soundTestSelect(soundTest.index, true); return; }
+    const ctx = ensureAudio();   // 押した操作の中で AudioContext を起こす
+    soundTest.graphPaused = false;
+    // AudioContext が作り直されていたら、古い方につながった要素は鳴らないので作り直す
+    if(soundTest.source && (soundTest.graphCtx !== ctx || soundTest.graphCtx.state === 'closed')) a = soundTestReplaceElement(true);
+    soundTestEnsureGraph();
+    applySoundTestBgmVolume();
+    a.loop = soundTest.repeat === 'one';
+    const token = ++soundTest.playToken;
+    const p = a.play();
+    if(p && typeof p.catch === 'function'){
+      p.catch(err=>{
+        if(token !== soundTest.playToken || (err && err.name === 'AbortError')) return;
+        console.warn('Sound test BGM playback was blocked:', err);
+        showToast('曲を再生できませんでした（▶ をもう一度押してください）', 2600);
+        soundTestSyncUi();
+      });
+    }
+    soundTestSyncUi();
+  }
+  function soundTestPause(){
+    const a = soundTest.audio;
+    if(a){ try{ a.pause(); }catch(e){} }
+    soundTestSyncUi();
+  }
+  function soundTestToggle(){ if(soundTestIsPlaying()) soundTestPause(); else soundTestPlay(); }
+  function soundTestStop(){
+    const a = soundTest.audio;
+    if(a){
+      try{ a.pause(); }catch(e){}
+      try{ a.currentTime = 0; }catch(e){}
+    }
+    soundTestSyncUi();
+  }
+  // 前の曲・次の曲（流していたら続けて流す）。前の曲は、3秒より先まで進んでいたら今の曲の頭へ
+  function soundTestStep(dir){
+    const n = EXTERNAL_BATTLE_BGM_TRACKS.length;
+    if(!n) return;
+    const a = soundTest.audio;
+    if(dir < 0 && a && soundTest.index >= 0 && (Number(a.currentTime) || 0) > 3){
+      try{ a.currentTime = 0; }catch(e){}
+      soundTestSyncUi();
+      return;
+    }
+    const next = soundTest.index < 0 ? (dir < 0 ? n - 1 : 0) : (soundTest.index + dir + n) % n;
+    soundTestSelect(next, soundTestIsPlaying());
+  }
+  function soundTestSeekTo(sec){
+    const a = soundTest.audio, d = soundTestDuration();
+    if(!a || soundTest.index < 0 || !Number.isFinite(sec)) return;
+    const t = Math.max(0, Number.isFinite(d) ? Math.min(d - 0.05, sec) : sec);
+    try{ a.currentTime = t; }catch(e){}
+    soundTestSyncUi();
+  }
+  function soundTestSeekBy(sec){
+    const a = soundTest.audio;
+    if(a) soundTestSeekTo((Number(a.currentTime) || 0) + sec);
+  }
+  function soundTestOnEnded(){
+    if(soundTest.repeat === 'all'){
+      soundTestSelect((soundTest.index + 1) % EXTERNAL_BATTLE_BGM_TRACKS.length, true);
+      return;
+    }
+    // リピートなし：最後まで流したら止めて頭へ戻す
+    const a = soundTest.audio;
+    if(a){ try{ a.currentTime = 0; }catch(e){} }
+    soundTestSyncUi();
+  }
+  function soundTestCycleRepeat(){
+    const i = SOUND_TEST_REPEAT.indexOf(soundTest.repeat);
+    soundTest.repeat = SOUND_TEST_REPEAT[(i + 1) % SOUND_TEST_REPEAT.length];
+    if(soundTest.audio) soundTest.audio.loop = soundTest.repeat === 'one';
+    showToast(SOUND_TEST_REPEAT_LABEL[soundTest.repeat], 1300);
+    soundTestSyncUi();
   }
 
+  // ---- 画面 ----
+  function soundTestIcon(name){
+    const P = {
+      play:'<path d="M8.2 5.6c0-.86.94-1.38 1.67-.92l9.3 5.9c.67.43.67 1.41 0 1.84l-9.3 5.9c-.73.46-1.67-.06-1.67-.92z"/>',
+      pause:'<rect x="6.5" y="5" width="4" height="14" rx="1.2"/><rect x="13.5" y="5" width="4" height="14" rx="1.2"/>',
+      stop:'<rect x="6" y="6" width="12" height="12" rx="1.6"/>',
+      prev:'<rect x="5" y="5.5" width="2.6" height="13" rx="1.1"/><path d="M19 6.9v10.2c0 .8-.88 1.28-1.55.85l-7.86-5.1a1 1 0 0 1 0-1.7l7.86-5.1c.67-.43 1.55.05 1.55.85z"/>',
+      next:'<rect x="16.4" y="5.5" width="2.6" height="13" rx="1.1"/><path d="M5 6.9v10.2c0 .8.88 1.28 1.55.85l7.86-5.1a1 1 0 0 0 0-1.7L6.55 6.05C5.88 5.62 5 6.1 5 6.9z"/>',
+      repeat:'<path d="M4.5 11.5V10a3.5 3.5 0 0 1 3.5-3.5h11"/><path d="M16 3.5l3 3-3 3"/><path d="M19.5 12.5V14a3.5 3.5 0 0 1-3.5 3.5H5"/><path d="M8 20.5l-3-3 3-3"/>',
+    }[name] || '';
+    return `<svg class="ic ic-${name}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${P}</svg>`;
+  }
+  function soundTestHtml(){
+    const n = EXTERNAL_BATTLE_BGM_TRACKS.length, two = v=>String(v).padStart(2, '0');
+    const items = EXTERNAL_BATTLE_BGM_TRACKS.map((t, i)=>
+      `<button type="button" class="stItem" data-i="${i}" aria-label="${escapeHtml(`${i + 1}. ${t.name}`)}">`
+      + `<span class="stItemNo"><b>${two(i + 1)}</b><span class="stEq" aria-hidden="true"><i></i><i></i><i></i></span></span>`
+      + `<span class="stItemBody"><span class="stItemName">${escapeHtml(t.name)}</span><span class="stItemTag">${escapeHtml(soundTestTrackTag(t))}</span></span>`
+      + `<span class="stLen">${soundTestFmt(soundTestLength(i))}</span></button>`).join('');
+    return `<div class="stPlayer" id="stPlayer" data-state="stop" data-repeat="${soundTest.repeat}">`
+      + `<section class="stDeck" aria-label="再生中の曲">`
+      +   `<div class="stInfo">`
+      +     `<div class="stJacket" aria-hidden="true"><img src="./img/brand/icon.webp" alt=""></div>`
+      +     `<div class="stMeta">`
+      +       `<div class="stMetaTop"><span class="stLamp"><i></i><b class="stState">STOPPED</b></span><span class="stNum">TRACK<b class="stNo">--</b><small class="stCount">/ ${two(n)}</small></span></div>`
+      +       `<div class="stTitle">曲を選んでください</div>`
+      +       `<div class="stTag">SELECT A TRACK</div>`
+      +     `</div>`
+      +   `</div>`
+      +   `<canvas class="stViz" aria-hidden="true"></canvas>`
+      +   `<div class="stSeek isOff"><input class="stSeekBar" type="range" min="0" max="1000" step="1" value="0" aria-label="再生位置" disabled></div>`
+      +   `<div class="stTimes"><span class="stCur">0:00</span><span class="stDur">--:--</span></div>`
+      +   `<div class="stTransport">`
+      +     `<button type="button" class="stBtn stRepeat" aria-label="リピート">${soundTestIcon('repeat')}<em>1</em></button>`
+      +     `<button type="button" class="stBtn stPrev" aria-label="前の曲">${soundTestIcon('prev')}</button>`
+      +     `<button type="button" class="stBtn stPlay" aria-label="再生">${soundTestIcon('play')}${soundTestIcon('pause')}</button>`
+      +     `<button type="button" class="stBtn stNext" aria-label="次の曲">${soundTestIcon('next')}</button>`
+      +     `<button type="button" class="stBtn stStop" aria-label="停止">${soundTestIcon('stop')}</button>`
+      +   `</div>`
+      + `</section>`
+      + `<div class="stListWrap"><div class="stListHead"><span>TRACK LIST</span><span>${two(n)} TRACKS</span></div><div class="stList">${items}</div></div>`
+      + `</div>`;
+  }
+  function soundTestRenderTrack(){
+    const E = soundTest.els;
+    if(!E) return;
+    const t = soundTestTrack();
+    E.no.textContent = t ? String(soundTest.index + 1).padStart(2, '0') : '--';
+    E.title.textContent = t ? t.name : '曲を選んでください';
+    E.tag.textContent = t ? soundTestTrackTag(t) : 'SELECT A TRACK';
+    // 一覧で今の曲が見えるように（一覧の中だけを動かす）
+    const item = t && E.list.querySelector(`.stItem[data-i="${soundTest.index}"]`);
+    if(item){
+      const top = item.offsetTop, bottom = top + item.offsetHeight;   // .stList は position:relative（offsetTop は一覧の中での位置）
+      if(top < E.list.scrollTop) E.list.scrollTop = Math.max(0, top - 4);
+      else if(bottom > E.list.scrollTop + E.list.clientHeight) E.list.scrollTop = bottom - E.list.clientHeight + 4;
+    }
+  }
+  function soundTestRenderLength(i){
+    const E = soundTest.els;
+    const el = E && E.list.querySelector(`.stItem[data-i="${i}"] .stLen`);
+    if(el) el.textContent = soundTestFmt(soundTestLength(i));
+  }
+  function soundTestSyncUi(){
+    const E = soundTest.els;
+    if(!E) return;
+    const a = soundTest.audio, playing = soundTestIsPlaying(), t = a ? (Number(a.currentTime) || 0) : 0;
+    const state = playing ? 'play' : (soundTest.index >= 0 && t > 0.05 ? 'pause' : 'stop');
+    if(E.root.dataset.state !== state){ E.root.dataset.state = state; soundTest.drawnIdle = false; }
+    E.root.dataset.repeat = soundTest.repeat;
+    E.state.textContent = state === 'play' ? 'PLAYING' : state === 'pause' ? 'PAUSED' : 'STOPPED';
+    E.play.classList.toggle('isPlaying', playing);
+    E.play.setAttribute('aria-label', playing ? '一時停止' : '再生');
+    E.repeat.setAttribute('aria-label', 'リピート：' + SOUND_TEST_REPEAT_LABEL[soundTest.repeat]);
+    E.items.forEach((b, i)=>{
+      const cur = i === soundTest.index;
+      b.classList.toggle('isCurrent', cur);
+      if(cur) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+    });
+    soundTestUpdateTime();
+  }
+  // 経過時間・シークバー（毎フレーム）
+  function soundTestUpdateTime(){
+    const E = soundTest.els;
+    if(!E) return;
+    const a = soundTest.audio, d = soundTestDuration(), has = soundTest.index >= 0, okD = Number.isFinite(d) && d > 0;
+    let t = a ? (Number(a.currentTime) || 0) : 0;
+    if(soundTest.seeking && okD) t = soundTest.seekValue / 1000 * d;
+    const frac = okD ? Math.max(0, Math.min(1, t / d)) : 0;
+    const cur = soundTestFmt(has ? t : 0), dur = has ? soundTestFmt(d) : '--:--';
+    if(E.cur.textContent !== cur) E.cur.textContent = cur;
+    if(E.dur.textContent !== dur) E.dur.textContent = dur;
+    if(!soundTest.seeking){
+      const v = String(Math.round(frac * 1000));
+      if(E.seek.value !== v) E.seek.value = v;
+    }
+    let buf = 0;
+    if(a && okD && a.buffered && a.buffered.length){
+      try{ for(let i = 0; i < a.buffered.length; i++) if(a.buffered.start(i) <= t + 1) buf = Math.max(buf, a.buffered.end(i)); }catch(e){}
+    }
+    E.seekWrap.style.setProperty('--p', (frac * 100).toFixed(2) + '%');
+    E.seekWrap.style.setProperty('--b', (okD ? Math.min(100, buf / d * 100) : 0).toFixed(2) + '%');
+    const off = !(has && okD);
+    if(E.seek.disabled !== off){ E.seek.disabled = off; E.seekWrap.classList.toggle('isOff', off); }
+    E.seek.setAttribute('aria-valuetext', `${cur} / ${dur}`);
+  }
+
+  // ---- スペクトラム ----
+  // 55Hz〜16kHz を対数で SOUND_TEST_BARS 本に分ける（FFT の何番目から何番目まで。低い音の所は重ならないように1つずつずらす）
+  function soundTestBinRanges(sampleRate, binCount){
+    const hz = sampleRate / 2 / binCount, lo = 55, hi = Math.min(16000, sampleRate / 2 * 0.95), out = [];
+    let prev = 1;
+    for(let i = 0; i < SOUND_TEST_BARS; i++){
+      const f0 = lo * Math.pow(hi / lo, i / SOUND_TEST_BARS), f1 = lo * Math.pow(hi / lo, (i + 1) / SOUND_TEST_BARS);
+      const b0 = Math.min(binCount - 1, Math.max(prev, Math.floor(f0 / hz))), b1 = Math.min(binCount, Math.max(b0 + 1, Math.ceil(f1 / hz)));
+      out.push([b0, b1]);
+      prev = b1;
+    }
+    return out;
+  }
+  function soundTestReadLevels(now, playing){
+    const T = soundTest.target, an = soundTest.analyser, a = soundTest.audio;
+    if(!playing){ T.fill(0); soundTest.silentSince = 0; return; }
+    if(an && soundTest.freq){
+      // Web Audio を通すと無音になる環境：流れているのに中身がずっと 0 → 要素から直接鳴らし直す
+      an.getByteTimeDomainData(soundTest.wave);
+      let dev = 0;
+      const w = soundTest.wave;
+      for(let i = 0; i < w.length; i += 4){ const v = Math.abs(w[i] - 128); if(v > dev) dev = v; }
+      if(dev === 0 && a && a.readyState >= 3 && !a.seeking && (Number(a.currentTime) || 0) > 0.6){
+        if(!soundTest.silentSince) soundTest.silentSince = now;
+        else if(now - soundTest.silentSince > SOUND_TEST_SILENT_MS){ soundTest.silentSince = 0; soundTestFallbackToDirect(true); return; }
+      }else soundTest.silentSince = 0;
+      an.getFloatFrequencyData(soundTest.freq);   // dB
+      if(!soundTest.bins) soundTest.bins = soundTestBinRanges(soundTest.graphCtx ? soundTest.graphCtx.sampleRate : 48000, an.frequencyBinCount);
+      const F = soundTest.freq, N = SOUND_TEST_BARS;
+      soundTest.bins.forEach(([b0, b1], i)=>{
+        let m = -Infinity;
+        for(let k = b0; k < b1; k++) if(F[k] > m) m = F[k];
+        // 曲の音の大きさに合わせた目盛り（低い音：-62〜-26dB、高い音：-80〜-48dB。高い音ほど小さいので持ち上げる）
+        const u = i / (N - 1), lo = -62 - 18 * u, hi = -26 - 22 * u;
+        T[i] = Math.pow(Math.max(0, Math.min(1, (m - lo) / (hi - lo))), 1.3);
+      });
+      return;
+    }
+    // 音に合わせられないとき：それらしく揺れるだけ
+    const s = now / 1000, beat = Math.pow(Math.max(0, Math.sin(s * Math.PI * 2.1)), 6);
+    for(let i = 0; i < SOUND_TEST_BARS; i++){
+      const u = i / SOUND_TEST_BARS, shape = 0.75 - 0.45 * u;
+      const v = shape * (0.55 + 0.22 * Math.sin(s * 2.3 + i * 0.7) + 0.16 * Math.sin(s * 5.1 + i * 1.9)) + 0.25 * beat * (1 - u);
+      T[i] = Math.max(0.03, Math.min(1, v));
+    }
+  }
+  function soundTestDrawViz(now){
+    const c = soundTest.els && soundTest.els.viz;
+    if(!c) return;
+    const dt = Math.min(0.1, Math.max(0, (now - (soundTest.lastFrame || now)) / 1000));
+    soundTest.lastFrame = now;
+    const playing = soundTestIsPlaying();
+    soundTestReadLevels(now, playing);
+    if(!soundTest.els) return;   // 鳴らし直しの途中で画面が閉じたとき
+    const L = soundTest.levels, Pk = soundTest.peaks, H = soundTest.peakHold, T = soundTest.target, N = SOUND_TEST_BARS;
+    let active = false;
+    for(let i = 0; i < N; i++){
+      const up = T[i] > L[i];
+      L[i] += (T[i] - L[i]) * (1 - Math.pow(up ? 0.35 : 0.8, dt * 60));   // 上がるのは速く、下がるのはゆっくり
+      if(L[i] >= Pk[i]){ Pk[i] = L[i]; H[i] = now + 380; }
+      else if(now > H[i]) Pk[i] = Math.max(L[i], Pk[i] - dt * 0.9);   // てっぺんの印は少し残ってから落ちる
+      if(L[i] > 0.004 || Pk[i] > 0.004) active = true;
+    }
+    const cw = c.clientWidth, ch = c.clientHeight;
+    if(!cw || !ch) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1), W = Math.round(cw * dpr), Hh = Math.round(ch * dpr);
+    const resized = c.width !== W || c.height !== Hh;
+    if(resized){ c.width = W; c.height = Hh; soundTest.drawnIdle = false; }
+    if(!active && !playing){
+      if(soundTest.drawnIdle) return;   // 止まっている間は描き直さない
+      soundTest.drawnIdle = true;
+    }else soundTest.drawnIdle = false;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, W, Hh);
+    const gap = Math.max(2, Math.round(W / N * 0.26)), bw = (W - gap * (N - 1)) / N;
+    const segH = Math.max(2, Math.round(3 * dpr)), segGap = Math.max(1, Math.round(1.5 * dpr)), step = segH + segGap;
+    const segs = Math.max(1, Math.floor((Hh + segGap) / step));
+    const top = Hh - segs * step + segGap;
+    const grad = g.createLinearGradient(0, Hh, 0, top);
+    grad.addColorStop(0, 'rgba(76,132,255,.95)');
+    grad.addColorStop(0.6, 'rgba(110,168,255,.95)');
+    grad.addColorStop(1, 'rgba(166,196,255,1)');
+    for(let i = 0; i < N; i++){
+      const x = Math.round(i * (bw + gap)), w = Math.max(1, Math.round(bw));
+      const lit = Math.round(L[i] * segs);
+      for(let s = 0; s < segs; s++){
+        const y = Hh - (s + 1) * step + segGap;
+        g.fillStyle = s < lit ? grad : 'rgba(168,190,226,.07)';
+        g.fillRect(x, y, w, segH);
+      }
+      const ps = Math.min(segs - 1, Math.round(Pk[i] * segs));
+      if(Pk[i] > 0.02){
+        g.fillStyle = 'rgba(63,224,163,.95)';
+        g.fillRect(x, Hh - (ps + 1) * step + segGap, w, segH);
+      }
+    }
+  }
+  function soundTestLoop(now){
+    soundTest.raf = 0;
+    if(!soundTest.open || !soundTest.els) return;
+    soundTest.raf = requestAnimationFrame(soundTestLoop);
+    const playing = soundTestIsPlaying();
+    // 流している途中で AudioContext が動き出したら、そこから Web Audio を通す
+    if(!soundTest.source && !soundTest.noGraph && soundTest.audio && playing && audioCtx && audioCtx.state === 'running'){
+      if(soundTestEnsureGraph()) applySoundTestBgmVolume();
+    }
+    // 通している AudioContext が止まった・作り直された（電話などの割り込み・アプリの切りかえのあと）→ 要素から直接鳴らす
+    if(soundTest.source && playing && (soundTest.graphCtx !== audioCtx || soundTest.graphCtx.state !== 'running')){
+      if(!soundTest.ctxBadSince) soundTest.ctxBadSince = now;
+      else if(now - soundTest.ctxBadSince > 800){ soundTest.ctxBadSince = 0; soundTestFallbackToDirect(false); }
+    }else soundTest.ctxBadSince = 0;
+    soundTestUpdateTime();
+    soundTestDrawViz(now);
+  }
+
+  function renderSoundTestScreen(){
+    soundTestClose();
+    setPreScreen(noahPreHeading('AUDIO ARCHIVE','SOUND TEST'), soundTestHtml(), [
+      {text:'タイトルへ戻る', className:'btnGhost stBackBtn', onClick:returnFromSoundTestToTitle}
+    ], { skipPreBgm:true, soundTest:true });
+    stopBgm();
+    const root = ui.preBody.querySelector('#stPlayer');
+    if(!root) return;
+    const q = s=>root.querySelector(s);
+    soundTest.open = true;
+    soundTest.els = {
+      root, state:q('.stState'), no:q('.stNo'), title:q('.stTitle'), tag:q('.stTag'), viz:q('.stViz'),
+      seekWrap:q('.stSeek'), seek:q('.stSeekBar'), cur:q('.stCur'), dur:q('.stDur'),
+      play:q('.stPlay'), prev:q('.stPrev'), next:q('.stNext'), stop:q('.stStop'), repeat:q('.stRepeat'),
+      list:q('.stList'), items:[...root.querySelectorAll('.stItem')],
+    };
+    const E = soundTest.els;
+    E.play.addEventListener('click', soundTestToggle);
+    E.prev.addEventListener('click', ()=>soundTestStep(-1));
+    E.next.addEventListener('click', ()=>soundTestStep(1));
+    E.stop.addEventListener('click', soundTestStop);
+    E.repeat.addEventListener('click', soundTestCycleRepeat);
+    E.items.forEach((b, i)=>b.addEventListener('click', ()=>{
+      const a = soundTest.audio;
+      if(i === soundTest.index && a && a.getAttribute('src')) soundTestToggle();
+      else soundTestSelect(i, true);
+    }));
+    // シークバー：押した所・ドラッグした所へ。動かしている間は時間の表示だけ変え、離したところへ移る。
+    //   指・マウスはバー全体（.stSeek）で受ける（iOS の input は溝を押しても動かないため）。キーボード（←/→）は input のまま
+    const seek = E.seek, bar = E.seekWrap;
+    const commit = ()=>{
+      bar.classList.remove('isDragging');
+      if(!soundTest.seeking) return;
+      soundTest.seeking = false;
+      const d = soundTestDuration();
+      if(Number.isFinite(d) && d > 0) soundTestSeekTo(soundTest.seekValue / 1000 * d);
+    };
+    const valueAt = x=>{
+      const r = seek.getBoundingClientRect(), inset = 9;   // つまみの半径（CSS の .stSeek::before と同じ）
+      return Math.round(Math.max(0, Math.min(1, (x - r.left - inset) / Math.max(1, r.width - inset * 2))) * 1000);
+    };
+    const drag = x=>{ soundTest.seekValue = valueAt(x); seek.value = String(soundTest.seekValue); soundTestUpdateTime(); };
+    let dragId = null;
+    bar.addEventListener('pointerdown', e=>{
+      if(seek.disabled || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      e.preventDefault();
+      dragId = e.pointerId;
+      try{ bar.setPointerCapture(e.pointerId); }catch(err){}
+      soundTest.seeking = true;
+      bar.classList.add('isDragging');
+      drag(e.clientX);
+    });
+    bar.addEventListener('pointermove', e=>{ if(soundTest.seeking && e.pointerId === dragId) drag(e.clientX); });
+    bar.addEventListener('pointerup', e=>{ if(e.pointerId !== dragId) return; dragId = null; drag(e.clientX); commit(); });
+    bar.addEventListener('pointercancel', e=>{ if(e.pointerId !== dragId) return; dragId = null; soundTest.seeking = false; bar.classList.remove('isDragging'); soundTestUpdateTime(); });
+    seek.addEventListener('input', ()=>{ soundTest.seeking = true; soundTest.seekValue = Number(seek.value); soundTestUpdateTime(); });
+    seek.addEventListener('change', commit);
+    // つまみにフォーカスがあるとき：←/→ 5秒、Home/End 頭/終わりの少し前、スペース 再生/一時停止（input の1目盛りは細かすぎるため）
+    seek.addEventListener('keydown', e=>{
+      const k = e.key, d = soundTestDuration();
+      if(k === 'ArrowLeft' || k === 'ArrowDown') soundTestSeekBy(-5);
+      else if(k === 'ArrowRight' || k === 'ArrowUp') soundTestSeekBy(5);
+      else if(k === 'Home') soundTestSeekTo(0);
+      else if(k === 'End'){ if(Number.isFinite(d)) soundTestSeekTo(d - 2); }
+      else if(k === ' ' || k === 'Spacebar') soundTestToggle();
+      else return;
+      e.preventDefault();
+    });
+    seek.addEventListener('blur', ()=>{ if(dragId === null) commit(); });
+    soundTest.keyHandler = e=>{
+      if(!soundTest.open || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      const tag = e.target && e.target.tagName;
+      if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;   // 部品にフォーカスがあるときは部品の動きに任せる
+      if(e.key === ' ' || e.key === 'Spacebar') soundTestToggle();
+      else if(e.key === 'ArrowLeft') soundTestSeekBy(-5);
+      else if(e.key === 'ArrowRight') soundTestSeekBy(5);
+      else if(e.key === 'ArrowUp') soundTestStep(-1);
+      else if(e.key === 'ArrowDown') soundTestStep(1);
+      else return;
+      e.preventDefault();
+    };
+    document.addEventListener('keydown', soundTest.keyHandler);
+    soundTestRenderTrack();
+    soundTestSyncUi();
+    soundTest.lastFrame = 0;
+    soundTest.raf = requestAnimationFrame(soundTestLoop);
+  }
+  // 閉じる（止めて片付ける）。Web Audio が使えない環境だと分かったこと（noGraph）は覚えておく
+  function soundTestClose(){
+    soundTest.open = false;
+    if(soundTest.raf){ cancelAnimationFrame(soundTest.raf); soundTest.raf = 0; }
+    if(soundTest.keyHandler){ document.removeEventListener('keydown', soundTest.keyHandler); soundTest.keyHandler = null; }
+    soundTestDisposeAudio();
+    soundTest.els = null;
+    soundTest.index = -1;
+    soundTest.seeking = false;
+    soundTest.levels.fill(0); soundTest.peaks.fill(0); soundTest.target.fill(0);
+    soundTest.drawnIdle = false;
+    soundTest.graphPaused = false;
+    soundTest.ctxBadSince = 0;
+  }
+  // 以前からの呼び名（タイトルへ戻る・アプリを離れたとき）。disposeElement：閉じる / reset：停止 / どちらでもない：一時停止
   function stopSoundTestBgm(reset=true, disposeElement=false){
-    if(soundTestBgm){
-      try{ soundTestBgm.pause(); }catch(e){}
-      if(reset){
-        try{ soundTestBgm.currentTime = 0; }catch(e){}
-      }
-      if(disposeElement){
-        try{ soundTestBgm.removeAttribute('src'); }catch(e){}
-        try{ soundTestBgm.load(); }catch(e){}
-        soundTestBgm = null;
-      }
-    }
-    soundTestCurrentTrackIndex = -1;
-    updateSoundTestNowPlaying();
+    if(disposeElement){ soundTestClose(); return; }
+    if(reset) soundTestStop(); else soundTestPause();
   }
-
   function returnFromSoundTestToTitle(){
-    stopSoundTestBgm(true, true);
+    soundTestClose();
     renderTitleScreen();
   }
+  // テスト用（v378）：サウンドテストの状態（読むだけ）
+  window.noahDebugSoundTest = ()=>{
+    const a = soundTest.audio;
+    return { open:soundTest.open, index:soundTest.index, repeat:soundTest.repeat, playing:soundTestIsPlaying(), graph:!!soundTest.source, noGraph:soundTest.noGraph,
+      time:a ? a.currentTime : 0, duration:soundTestDuration(), src:a ? a.getAttribute('src') : '', loop:a ? a.loop : null, volume:a ? a.volume : null, muted:a ? a.muted : null,
+      gain:soundTest.gain ? soundTest.gain.gain.value : null, ctx:audioCtx ? audioCtx.state : 'none', titleBgm:bgmPlaying ? bgmCurrentTrack : null,
+      levels:Array.from(soundTest.levels).map(v=>+v.toFixed(2)) };
+  };
 
   // ---------------------------------------------------------------------------
   // Code-generated BGM / 音声ファイルなしの軽量BGMエンジン
@@ -7342,6 +8187,7 @@ function noahDrawKaijuGroundShadow(cell) {
     Object.keys(seDecodePromises).forEach(k=>{ delete seDecodePromises[k]; });
   }
   function rememberAudioTrackForRecovery(){
+    if(soundTest.open){ audioRecoveryRequestedTrack = null; return; }   // v378：サウンドテストの間は、タイトルの曲を流し直さない
     audioRecoveryRequestedTrack = bgmRequestedTrack || bgmCurrentTrack || audioRecoveryRequestedTrack || (gameStarted ? 'mission' : 'research');
   }
   function stopTransientAudioForBackground(){
@@ -10821,6 +11667,7 @@ function getRandomExplosionCell(){
     return CARD_FORM_LABELS[form] || '';
   }
   function setPreScreen(title, bodyHtml, buttons, options={}){
+    if(!options.soundTest && soundTest.open) soundTestClose();   // v378：サウンドテストから別の画面へ移るときは止めて片付ける
     if(!gameStarted && !options.skipPreBgm) playBgm('research');
     const prePanelEl = document.getElementById('prePanel');
     prePanelEl.classList.remove('titleScreenPanel');
@@ -10886,20 +11733,6 @@ function getRandomExplosionCell(){
     noahOnTitleRendered(versionLabel);   // v348: タイトルを出すたびに最新版を確認する
   }
 
-  function renderSoundTestScreen(){
-    const trackActions = EXTERNAL_BATTLE_BGM_TRACKS.map((track, index)=>({
-      text:`${track.displayNo}. ${track.name}`,
-      className:'soundTestTrackBtn',
-      onClick(){ playSoundTestTrack(index); }
-    }));
-    setPreScreen(noahPreHeading('AUDIO ARCHIVE','SOUND TEST'), `<div id="soundTestNow" class="soundTestNow">停止中</div>`, [
-      ...trackActions,
-      {text:'停止', className:'soundTestStopBtn', onClick(){ stopSoundTestBgm(true, false); }},
-      {text:'タイトルへ戻る', className:'soundTestReturnBtn', onClick:returnFromSoundTestToTitle}
-    ], { skipPreBgm:true, soundTest:true });
-    stopBgm();
-    updateSoundTestNowPlaying();
-  }
   function renderMainMenu(){
     setPreScreen(noahPreHeading('BRIEFING','作戦メニュー'), `<div class="preLead">出撃前ブリーフィングを開始します。<br>対象怪獣とアサイラムアーク編成を確認してください。</div><div class="preSummaryBlock"><h4>N.O.A.H. 作戦管制</h4><div class="preTiny">現在は標準テスト作戦として、怪獣・機体を登録しています。研究開発候補はゲーム内の研究開発プールを使用します。<br>Version: ${NOAH_PROJECT_META.currentPrototypeVersion}</div></div>`, [
       {text:'怪獣選択へ', onClick:renderKaijuSelect},
