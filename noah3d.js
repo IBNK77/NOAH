@@ -36,6 +36,7 @@
 //   シェーダーの下ごしらえ（warmUp）は5回に分けて少しずつ作る（WARM_GROUPS）。かぶせている間（bridge.boardCovered）は盤面が出ていても下ごしらえする。
 // v381〜：熱のための工夫。iPhone が毎秒30回に抑える状態（熱い・低電力モード）が3分続いたら画質を1段だけ下げる（bridge.qualityChanged で知らせる）。
 //   画面に6秒触っていないときは、動きのないときの描く回数を毎秒20回ほどに（bridge.lastInputAt）。stats() に診断表示用の数を足した。
+// v382〜：画質1・2では戦術パネルの絵を小さくする（768×384 / 512×256。GPU へ写す量と2Dで描く手間を減らす）。
 // =============================================================================
 (function () {
 'use strict';
@@ -3570,6 +3571,16 @@ function start(bridge) {
     stageFx.setLite(quality >= 2);
     // v365：1段目でにじむ光を止め、鳥・魚を減らす。2段目で光の筋・鳥・魚・揺れを止め、霧と粒を減らす
     atmos.setLevel(quality);
+    // v382：戦術パネル（DMG のマスなど）の絵の細かさも段に合わせる。描く点の数（1.5倍・1倍）に対して十分な細かさのまま、
+    //   2Dで描く手間と、毎秒8〜10回 GPU へ写す量を減らす（1段目 768×384 で約56%、2段目 512×256 で1/4）。
+    //   メンテナンスモードの測定で、写す処理（texSubImage2D）が画面の処理のいちばん大きな部分だったため
+    const tw = quality >= 2 ? 512 : quality >= 1 ? 768 : TACTICAL_TEX;
+    if (tacticalCanvas.width !== tw) {
+      tacticalCanvas.width = tw; tacticalCanvas.height = Math.round(tw * TACTICAL_VIEW.h / TACTICAL_VIEW.w);
+      tagCanvas.width = tacticalCanvas.width; tagCanvas.height = tacticalCanvas.height;
+      tacticalTex.dispose(); tagTex.dispose();   // 大きさが変わったので、GPU の側の絵を作り直す（次に描くときに新しい大きさで用意される）
+      lastTacticalLevel = -1;                     // すぐ描き直す
+    }
     resize();
   }
   // v381：本体が熱い（または低電力モード）とき、iPhone は画面の更新を毎秒30回に抑える。それが heatStepMs（3分）続いたら、
@@ -3950,5 +3961,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v381' };
+window.NOAH3D = { start, version: 'v382' };
 })();
