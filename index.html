@@ -345,6 +345,19 @@ SAVE / CONTINUE（v336〜）：
     （OfflineAudioContext で測って合わせた。重なっても割れないように、やわらかいリミッターを通す）。演出の間は読み込みBGMを42%に下げる。
   ・演出中は画面を覆うので、後ろの3Dは描かない（bridge.renderBudget＝2。本体が熱くなりにくいように）。粒子は画質が下がっていれば減らす。
   ・テスト用：bridge.debugRdGacha(ids, { premium }) / debugRdState() / debugRdSfx(name, arg, secs) / debugBgmDuck()
+- v384〜：研究開発の演出を、実機で見た感想に合わせて直した。
+  ・結果の画面が、そのまま開発するカードを選ぶ画面に（前の選択画面に移らない）。カードは画面の真ん中に並べる。
+    カードをタップすると、結果の画面の上に詳細が開き、× で結果に戻る。「開発」→ 配備先も結果の上に開き、配備すると演出が閉じる。
+    「スルー（RP返還なし）」も結果の画面に。ほかの場所のタップは何もしない。
+    結果の上にポップアップが開いている間は、ポップアップを演出より手前に出し（#modalBg.overGacha）、後ろの動きは止める（#rdGacha.held）。
+  ・SKIP：残りを飛ばして結果（選ぶ画面）へ。いちばん良いカードの音と光だけは鳴らす。
+  ・結果が出た直後の 0.35秒は、カードとスルーを受け付けない（連打の続きで押してしまわないように）。
+  ・配備先選択の × で、候補に戻るようにした（前は × で閉じると候補ごと消えていた。「短め」の選択画面でも同じ）。
+  ・効果音を派手に・大きく：ほかの効果音より一段大きく（小さい音は3〜5倍、大きい音はリミッターに当てて音圧を上げる。割れない）。
+    残響（短いホールの響き）、色が上がる前の「溜め」（核が震えて音が上がっていき、ドン）、低いドンを厚く、
+    LR は3つの和音のファンファーレ（E→B→E）＋駆け上がるアルペジオ、結果のジングル。演出の間は読み込みBGMを30%に下げる（前は42%）。
+  ・粒子がないときは描くのも止める（結果で選んでいる間は動かない）。画質が「最軽量」のときは、背景の走査線・光の筋の回転も止める。
+  ・テスト用：bridge.debugRdSfx(name, arg, secs, raw) の raw で波形も返す
 
 ===============================================================================
 -->
@@ -3605,6 +3618,15 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
 #rdGacha.result .rdResult{ opacity:1; transform:none; }
 #rdGacha .rdResult .t1{ font-family:var(--f-disp); font-size:19px; font-weight:700; letter-spacing:.18em; text-indent:.18em; color:#fff; text-shadow:0 0 12px rgba(var(--tier-rgb),.5); }
 #rdGacha .rdResult .t2{ margin-top:6px; font-size:11.5px; line-height:1.6; color:rgba(214,226,246,.82); }
+#rdGacha .rdResult .rdThrough{
+  pointer-events:auto; display:block; margin:14px auto 0; width:min(78%,300px); min-height:42px;
+  color:var(--text-2); background:rgba(6,12,24,.6); border:1px solid var(--hair); box-shadow:none;
+}
+#rdGacha .rdResult .rdThrough:active{ background:rgba(20,30,50,.75); }
+/* 結果の上に詳細などのポップアップが開いている間：後ろの動き（光の筋・縁・光）を止める */
+#rdGacha.held *,#rdGacha.held *::before,#rdGacha.held *::after{ animation-play-state:paused !important; }
+/* 演出の結果の上に開くポップアップ：演出より手前に。後ろの演出が見えるように、ぼかさず少し暗くするだけ */
+#modalBg.overGacha{ z-index:160; background:rgba(2,5,11,.5); -webkit-backdrop-filter:none; backdrop-filter:none; }
 #rdGacha .rdHint{
   position:absolute; left:0; right:0; bottom:calc(env(safe-area-inset-bottom) + 20px);
   text-align:center; pointer-events:none;
@@ -5433,7 +5455,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v383',
+    currentPrototypeVersion:'v384',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -13217,8 +13239,8 @@ function getRandomExplosionCell(){
     const cap = noahTitleCaption(title);
     if(cap) el.dataset.caption = cap; else delete el.dataset.caption;
   }
-  function openModal(title, bodyHtml, buttons, options={}){ if(options.openSound !== 'none') playPopupOpenSound(); ui.modalBody.removeAttribute('style'); ui.modalBody.scrollTop=0; ui.modal.className=''; if(options.modalClass){ String(options.modalClass).split(/\s+/).filter(Boolean).forEach(cls=>ui.modal.classList.add(cls)); } ui.modalTitle.innerHTML=title; noahApplyTitleCaption(ui.modalTitle, title); ui.modalBody.innerHTML=bodyHtml; ui.modalButtons.innerHTML=''; ui.modalCloseX.style.display='block'; ui.modalCloseX.onclick = async ()=>{ await flashThen(ui.modalCloseX, 'danger', ()=>{ playModalCancelSound(); closeModal(); options.onCloseX && options.onCloseX(); }); }; const visibleButtons=(buttons||[]).filter(btn=>!['×','閉じる'].includes(btn.text)); ui.modalButtons.style.display = visibleButtons.length ? 'grid' : 'none'; visibleButtons.forEach(btn=>{ const b=document.createElement('button'); b.textContent=btn.text; const tone=noahButtonTone(btn, visibleButtons); if(tone) b.className=tone; b.disabled=!!btn.disabled; b.addEventListener('click',async ()=>{ if(b.disabled) return; await flashThen(b, btn.flashKind || 'primary', ()=>{ if(btn.sound!=='none') playModalActionSound(); if(btn.keepOpen){ btn.onClick && btn.onClick(); } else { closeModal(); btn.onClick && btn.onClick(); } }); }); ui.modalButtons.appendChild(b); }); ui.modalBg.style.display='flex'; if(options.scrollKey) restoreModalScroll(options.scrollKey); }
-  const closeModal = ()=>{ ui.modalBg.style.display='none'; ui.modalButtons.style.display='grid'; ui.modalCloseX.style.display='none'; ui.modalCloseX.onclick=null; ui.modalBody.removeAttribute('style'); ui.modal.className=''; };
+  function openModal(title, bodyHtml, buttons, options={}){ if(options.openSound !== 'none') playPopupOpenSound(); ui.modalBody.removeAttribute('style'); ui.modalBody.scrollTop=0; ui.modal.className=''; if(options.modalClass){ String(options.modalClass).split(/\s+/).filter(Boolean).forEach(cls=>ui.modal.classList.add(cls)); } ui.modalTitle.innerHTML=title; noahApplyTitleCaption(ui.modalTitle, title); ui.modalBody.innerHTML=bodyHtml; ui.modalButtons.innerHTML=''; ui.modalCloseX.style.display='block'; ui.modalCloseX.onclick = async ()=>{ await flashThen(ui.modalCloseX, 'danger', ()=>{ playModalCancelSound(); closeModal(); options.onCloseX && options.onCloseX(); }); }; const visibleButtons=(buttons||[]).filter(btn=>!['×','閉じる'].includes(btn.text)); ui.modalButtons.style.display = visibleButtons.length ? 'grid' : 'none'; visibleButtons.forEach(btn=>{ const b=document.createElement('button'); b.textContent=btn.text; const tone=noahButtonTone(btn, visibleButtons); if(tone) b.className=tone; b.disabled=!!btn.disabled; b.addEventListener('click',async ()=>{ if(b.disabled) return; await flashThen(b, btn.flashKind || 'primary', ()=>{ if(btn.sound!=='none') playModalActionSound(); if(btn.keepOpen){ btn.onClick && btn.onClick(); } else { closeModal(); btn.onClick && btn.onClick(); } }); }); ui.modalButtons.appendChild(b); }); ui.modalBg.style.display='flex'; noahRdSyncModal(); if(options.scrollKey) restoreModalScroll(options.scrollKey); }
+  const closeModal = ()=>{ ui.modalBg.style.display='none'; ui.modalButtons.style.display='grid'; ui.modalCloseX.style.display='none'; ui.modalCloseX.onclick=null; ui.modalBody.removeAttribute('style'); ui.modal.className=''; noahRdSyncModal(); };
   const modalScrollPositions = {};
   function modalScrollContainer(){ return scrollContainerIn(ui.modalBody); }
   function rememberModalScroll(key){ const scroller = modalScrollContainer(); if(key && scroller) modalScrollPositions[key] = scroller.scrollTop || 0; }
@@ -18220,7 +18242,23 @@ function showHandPopup(index){ if(game.inputLocked) return;
   }
   // 効果音（その場で合成）。音量は効果音の設定に従い、重なっても割れないようにコンプレッサーを通す
   const rdSfx = (()=>{
-    let bus = null, busCtx = null, noiseBuf = null, ovr = null, K = 1;
+    let bus = null, busCtx = null, noiseBuf = null, irBuf = null, ovr = null, K = 1;
+    // 残響（短いホールのような響き）。音を大きく・派手に聞かせる。演出の音だけに掛ける
+    function makeIr(ctx){
+      if(irBuf && irBuf.sampleRate === ctx.sampleRate) return irBuf;
+      const sr = ctx.sampleRate, len = Math.round(sr * 1.5);
+      irBuf = ctx.createBuffer(2, len, sr);
+      for(let ch = 0; ch < 2; ch++){
+        const d = irBuf.getChannelData(ch);
+        let lp = 0;
+        for(let i = 0; i < len; i++){
+          const t = i / len, k = .55 - .4 * t;                    // 後ろほど こもらせる
+          lp += k * ((Math.random() * 2 - 1) - lp);
+          d[i] = lp * Math.pow(1 - t, 2.6) * Math.min(1, i / (sr * .004));
+        }
+      }
+      return irBuf;
+    }
     function io(){
       let ctx, out;
       if(ovr){ ctx = ovr.ctx; out = ovr.out; }
@@ -18231,11 +18269,18 @@ function showHandPopup(index){ if(game.inputLocked) return;
         if(!ctx || !out || audioSettings.se <= 0 || ctx.state !== 'running') return null;
       }
       if(!bus || busCtx !== ctx){
-        // 重なったときに割れないための、やわらかいリミッター
+        // 重なっても割れないリミッター（大きく鳴らしても頭を抑える）
         const comp = ctx.createDynamicsCompressor();
-        comp.threshold.value = -10; comp.knee.value = 6; comp.ratio.value = 8; comp.attack.value = 0.003; comp.release.value = 0.15;
-        bus = ctx.createGain(); bus.gain.value = 0.9;
-        bus.connect(comp); comp.connect(out); busCtx = ctx;
+        comp.threshold.value = -8; comp.knee.value = 4; comp.ratio.value = 12; comp.attack.value = 0.002; comp.release.value = 0.12;
+        comp.connect(out);
+        bus = ctx.createGain(); bus.gain.value = 1;
+        bus.connect(comp);
+        try{
+          const conv = ctx.createConvolver(); conv.buffer = makeIr(ctx);
+          const wet = ctx.createGain(); wet.gain.value = .3;
+          bus.connect(conv); conv.connect(wet); wet.connect(comp);
+        }catch(e){}
+        busCtx = ctx;
       }
       return ctx;
     }
@@ -18287,81 +18332,125 @@ function showHandPopup(index){ if(game.inputLocked) return;
     function chord(ctx, freqs, o){ freqs.forEach((f, i)=>tone(ctx, Object.assign({}, o, { f, t:(o.t || 0) + (o.stagger || 0) * i }))); }
     function pad(ctx, freqs, o){ freqs.forEach(f=>[-8, 8].forEach(det=>tone(ctx, Object.assign({ type:'sawtooth' }, o, { f, det })))); }
     // きらめき：高いサイン波が一瞬だけ上がる（デジタルなきらめき。ベルのような金属的な響きにはしない）
-    function sparkle(ctx, n, span, t = 0, v = .02){
+    function sparkle(ctx, n, span, t = 0, v = .024){
       for(let i = 0; i < n; i++){ const f = 2300 + Math.random() * 2000; tone(ctx, { f, f2:f * 1.35, t:t + Math.random() * span, d:.09, a:.003, v }); }
     }
-    // 音ごとの大きさ（ほかの効果音とそろえた倍率。OfflineAudioContext で測って合わせた）
-    const VOL = { start:3.3, stream:4.4, tick:4, esc:[1, 1.9, 1.35, 1.4], pre:[1, 1, 4.5, 4.5, 4.4], charge:3.1, burst:1.15, fly:5, land:1.9, flip:2.4,
-      stamp:[4.2, 4.2, 1.65, 1.3, 1.25], heartbeat:1.15, glitch:3.8, down:2.4, result:3.3 };
+    // ドン（低い音の一撃）＋ 広がるノイズ
+    function boom(ctx, o){
+      tone(ctx, { f:o.f || 120, f2:o.f2 || 32, d:o.d || .7, v:o.v || .6, a:.003, t:o.t || 0 });
+      noise(ctx, { ft:'lowpass', f:o.nf || 9000, f2:500, d:(o.d || .7) * .85, v:o.nv || .26, a:.002, q:.3, t:o.t || 0 });
+    }
+    // 上がっていく「溜め」の音（ノイズと、のこぎり波が一緒に上がる）
+    function rise(ctx, sec, top, t = 0){
+      noise(ctx, { f:300, f2:6500, d:sec, v:.1, q:.9, a:sec * .85, t });
+      tone(ctx, { type:'sawtooth', f:110, f2:top, gd:sec, d:sec + .04, v:.05, lp:600, lp2:4200, a:sec * .85, t });
+    }
+    // 音ごとの大きさ（OfflineAudioContext で測って合わせた倍率）
+    //   ほかの効果音より一段大きく、派手に（大きい音はリミッターに当てて、音圧を上げる）
+    const VOL = { start:2.8, stream:5.5, tick:3.2, riser:3.7, esc:[1, 1.3, 1.3, 1.3], stall:1.2, pre:[1, 1, 3.7, 3.9, 1.8], charge:3.8, burst:[1.3, 1.3, 1.3, 1.3],
+      fly:5.4, land:2.1, flip:2.6, stamp:[4.2, 4.4, 1.4, 1.3, 1.3], heartbeat:1.2, glitch:3.9, down:1.3, result:[5.6, 5.6, 3.2, 3.2, 3.2] };
     const R = {
-      start(c){ tone(c, { f:520, f2:1560, gd:.1, d:.16, v:.09 }); tone(c, { type:'square', f:1560, t:.07, d:.08, v:.022, lp:3200 }); },
-      stream(c, sec){
-        noise(c, { f:700, f2:2600, d:sec, v:.05, q:1.4, a:.15 });
-        const n = Math.round(sec * 24);
-        for(let i = 0; i < n; i++) tone(c, { f:1400 + Math.random() * 2200, t:i / 24 + Math.random() * .02, d:.035, a:.002, v:.02 });
+      start(c){
+        tone(c, { f:220, f2:1760, gd:.16, d:.22, v:.12 });
+        tone(c, { type:'square', f:880, f2:1760, gd:.1, d:.12, v:.03, lp:3600 });
+        noise(c, { f:600, f2:6000, d:.28, v:.08, q:.8 });
+        chord(c, [523.25, 659.25, 783.99, 1046.5], { type:'sawtooth', t:.12, d:.45, v:.026, lp:2800, lp2:900, a:.006 });
       },
-      tick(c, p){ tone(c, { f:620 + p * 9, d:.045, a:.002, v:.05 }); },
+      stream(c, sec){
+        noise(c, { f:700, f2:2600, d:sec, v:.06, q:1.4, a:.15 });
+        const n = Math.round(sec * 26);
+        for(let i = 0; i < n; i++) tone(c, { f:1400 + Math.random() * 2400, t:i / 26 + Math.random() * .02, d:.035, a:.002, v:.03 });
+      },
+      tick(c, p){ const f = 700 + p * 10; tone(c, { f, d:.05, a:.002, v:.08 }); tone(c, { type:'square', f:f * 2, d:.035, a:.002, v:.02, lp:3200 }); },
+      riser(c, lv){ rise(c, .32, 260 + lv * 220); },
       esc(c, lv){
         if(lv === 1){
-          chord(c, [523.25, 659.25, 783.99, 1046.5], { type:'triangle', d:.34, v:.06, stagger:.055 });
-          noise(c, { f:900, f2:5200, d:.38, v:.06, q:.9 });
-          tone(c, { f:95, f2:48, d:.42, v:.22, a:.004 });
+          boom(c, { f:110, d:.6, v:.55 });
+          chord(c, [523.25, 659.25, 783.99, 1046.5], { type:'sawtooth', d:.6, v:.03, lp:3200, lp2:1200, a:.005 });
+          chord(c, [523.25, 659.25, 783.99, 1046.5], { type:'triangle', d:.75, v:.05 });
+          [1046.5, 1318.5, 1568, 2093].forEach((f, i)=>tone(c, { type:'triangle', f, t:.06 + i * .045, d:.32, v:.05, a:.003 }));
+          sparkle(c, 6, .5, .1);
         }else if(lv === 2){
-          tone(c, { f:150, f2:34, d:.6, v:.32, a:.004 });
-          chord(c, [220, 261.63, 311.13, 369.99], { type:'sawtooth', d:.55, v:.034, lp:700, lp2:2600, a:.01 });
-          for(let i = 0; i < 4; i++) tone(c, { type:'square', f:i % 2 ? 880 : 1174.66, t:.08 + i * .09, d:.07, v:.028, lp:2600 });
-          noise(c, { ft:'lowpass', f:2400, f2:300, d:.45, v:.12 });
+          boom(c, { f:130, f2:28, d:.8, v:.65, nv:.3 });
+          chord(c, [110, 164.81, 220, 329.63], { type:'sawtooth', d:.85, v:.05, lp:1300, lp2:3400, a:.006 });
+          chord(c, [587.33, 739.99, 880, 1174.66], { type:'triangle', t:.02, d:.65, v:.04 });
+          for(let i = 0; i < 6; i++) tone(c, { type:'square', f:i % 2 ? 880 : 1174.66, t:.1 + i * .085, d:.07, v:.035, lp:2800 });
         }else{
-          for(let i = 0; i < 12; i++) tone(c, { type:'square', f:200 + Math.random() * 1800, t:Math.random() * .38, d:.02 + Math.random() * .04, a:.002, v:.026, lp:4000 });
-          tone(c, { f:72, f2:28, d:1.0, v:.42, a:.005 });
-          pad(c, [293.66, 369.99, 440, 554.37], { t:.12, d:1.5, a:.28, v:.018, lp:520, lp2:3200 });
-          noise(c, { f:400, f2:6000, d:.7, v:.07, q:.8 });
+          for(let i = 0; i < 16; i++) tone(c, { type:'square', f:200 + Math.random() * 2200, t:Math.random() * .4, d:.02 + Math.random() * .04, a:.002, v:.03, lp:4500 });
+          boom(c, { f:70, f2:24, d:1.4, v:.7, nv:.32, nf:10000 });
+          pad(c, [293.66, 369.99, 440, 554.37, 739.99], { t:.08, d:1.9, a:.22, v:.024, lp:700, lp2:4200 });
+          [1174.66, 1479.98, 1760, 2217.46, 2959.96].forEach((f, i)=>tone(c, { type:'triangle', f, t:.25 + i * .06, d:.5, v:.045, a:.003 }));
+          sparkle(c, 12, 1.1, .2);
         }
+      },
+      stall(c){
+        R.heartbeat(c);
+        tone(c, { type:'sawtooth', f:55, f2:65, d:.75, v:.07, lp:300, lp2:1400, a:.25 });
+        for(let i = 0; i < 10; i++) tone(c, { type:'square', f:300 + Math.random() * 2000, t:Math.random() * .6, d:.02 + Math.random() * .03, a:.002, v:.025, lp:4000 });
       },
       pre(c, rank){
-        if(rank === 2){ tone(c, { f:600, f2:1800, gd:.28, d:.3, v:.05 }); sparkle(c, 4, .25); }
+        if(rank === 2){ tone(c, { f:600, f2:2400, gd:.3, d:.32, v:.07 }); rise(c, .3, 900); sparkle(c, 6, .28); }
         else if(rank === 3){
-          tone(c, { type:'sawtooth', f:55, f2:110, d:.55, v:.06, lp:300, lp2:900, a:.05 });
-          noise(c, { ft:'lowpass', f:300, f2:1400, d:.55, v:.09, a:.1 });
-          for(let i = 0; i < 5; i++) tone(c, { type:'square', f:1600 + Math.random() * 900, t:.05 + i * .1, d:.03, v:.02, lp:3500 });
+          tone(c, { type:'sawtooth', f:55, f2:120, d:.55, v:.08, lp:300, lp2:1100, a:.05 });
+          rise(c, .5, 1200);
+          for(let i = 0; i < 8; i++) tone(c, { type:'square', f:1500 + Math.random() * 1200, t:.04 + i * .06, d:.03, v:.025, lp:3600 });
         }else{
-          pad(c, [329.63, 415.3, 493.88, 622.25], { d:.62, a:.3, v:.02, lp:400, lp2:2600 });
-          noise(c, { f:500, f2:7000, d:.55, v:.07, q:.7, a:.2 });
+          pad(c, [329.63, 415.3, 493.88, 622.25], { d:.65, a:.32, v:.026, lp:400, lp2:3000 });
+          rise(c, .55, 1600);
+          tone(c, { f:55, f2:80, d:.6, v:.25, a:.3 });
         }
       },
-      charge(c){ tone(c, { f:180, f2:1300, gd:.24, d:.26, v:.09 }); noise(c, { f:400, f2:3600, d:.24, v:.07, q:1.2 }); },
+      charge(c){ tone(c, { f:180, f2:1600, gd:.24, d:.27, v:.1 }); rise(c, .25, 1400); },
       burst(c, lv){
-        noise(c, { ft:'lowpass', f:7000, f2:260, d:.62, v:.28, a:.003, q:.4 });
-        tone(c, { f:125, f2:38, d:.42, v:.42, a:.003 });
-        if(lv >= 1) chord(c, lv === 1 ? [523.25, 659.25, 783.99] : lv === 2 ? [587.33, 739.99, 880, 1174.66] : [659.25, 830.61, 987.77, 1244.51, 1479.98], { type:'triangle', t:.04, d:.9, v:.04, a:.01 });
+        boom(c, { f:135, f2:30, d:.85, v:.68, nv:.38, nf:11000 });
+        noise(c, { ft:'highpass', f:2500, d:.06, v:.12, a:.001 });   // パッと割れる音
+        if(lv >= 1) chord(c, lv === 1 ? [523.25, 659.25, 783.99, 1046.5] : lv === 2 ? [587.33, 739.99, 880, 1174.66] : [659.25, 830.61, 987.77, 1244.51, 1479.98], { type:'triangle', t:.04, d:1.0, v:.045, a:.01 });
+        if(lv >= 2) chord(c, lv === 2 ? [146.83, 220, 293.66] : [164.81, 246.94, 329.63], { type:'sawtooth', t:.02, d:.9, v:.045, lp:1400, lp2:600, a:.006 });
+        if(lv >= 1) sparkle(c, 6 + lv * 4, .8, .1);
       },
-      fly(c){ noise(c, { f:3800, f2:420, d:.38, v:.07, q:1.6 }); },
-      land(c){ tone(c, { f:190, f2:85, d:.09, v:.12, a:.002 }); noise(c, { ft:'highpass', f:3600, d:.03, v:.035, a:.001 }); },
+      fly(c){ for(let i = 0; i < 3; i++) noise(c, { f:4200, f2:450, d:.34, v:.08, q:1.6, t:i * .075 }); },
+      land(c){ for(let i = 0; i < 3; i++){ tone(c, { f:200, f2:85, d:.1, v:.14, a:.002, t:i * .075 }); noise(c, { ft:'highpass', f:3600, d:.03, v:.04, a:.001, t:i * .075 }); } },
       flip(c, rank, quiet){
-        noise(c, { ft:'highpass', f:1800, f2:6500, d:.11, v:quiet ? .03 : .05, a:.004 });
-        if(!quiet) tone(c, { f:560 + rank * 140, d:.07, a:.002, v:.05 });
+        noise(c, { ft:'highpass', f:1800, f2:7000, d:.12, v:quiet ? .04 : .07, a:.004 });
+        if(!quiet) tone(c, { f:560 + rank * 140, d:.08, a:.002, v:.07 });
       },
       stamp(c, rank){
-        if(rank === 0) tone(c, { f:660, d:.14, v:.055 });
-        else if(rank === 1){ tone(c, { f:783.99, d:.1, v:.06 }); tone(c, { f:1046.5, t:.07, d:.16, v:.06 }); }
-        else if(rank === 2){ tone(c, { f:150, f2:62, d:.26, v:.28, a:.003 }); chord(c, [1046.5, 1318.5, 1568], { type:'triangle', d:.62, v:.04, stagger:.03 }); sparkle(c, 5, .4, .05); }
-        else if(rank === 3){
-          tone(c, { f:112, f2:38, d:.42, v:.42, a:.003 });
-          chord(c, [293.66, 369.99, 440, 587.33], { type:'sawtooth', d:.75, v:.03, lp:900, lp2:3600, a:.006 });
-          noise(c, { ft:'lowpass', f:5000, f2:400, d:.4, v:.14, a:.003 });
-          sparkle(c, 7, .55, .06);
+        if(rank === 0){ tone(c, { type:'triangle', f:660, d:.2, v:.08 }); tone(c, { f:1320, d:.12, v:.03 }); }
+        else if(rank === 1){ tone(c, { f:783.99, d:.12, v:.08 }); tone(c, { f:1046.5, t:.08, d:.22, v:.08 }); sparkle(c, 3, .2, .05); }
+        else if(rank === 2){
+          boom(c, { f:160, f2:55, d:.4, v:.45, nv:.14 });
+          chord(c, [1046.5, 1318.5, 1568, 2093], { type:'triangle', d:.75, v:.045, stagger:.035 });
+          chord(c, [523.25, 659.25, 783.99], { type:'sawtooth', d:.55, v:.03, lp:2800, lp2:1000, a:.005 });
+          sparkle(c, 8, .6, .05);
+        }else if(rank === 3){
+          boom(c, { f:120, f2:34, d:.7, v:.62, nv:.3 });
+          chord(c, [293.66, 369.99, 440, 587.33], { type:'sawtooth', d:.9, v:.04, lp:1100, lp2:3800, a:.006 });
+          [587.33, 739.99, 880, 1174.66, 1479.98].forEach((f, i)=>tone(c, { type:'triangle', f, t:.05 + i * .055, d:.45, v:.05, a:.003 }));
+          sparkle(c, 10, .8, .08);
         }else{
-          [659.25, 830.61, 987.77, 1318.5, 1661.2, 1975.5].forEach((f, i)=>tone(c, { type:'triangle', f, t:i * .065, d:.55, v:.05, a:.004 }));
-          pad(c, [329.63, 415.3, 493.88, 622.25, 739.99], { t:.3, d:1.7, a:.12, v:.016, lp:900, lp2:4200 });
-          tone(c, { f:82, f2:30, d:1.1, v:.42, a:.004 });
-          noise(c, { ft:'lowpass', f:8000, f2:300, d:.7, v:.16, a:.003 });
-          sparkle(c, 14, 1.2, .15);
+          boom(c, { f:90, f2:26, d:1.3, v:.7, nv:.35, nf:12000 });
+          // ファンファーレ：E → B → E（3つの和音）＋ 上へ駆け上がるアルペジオ ＋ 長い和音
+          [[329.63, 415.3, 493.88], [246.94, 311.13, 369.99, 493.88], [329.63, 415.3, 493.88, 659.25]].forEach((ch, k)=>{
+            chord(c, ch.map(f=>f * 2), { type:'sawtooth', t:k * .17, d:.32, v:.032, lp:3600, lp2:1500, a:.004 });
+            chord(c, ch.map(f=>f * 2), { type:'triangle', t:k * .17, d:.4, v:.04 });
+          });
+          [659.25, 830.61, 987.77, 1318.5, 1661.2, 1975.5, 2637].forEach((f, i)=>tone(c, { type:'triangle', f, t:.5 + i * .055, d:.55, v:.05, a:.003 }));
+          pad(c, [329.63, 415.3, 493.88, 622.25, 739.99], { t:.5, d:2.0, a:.12, v:.022, lp:1000, lp2:4800 });
+          sparkle(c, 20, 1.5, .4);
         }
       },
-      heartbeat(c){ tone(c, { f:68, f2:40, d:.2, v:.5, a:.004 }); tone(c, { f:64, f2:38, t:.27, d:.22, v:.36, a:.004 }); noise(c, { ft:'lowpass', f:220, d:.16, v:.12, a:.003 }); },
-      glitch(c, sec){ const n = Math.round(sec * 30); for(let i = 0; i < n; i++) tone(c, { type:'square', f:120 + Math.random() * 2400, t:Math.random() * sec, d:.015 + Math.random() * .035, a:.001, v:.028, lp:5000 }); },
-      down(c){ tone(c, { f:880, f2:60, gd:.36, d:.38, v:.08 }); noise(c, { ft:'lowpass', f:3000, f2:100, d:.3, v:.06 }); },
-      result(c, maxRank){ chord(c, maxRank >= 2 ? [523.25, 783.99, 1318.5] : [523.25, 659.25, 987.77], { d:.9, v:.034, stagger:.04 }); },
+      heartbeat(c){ tone(c, { f:68, f2:40, d:.22, v:.55, a:.004 }); tone(c, { f:64, f2:38, t:.27, d:.24, v:.4, a:.004 }); noise(c, { ft:'lowpass', f:240, d:.16, v:.14, a:.003 }); },
+      glitch(c, sec){ const n = Math.round(sec * 34); for(let i = 0; i < n; i++) tone(c, { type:'square', f:120 + Math.random() * 2600, t:Math.random() * sec, d:.015 + Math.random() * .035, a:.001, v:.032, lp:5200 }); },
+      down(c){ tone(c, { f:880, f2:50, gd:.38, d:.4, v:.1 }); noise(c, { ft:'lowpass', f:3500, f2:90, d:.34, v:.09 }); tone(c, { f:90, f2:30, d:.4, v:.3, a:.01 }); },
+      result(c, maxRank){
+        if(maxRank <= 1){ tone(c, { type:'triangle', f:783.99, d:.25, v:.06 }); tone(c, { type:'triangle', f:1046.5, t:.1, d:.4, v:.06 }); }
+        else{
+          const arp = maxRank === 2 ? [1046.5, 1318.5, 1568] : maxRank === 3 ? [1174.66, 1479.98, 1760, 2349.32] : [1318.5, 1661.2, 1975.5, 2637];
+          arp.forEach((f, i)=>tone(c, { type:'triangle', f, t:i * .07, d:.5, v:.05, a:.003 }));
+          chord(c, arp.map(f=>f / 2), { t:arp.length * .07, d:1.0, v:.035 });
+          sparkle(c, 4 + maxRank * 2, .7, .15);
+        }
+      },
     };
     const S = {};
     Object.keys(R).forEach(name=>{
@@ -18374,14 +18463,13 @@ function showHandPopup(index){ if(game.inputLocked) return;
         finally{ K = 1; }
       };
     });
-    // 先にコンプレッサーを作っておく（作った直後の音は小さく出るので、研究開発のメニューを開いたときに用意）
+    // 先にリミッター・残響を作っておく（作った直後の音は小さく出るので、研究開発のメニューを開いたときに用意）
     S.warm = ()=>{ io(); };
-    // テスト用：音をメモリ上で鳴らして、大きさ（ピーク・RMS）を測る
+    // テスト用：音をメモリ上で鳴らして、大きさ（ピーク・RMS）を測る。raw のときは波形も返す
     S.debugMeasure = (name, arg, secs = 2, raw = false)=>{
       const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
       if(!OAC || typeof R[name] !== 'function') return Promise.resolve(null);
       const oc = new OAC(1, Math.round(44100 * (secs + .1)), 44100);
-      // コンプレッサーは先に作っておき（実際も一度作ったら使い回す）、0.1秒たってから鳴らす（作った直後は立ち上がりで小さく出る）
       ovr = { ctx:oc, out:oc.destination }; bus = null; io();
       const keep = bus;
       ovr = null; bus = null;
@@ -18389,10 +18477,11 @@ function showHandPopup(index){ if(game.inputLocked) return;
       const ready = oc.suspend ? oc.suspend(.1).then(()=>{ fire(); return oc.resume(); }) : (fire(), Promise.resolve());
       const rendering = oc.startRendering();
       return ready.then(()=>rendering).then(buf=>{
-        const d = buf.getChannelData(0); let peak = 0, sum = 0, last = 0;
-        for(let i = 0; i < d.length; i++){ const v = Math.abs(d[i]); if(v > peak) peak = v; sum += d[i] * d[i]; if(v > .001) last = i; }
-        const out = { peak:+peak.toFixed(3), rms:+Math.sqrt(sum / d.length).toFixed(4), tail:+(last / 44100).toFixed(2) };
-        if(raw) out.samples = Array.from(d, v=>Math.round(v * 32767));   // テスト用：波形（スペクトルを見る）
+        const d = buf.getChannelData(0); let peak = 0, sum = 0, last = 0, first = -1;
+        for(let i = 0; i < d.length; i++){ const v = Math.abs(d[i]); if(v > peak) peak = v; sum += d[i] * d[i]; if(v > .001){ last = i; if(first < 0) first = i; } }
+        const act = Math.max(1, last - Math.max(0, first));
+        const out = { peak:+peak.toFixed(3), rms:+Math.sqrt(sum / act).toFixed(4), tail:+((last - Math.max(0, first)) / 44100).toFixed(2) };
+        if(raw) out.samples = Array.from(d, v=>Math.round(v * 32767));
         return out;
       });
     };
@@ -18440,9 +18529,10 @@ function showHandPopup(index){ if(game.inputLocked) return;
     let cardH = Math.round(cardW * 1.42);
     const coreS = Math.round(Math.max(96, Math.min(stageW * .36, 150, H * .2)));
     const coreY = Math.round(Math.max(H * .3, 104 + coreS / 2));
-    const cardsY = Math.round(Math.max(coreY + coreS / 2 + 54, H * .47));
-    const room = H - cardsY - 112;   // 下に結果の文字と TAP を置く分
+    // カードは画面の真ん中に並べる（核は消えてから飛び出すので重ならない）。下に結果の文字とスルーのボタンを置く分を空ける
+    const room = H - 104 - 150;
     if(cardH > room){ cardH = Math.max(96, room); cardW = Math.round(cardH / 1.42); }
+    const cardsY = Math.round(Math.min(H - cardH - 150, Math.max(104, H / 2 - cardH / 2 - 16)));
     const rowW = cardW * 3 + gap * 2;
     g.L = { W, H, coreY, coreS, cardsY, cardW, cardH, gap, rowW };
     const st = g.el.style;
@@ -18497,15 +18587,21 @@ function showHandPopup(index){ if(game.inputLocked) return;
     const cv = g.el.querySelector('.rdFx');
     const dpr = Math.min(window.devicePixelRatio || 1, g.q >= 2 ? 1 : 2);
     cv.width = Math.round(g.L.W * dpr); cv.height = Math.round(g.L.H * dpr);
-    const fx = g.fx = { cv, c:cv.getContext('2d'), dpr, ps:[], raf:0, last:0, drawn:false, k:g.q >= 2 ? .35 : g.q >= 1 ? .6 : 1 };
-    const loop = t=>{ if(g.dead) return; noahRdFxStep(g, t); fx.raf = requestAnimationFrame(loop); };
+    g.fx = { cv, c:cv.getContext('2d'), dpr, ps:[], raf:0, last:0, drawn:false, k:g.q >= 2 ? .35 : g.q >= 1 ? .6 : 1 };
+  }
+  // 粒子があるときだけ毎フレーム描く（なくなったら止まる。結果画面で待っている間は動かない）
+  function noahRdFxKick(g){
+    const fx = g.fx;
+    if(!fx || g.dead || fx.raf) return;
+    fx.last = 0;
+    const loop = t=>{ if(g.dead){ fx.raf = 0; return; } if(!noahRdFxStep(g, t)){ fx.raf = 0; return; } fx.raf = requestAnimationFrame(loop); };
     fx.raf = requestAnimationFrame(loop);
   }
   function noahRdFxStep(g, t){
     const fx = g.fx, c = fx.c, L = g.L;
     const dt = fx.last ? Math.min(.05, (t - fx.last) / 1000) : .016;
     fx.last = t;
-    if(!fx.ps.length){ if(fx.drawn){ c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, fx.cv.width, fx.cv.height); fx.drawn = false; } return; }
+    if(!fx.ps.length){ if(fx.drawn){ c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, fx.cv.width, fx.cv.height); fx.drawn = false; } return false; }
     c.setTransform(fx.dpr, 0, 0, fx.dpr, 0, 0);
     c.clearRect(0, 0, L.W, L.H);
     c.globalCompositeOperation = 'lighter';
@@ -18537,6 +18633,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     ps.length = w;
     c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
     fx.drawn = true;
+    return true;
   }
   function noahRdPoint(g, at){
     if(at === 'core') return { x:g.L.W / 2, y:g.L.coreY };
@@ -18556,6 +18653,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
         ex:ex + (Math.random() - .5) * 12, ey:ey + (Math.random() - .5) * 12, age:-Math.random() * (from === 'ring' ? .1 : .32),
         life:from === 'ring' ? .3 : .55 + Math.random() * .25, size:5 + Math.random() * 7, alpha:.9, spr });
     }
+    noahRdFxKick(g);
   }
   function noahRdBurst(g, at, n, rgb, power = 1){
     if(!g.fx) return;
@@ -18565,6 +18663,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
       g.fx.ps.push({ kind:'burst', x:p0.x, y:p0.y, vx:Math.cos(a) * sp, vy:Math.sin(a) * sp, drag:3.2, gy:90, age:0,
         life:.45 + Math.random() * .6, size:4 + Math.random() * 9, alpha:1, spr:noahRdSprite(Array.isArray(rgb) ? rgb[i % rgb.length] : rgb) });
     }
+    noahRdFxKick(g);
   }
   function noahRdSparks(g, at, n, rgb){
     if(!g.fx) return;
@@ -18573,6 +18672,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
       g.fx.ps.push({ kind:'spark', x:p0.x + (Math.random() - .5) * w * 2, y:p0.y + (Math.random() - .5) * h * 2, vx:0, vy:-12, drag:0, gy:0,
         age:-Math.random() * .25, life:.35 + Math.random() * .35, size:6 + Math.random() * 9, alpha:1, spr:noahRdSprite(rgb) });
     }
+    noahRdFxKick(g);
   }
   function noahRdEmbers(g, at, n){
     if(!g.fx) return;
@@ -18581,6 +18681,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
       g.fx.ps.push({ kind:'ember', x:p0.x + (Math.random() - .5) * w, y:p0.y + (Math.random() - .2) * 60, vx:(Math.random() - .5) * 40, vy:-50 - Math.random() * 90,
         drag:.4, gy:-14, age:-Math.random() * .5, life:1.1 + Math.random() * .8, size:5 + Math.random() * 7, alpha:.95, spr:noahRdSprite(RD_RAINBOW_RGB[i % RD_RAINBOW_RGB.length]) });
     }
+    noahRdFxKick(g);
   }
   function noahRdRestart(el, cls){ el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
   function noahRdFlash(g, rgb, op){
@@ -18676,10 +18777,11 @@ function showHandPopup(index){ if(game.inputLocked) return;
     noahGacha = g;
     game.inputLocked = true;
     closeModal();
+    try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}   // 後ろのボタンにキー操作が届かないように
     render();
     cards.forEach(c=>{ const src = CARD_ART[c.id]; if(src){ const im = new Image(); im.decoding = 'async'; im.src = src; g.imgs.push(im); } });   // めくるまでに絵を読んでおく
     noahRdSetup(g);
-    noahBgmDuck(.42);
+    noahBgmDuck(.3);
     try{
       await noahRdIntro(g);
       if(g.premium) await noahRdPremium(g);
@@ -18692,7 +18794,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     }
   }
   async function noahRdIntro(g){
-    g.phase = 'intro'; g.skipPhase = false;
+    g.phase = 'intro'; g.skipPhase = !!g.skipAll;
     const el = g.el;
     await rdSeq(g, [
       [()=>{ rdSfx.start(); noahRdRpRoll(g); noahRdStream(g, 44, 'bottom'); rdLater(g, 70, ()=>rdSfx.stream(.56)); }, 130],
@@ -18707,7 +18809,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     for(let k = 1; k <= 8; k++) rdLater(g, 60 + k * 45, ()=>{ b.textContent = String(Math.round(from + (to - from) * k / 8)); });
   }
   async function noahRdPremium(g){
-    g.phase = 'premium'; g.skipPhase = false;
+    g.phase = 'premium'; g.skipPhase = !!g.skipAll;
     const el = g.el, a1 = el.querySelector('.rdAlarmBox .a1'), a2 = el.querySelector('.rdAlarmBox .a2');
     await rdSeq(g, [
       [()=>{ el.classList.add('blackout'); rdSfx.down(); }, 420],
@@ -18718,7 +18820,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     noahRdFlash(g, '240,232,255', .5);
   }
   async function noahRdAnalyze(g){
-    g.phase = 'analyze'; g.skipPhase = false;
+    g.phase = 'analyze'; g.skipPhase = !!g.skipAll;
     const el = g.el, num = el.querySelector('.rdPctNum'), label = el.querySelector('.rdPctLabel');
     el.classList.add('pctOn');
     // 反応が上がる所（%, 段）。いちばん高いレアまで1段ずつ上がる
@@ -18735,14 +18837,20 @@ function showHandPopup(index){ if(game.inputLocked) return;
         mi++;
         if(lv === 3){   // 99% で止まって……規格外
           el.classList.add('stall', 'coreTremble');
-          rdSfx.glitch(.5); rdSfx.heartbeat();
-          await rdWait(g, 680);
+          rdSfx.stall();
+          await rdWait(g, 700);
           if(g.skipPhase) break;
           el.classList.remove('stall', 'coreTremble');
           pct = 100; num.textContent = '100';
+        }else{          // 核が震えて、音が上がっていって……ドン
+          el.classList.add('coreTremble');
+          rdSfx.riser(lv);
+          await rdWait(g, 290);
+          if(g.skipPhase) break;
+          el.classList.remove('coreTremble');
         }
         noahRdEscalate(g, lv);
-        await rdWait(g, lv === 3 ? 1000 : 540);
+        await rdWait(g, lv === 3 ? 1000 : 480);
         if(g.skipPhase) break;
         noahRdTellHide(g);
         await rdWait(g, 100);
@@ -18757,7 +18865,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(!g.skipPhase){ rdSfx.tick(100); await rdWait(g, 220); }
   }
   async function noahRdBurstPhase(g){
-    g.phase = 'burst'; g.skipPhase = false;
+    g.phase = 'burst'; g.skipPhase = !!g.skipAll;
     const el = g.el, head = el.querySelector('.rdHeadJp');
     await rdSeq(g, [
       [()=>{ el.classList.add('coreCharge'); rdSfx.charge(); noahRdStream(g, 26, 'ring'); }, 230],
@@ -18770,7 +18878,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
         rdSfx.burst(g.lv);
         head.textContent = '試作体 生成';
       }, 90],
-      [()=>{ g.cardEls.forEach(c=>c.classList.add('out')); rdSfx.fly(); rdLater(g, 300, ()=>rdSfx.land()); }, 520],
+      [()=>{ g.cardEls.forEach(c=>c.classList.add('out')); rdSfx.fly(); rdLater(g, 380, ()=>rdSfx.land()); }, 520],
     ]);
     if(g.skipPhase){ g.cardEls.forEach(c=>c.classList.add('hurry')); rdLater(g, 220, ()=>g.cardEls.forEach(c=>c.classList.remove('hurry'))); }
     el.classList.remove('coreCharge', 'pctOn'); el.classList.add('coreGone');
@@ -18802,7 +18910,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     g.phase = 'flip';
     const order = g.cards.slice().sort((a, b)=>a.rank - b.rank || a.i - b.i);   // 低いレアから。いちばん良いカードを最後に
     for(const c of order){
-      g.skipPhase = false;
+      g.skipPhase = !!g.skipAll;
       const ce = g.cardEls[c.i];
       if(c.rank <= 1){
         await rdSeq(g, [[()=>noahRdFlipCard(g, c), c.rank ? 310 : 250]]);
@@ -18828,32 +18936,60 @@ function showHandPopup(index){ if(game.inputLocked) return;
       if(c.rank === 4) noahRdDim(g, c, false);
     }
   }
+  // 結果：この画面がそのまま「選ぶ画面」。カードをタップすると、この画面の上に詳細が開く（× で戻る）。スルーもここで
   function noahRdResult(g){
     g.phase = 'result'; g.skipPhase = false; g.resultAt = performance.now();
+    game.inputLocked = g.locked;   // 上に開く詳細・配備先のボタンが効くように（盤面は演出が覆っているので触れない）
     const el = g.el;
     el.classList.add('result');
     el.querySelector('.rdHeadJp').textContent = '試作完了';
     const best = g.cards.reduce((b, c)=>c.rank > b.rank ? c : b, g.cards[0]);
     if(best && best.rank >= 2) g.cardEls[best.i].classList.add('best');
-    el.querySelector('.rdResult').innerHTML = `<div class="t1">開発候補 ${g.cards.length}件</div><div class="t2">カードをタップ：詳しく見る<br>ほかの場所をタップ：開発するカードを選ぶ</div>`;
-    el.querySelector('.rdHint').textContent = 'TAP TO CONTINUE';
-    rdSfx.result(g.maxRank);
+    el.querySelector('.rdResult').innerHTML = `<div class="t1">開発候補 ${g.cards.length}件</div><div class="t2">カードをタップすると、詳しく見て開発できます</div><button type="button" class="rdThrough">スルー（RP返還なし）</button>`;
+    el.querySelector('.rdHint').textContent = '';
+    if(g.skipAll && best){   // SKIP で来たとき：いちばん良いカードの音と光だけは鳴らす
+      const ce = g.cardEls[best.i];
+      rdSfx.stamp(best.rank);
+      if(best.rank >= 2){ noahRdWave(g, ce, RD_RARITY_RGB[best.rarity], best.rank === 4 ? 8 : 5); noahRdBurst(g, ce, best.rank === 4 ? 70 : 30, best.rank === 4 ? RD_RAINBOW_RGB : RD_RARITY_RGB[best.rarity]); }
+    }else rdSfx.result(g.maxRank);
+  }
+  // SKIP：残りの場面をすぐ終わらせて、結果（選ぶ画面）へ
+  function noahRdSkipAll(g){
+    if(!g || g.dead || g.phase === 'result') return;
+    g.skipAll = true; g.skipPhase = true;
+    if(g.waitRes) g.waitRes();
+  }
+  // スルー（RP は返らない）
+  function noahRdThrough(g){
+    playModalCancelSound();
+    addLog(`研究開発：候補をスルー。RP-${g.costPaid}`);
+    noahRdFinish(g, { to:'none' });
+    if(game.endlessIntermission) showEndlessIntermissionMenu();
+  }
+  // 結果の上に詳細などのポップアップが開いている間：ポップアップを演出より手前に出し、後ろの動きは止める（軽く）
+  function noahRdSyncModal(){
+    const g = noahGacha;
+    const open = ui.modalBg.style.display === 'flex';
+    const over = !!(g && !g.dead && g.phase === 'result' && open);
+    ui.modalBg.classList.toggle('overGacha', over);
+    if(g && !g.dead) g.el.classList.toggle('held', over);
   }
   function noahRdTap(e){
     const g = noahGacha;
     if(!g || g.dead) return;
-    if(e.target.closest && e.target.closest('.rdSkip')){ e.stopPropagation(); playTapSound(); noahRdFinish(g, { to:'choices' }); return; }
+    const t = e.target && e.target.closest ? e.target : null;
+    if(t && t.closest('.rdSkip')){ e.stopPropagation(); if(g.phase !== 'result'){ playTapSound(); noahRdSkipAll(g); } return; }
     const now = performance.now();
+    if(g.phase === 'result'){
+      if(now - (g.resultAt || 0) < 350) return;   // 連打の続きで、出た直後のカードやスルーを押してしまわないように
+      if(t && t.closest('.rdThrough')){ noahRdThrough(g); return; }
+      const ce = t ? t.closest('.rdCard') : null;
+      const c = ce ? g.cards[Number(ce.dataset.i)] : null;
+      if(c) showTrialChoiceDetail(c.id, g.ids, g.costPaid, { gacha:true });   // 結果の上に詳細を開く（× で結果に戻る）
+      return;   // ほかの場所は何もしない
+    }
     if(now - g.lastTap < 140) return;
     g.lastTap = now;
-    if(g.phase === 'result'){
-      if(now - (g.resultAt || 0) < 350) return;   // 連打の続きで結果をすぐ閉じない（結果を一目見られるように）
-      const ce = e.target.closest ? e.target.closest('.rdCard') : null;
-      const c = ce ? g.cards[Number(ce.dataset.i)] : null;
-      playTapSound();
-      noahRdFinish(g, c ? { to:'detail', id:c.id } : { to:'choices' });
-      return;
-    }
     g.skipPhase = true;
     if(g.waitRes) g.waitRes();
   }
@@ -18862,7 +18998,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     g.dead = true;
     if(g.waitRes) g.waitRes();
     g.timers.forEach(t=>clearTimeout(t)); g.timers.clear();
-    if(g.fx){ cancelAnimationFrame(g.fx.raf); g.fx.ps.length = 0; }
+    if(g.fx){ cancelAnimationFrame(g.fx.raf); g.fx.raf = 0; g.fx.ps.length = 0; }
     const el = g.el, run = String(g.run);
     el.classList.remove('in');
     el.classList.add('out');   // 消える間（0.22秒）もタップを受け止めて、下の選択画面に当たらないようにする
@@ -18875,6 +19011,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
       const cv = el.querySelector('.rdFx'); cv.width = 1; cv.height = 1;
     }, 240);
     if(noahGacha === g) noahGacha = null;
+    ui.modalBg.classList.remove('overGacha');
     noahBgmDuck(1);
     game.inputLocked = g.locked;
     noahRdGuardUntil = performance.now() + 360;
@@ -19014,22 +19151,27 @@ function showHandPopup(index){ if(game.inputLocked) return;
       if(game.endlessIntermission) showEndlessIntermissionMenu();
     });
   }
-  function showTrialChoiceDetail(id, choices, costPaid){
+  // opt.gacha … ガチャ演出の結果から開いた（× や「戻る」で演出の結果画面に戻る。開発したら演出を閉じる）
+  function showTrialChoiceDetail(id, choices, costPaid, opt={}){
     const unit=curUnit();
+    const toGacha=()=>!!(opt.gacha && noahGacha);
     openCardDetailModal(id, {
       actionText:'開発',
       effectText:cardEffectSummary(id, unit),
       noteHtml:`${cardEffectDetail(id, unit)}<br><br>このカードをAA機へ配備します。出撃中の機体は山札へ加えて終幕を除いてシャッフル、基地にいる機体は基地内へ入ります。`,
-      onCloseX(){ showTrialDevelopmentChoices(choices, costPaid); },
-      onAction(){ showTrialDeployTargetSelection(id, choices, costPaid); }
+      onCloseX(){ if(!toGacha()) showTrialDevelopmentChoices(choices, costPaid); },
+      onAction(){ showTrialDeployTargetSelection(id, choices, costPaid, opt); }
     });
   }
-  function showTrialDeployTargetSelection(id, choices, costPaid){
+  function showTrialDeployTargetSelection(id, choices, costPaid, opt={}){
+    const toGacha=()=>!!(opt.gacha && noahGacha);
     const d=def(id);
     let body=`<div class="muted">${d.name} の配備先を選択してください。<br>出撃中の機体は山札へ追加して終幕を除いてシャッフル、基地にいる機体は基地内へ入ります。</div><div style="margin-top:10px;">`;
     body += game.units.map((u,i)=>`<button class="listCard" data-trial-deploy="${i}"><div><div class="name">${u.name}</div><div class="sub">状態：${game.endlessIntermission ? '幕間基地' : stateLabels[u.state]} / 山札 ${u.deck.length} / 手札 ${u.hand.length} / 基地内 ${u.discard.length}</div></div><div>${newCardPlaceLabel(u)}へ</div></button>`).join('');
     body += '</div>';
-    openModal('配備先選択', body, [{text:'戻る', keepOpen:false, onClick(){ showTrialDevelopmentChoices(choices, costPaid); }}]);
+    // v383：× でも候補に戻る（前は × で閉じると候補ごと消えていた）。演出から来たときは演出の結果画面に戻る
+    const back=()=>{ if(!toGacha()) showTrialDevelopmentChoices(choices, costPaid); };
+    openModal('配備先選択', body, [{text:'戻る', keepOpen:false, onClick:back}], { onCloseX:back });
     ui.modalBody.querySelectorAll('[data-trial-deploy]').forEach(btn=>{
       btn.addEventListener('click',()=>{
         const i=Number(btn.getAttribute('data-trial-deploy'));
@@ -19042,6 +19184,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
         showToast(`${target.name}へ${d.name}を配備`);
         recordMetricHistory('trial-develop');
         closeModal();
+        if(toGacha()) noahRdFinish(noahGacha, { to:'none' });   // v383：開発したら演出を閉じる
         render();
         if(game.endlessIntermission) showEndlessIntermissionMenu();
       });
