@@ -37,6 +37,7 @@
 // v381〜：熱のための工夫。iPhone が毎秒30回に抑える状態（熱い・低電力モード）が3分続いたら画質を1段だけ下げる（bridge.qualityChanged で知らせる）。
 //   画面に6秒触っていないときは、動きのないときの描く回数を毎秒20回ほどに（bridge.lastInputAt）。stats() に診断表示用の数を足した。
 // v382〜：画質1・2では戦術パネルの絵を小さくする（768×384 / 512×256。GPU へ写す量と2Dで描く手間を減らす）。
+// v385〜：機体のマスを押している間は水色の枠（離すと index.html の機体解析HUD が開く。bridge.inspectUnitAt）。
 // =============================================================================
 (function () {
 'use strict';
@@ -3008,7 +3009,7 @@ function start(bridge) {
   function updatePickVisuals(g) {
     const target = pressId !== null ? pressTarget : null;
     const unit = bridge.curUnit();
-    let frameOn = false, valid = true, ghostOn = false;
+    let frameOn = false, valid = true, ghostOn = false, inspect = false;
     if (target && target.kind === 'cell' && unit) {
       const { col, row } = target.ref;
       if (choosingCell(g)) {
@@ -3018,13 +3019,15 @@ function start(bridge) {
         ghostOn = valid && !current;
       } else if (g.phase === 'move' && unit.state === 'deployed' && bridge.unitCol(unit) === col && unit.row === row) {
         frameOn = true;   // 自機のマス：押すと移動を始められる
+      } else if (bridge.inspectUnitAt && bridge.inspectUnitAt(col, row) >= 0) {
+        frameOn = inspect = true;   // v385：機体のマス：離すと機体解析が開く（水色の枠）
       }
     }
     pickFrame.visible = frameOn;
     pickRing.visible = !!(target && target.kind === 'kaiju');
     if (frameOn) {
       pickFrame.position.set(target.ref.center.x, PANEL_Y + 0.01, target.ref.center.z);
-      pickFrame.material.color.set(valid ? 0xffffff : 0xff4a4a);
+      pickFrame.material.color.set(inspect ? 0x8fd8ff : (valid ? 0xffffff : 0xff4a4a));
     }
     if (ghostOn) {
       const type = bridge.aircraftIndex(unit);
@@ -3961,5 +3964,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v382' };
+window.NOAH3D = { start, version: 'v385' };
 })();
