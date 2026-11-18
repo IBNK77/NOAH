@@ -39,6 +39,8 @@
 // v382〜：画質1・2では戦術パネルの絵を小さくする（768×384 / 512×256。GPU へ写す量と2Dで描く手間を減らす）。
 // v385〜：機体のマスを押している間は水色の枠（離すと index.html の機体解析HUD が開く。bridge.inspectUnitAt）。
 // v389〜：怪獣の写真 kaijuShots（怪獣情報のポップアップの「メイン・正面・真横」のモニター。怪獣だけを決まったカメラで撮って 2D の canvas へ写す）。
+// v390〜：メインのカメラを足の裏より上（SHOT_MAIN.camH）に置く（地面より下から見上げていたので、手前の足が浮いて見えていた）。
+// v391〜：メインは右前から（顔が左向き・尾が右へ大きく入る）、真横も右から撮って、3つのモニターの向きをそろえた（SHOT_MAIN.az・SHOT_SIDE）。
 // =============================================================================
 (function () {
 'use strict';
@@ -3533,14 +3535,18 @@ function start(bridge) {
   //   霧は遠くへやって効かなくし、背景はモニターの色（SHOT_BG）。光・影・まぶた・胸の光などは盤面と同じ（いまの姿勢のまま撮る）。
   //   写す範囲は、骨で動かした後の体の頂点（SHOT_SAMPLE 個ほど）で決める（体の箱だと尾の分だけ空きが大きくなるため）。
   //   終わったら全部戻して、いつもの盤面をすぐ描き直す（盤面の見た目は変わらない。v380 の snapshot と同じやり方）。
-  //   main  … 斜め前（左前 SHOT_MAIN.az°）から、少し見上げる（pitch°。遠近あり）。体がちょうど収まる距離・真ん中に合わせる
-  //   front … 正面、side … 真横（左から撮るので顔が右）。どちらも正射影で、足の裏が下から padB の所
+  //   main  … 斜め前（v391〜 右前 SHOT_MAIN.az°。顔が左向き）の、足の少し上の高さ（camH）から体を見上げる（遠近あり）。体がちょうど収まる距離・真ん中に合わせる
+  //   front … 正面、side … 真横（v391〜 右から撮るので、メインと同じく顔が左。SHOT_SIDE）。どちらも正射影で、足の裏が下から padB の所
   //   返す値：{ ok, views:[{ view, y0, yH, x0, box }] } … y0・yH は足の裏と体のいちばん上が、写真の上から何割の所か（x0 は足元の左右の位置）。
-  //           box（main だけ）は写った体の範囲 [左, 上, 右, 下]（写真の左上から何割）
+  //           box・camH・pitch（main だけ）は写った体の範囲 [左, 上, 右, 下]（写真の左上から何割）・カメラの高さ・見上げる角度
   // ---------------------------------------------------------------------------
   const SHOT_BG = new THREE.Color(0x07111d);
-  const SHOT_MAIN = { az: -42, pitch: 16, fov: 30, margin: 0.92 };
-  const SHOT_ORTHO = { padB: 0.1, padT: 0.17, padX: 0.07 };   // 上は左上の「CAM-02」などの文字と目盛りの「80m」が重ならないだけ空ける
+  // camH … カメラの高さ（足の裏＝0・体のいちばん上＝1）。0 より下に置くと足の裏を下から見上げて、手前の足が浮いて見える（v389 の最初はそうなっていた）。
+  //        書かなければ pitch（見上げる角度）で決める。いまは足の少し上（全高の 28%）から、体の真ん中を少し見上げる
+  //   az … 正面からどちらへ回るか（+ が右前＝怪獣の左脚が手前・顔が左向き、- が左前）。v391〜 右前（尾が右へ大きく入る）
+  const SHOT_MAIN = { az: 42, camH: 0.28, pitch: 0, fov: 30, margin: 0.92 };
+  const SHOT_ORTHO = { padB: 0.1, padT: 0.17, padX: 0.07 };
+  const SHOT_SIDE = { from: 1 };    // 真横を撮る側：1 … 右（+X）から（顔が左。v391〜 メインと同じ向き）、-1 … 左（-X）から（顔が右。v389〜v390）   // 上は左上の「CAM-02」などの文字と目盛りの「80m」が重ならないだけ空ける
   const SHOT_SAMPLE = 1600;
   const shotPersp = new THREE.PerspectiveCamera(SHOT_MAIN.fov, 1, 0.1, 400);
   const shotOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
@@ -3610,18 +3616,26 @@ function start(bridge) {
           const t = vh * (1 - O.padB);   // 足の裏から写真の上までの高さ
           Object.assign(shotOrtho, { left: -vh * aspect / 2, right: vh * aspect / 2, top: t, bottom: t - vh, near: 0.1, far: 400 });
           shotOrtho.updateProjectionMatrix();
+          const sf = SHOT_SIDE.from > 0 ? 1 : -1;
           if (front) { shotOrtho.position.set(mid, floor, box.max.z + 40); shotOrtho.lookAt(mid, floor, box.min.z); }
-          else { shotOrtho.position.set(box.min.x - 40, floor, mid); shotOrtho.lookAt(box.max.x, floor, mid); }
+          else if (sf < 0) { shotOrtho.position.set(box.min.x - 40, floor, mid); shotOrtho.lookAt(box.max.x, floor, mid); }
+          else { shotOrtho.position.set(box.max.x + 40, floor, mid); shotOrtho.lookAt(box.min.x, floor, mid); }
           shotOrtho.updateMatrixWorld();
           info.y0 = t / vh; info.yH = (t - (top - floor)) / vh;
-          info.x0 = 0.5 + ((front ? base.x : base.z) - mid) / (vh * aspect);   // 正面は右が +X、真横（左から）は右が +Z
+          info.x0 = 0.5 + ((front ? base.x : base.z) - mid) / (vh * aspect) * (front || sf < 0 ? 1 : -1);   // 正面は右が +X、真横は左からなら右が +Z（右からなら -Z）
           cam = shotOrtho;
         } else {
-          const A = THREE.MathUtils.degToRad(SHOT_MAIN.az), P = THREE.MathUtils.degToRad(SHOT_MAIN.pitch);
-          const back = new THREE.Vector3(Math.sin(A) * Math.cos(P), -Math.sin(P), Math.cos(A) * Math.cos(P));   // 体からカメラへの向き
+          const A = THREE.MathUtils.degToRad(SHOT_MAIN.az), P = THREE.MathUtils.degToRad(SHOT_MAIN.pitch || 0);
+          const back = new THREE.Vector3(Math.sin(A) * Math.cos(P), -Math.sin(P), Math.cos(A) * Math.cos(P));   // 体からカメラへの向き（pitch で決めるとき）
+          const flat = new THREE.Vector3(Math.sin(A), 0, Math.cos(A));                                           // 水平の向き（camH で決めるとき）
+          const camY = Number.isFinite(SHOT_MAIN.camH) ? floor + SHOT_MAIN.camH * (top - floor) : null;           // カメラの高さ（足の裏より上に置く）
           const tgt = box.getCenter(new THREE.Vector3());
           shotPersp.fov = SHOT_MAIN.fov; shotPersp.aspect = aspect; shotPersp.near = 0.1; shotPersp.far = 400; shotPersp.updateProjectionMatrix();
-          const place = d => { shotPersp.position.copy(tgt).addScaledVector(back, d); shotPersp.up.set(0, 1, 0); shotPersp.lookAt(tgt); shotPersp.updateMatrixWorld(); shotPersp.matrixWorldInverse.copy(shotPersp.matrixWorld).invert(); };
+          const place = d => {
+            if (camY !== null) { shotPersp.position.copy(tgt).addScaledVector(flat, d); shotPersp.position.y = camY; }
+            else shotPersp.position.copy(tgt).addScaledVector(back, d);
+            shotPersp.up.set(0, 1, 0); shotPersp.lookAt(tgt); shotPersp.updateMatrixWorld();
+          };
           const extent = () => {
             let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
             for (const p of pts) { shotV.copy(p).project(shotPersp); if (shotV.x < x0) x0 = shotV.x; if (shotV.x > x1) x1 = shotV.x; if (shotV.y < y0) y0 = shotV.y; if (shotV.y > y1) y1 = shotV.y; }
@@ -3646,6 +3660,9 @@ function start(bridge) {
           place(d);
           const e = extent();
           info.box = [(e.x0 + 1) / 2, (1 - e.y1) / 2, (e.x1 + 1) / 2, (1 - e.y0) / 2];   // 写った体の範囲 [左, 上, 右, 下]（写真の左上から何割）
+          info.camH = (shotPersp.position.y - floor) / (top - floor);   // カメラの高さ（足の裏＝0・体のいちばん上＝1）。0 より下だと足の裏を下から見上げて、浮いて見える
+          shotPersp.getWorldDirection(shotV);
+          info.pitch = THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, shotV.y))));   // 見上げる角度（+ が上向き）
           shotV.copy(base).project(shotPersp);
           info.y0 = 0.5 - shotV.y / 2; info.x0 = 0.5 + shotV.x / 2;
           cam = shotPersp;
@@ -4005,7 +4022,8 @@ function start(bridge) {
     kaijuReal() { return !!kaiju.real; },
     // v389：怪獣の写真（メイン・正面・真横）。list … [{ view:'main'|'front'|'side', canvas }]。写せなければ null
     kaijuShots(list) { return kaijuShots(list); },
-    debugShotMain(o) { if (o) Object.assign(SHOT_MAIN, o); return Object.assign({}, SHOT_MAIN); },   // テスト用（v389）：メインの写真の角度
+    debugShotMain(o) { if (o) Object.assign(SHOT_MAIN, o); return Object.assign({}, SHOT_MAIN); },
+    debugShotSide(from) { if (from) SHOT_SIDE.from = from > 0 ? 1 : -1; return SHOT_SIDE.from; },   // テスト用（v391）：真横を撮る側   // テスト用（v389）：メインの写真の角度（{ az, camH, pitch, fov, margin }。camH を null にすると pitch で決める）
     // v380 ソフトリフレッシュ（3Dの作り直し）用。
     //   snapshot：いまの盤面を1枚描いて2Dのキャンバスに写し、3Dの絵のすぐ上にかぶせて返す（作り直す間はこの絵を見せておく。
     //             片付けるのは呼んだ側。止めても消えない）。描けなければ null
@@ -4131,5 +4149,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v389' };
+window.NOAH3D = { start, version: 'v391' };
 })();

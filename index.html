@@ -435,6 +435,16 @@ SAVE / CONTINUE（v336〜）：
   ・EP・VSP・DDP は、写真の下に3つの札（数・棒・次の予測）。次で減る分は白、防衛軍の刺激で増える EP は黄色で点滅。DDP は最終防衛線までの距離も。
   ・noah3d.js も v389（sw.js の noah3d.js の大きさの目安も直した）。
   ・テスト用：noah3d の handle.kaijuShots(list) / debugShotMain({ az, pitch, fov, margin })
+- v390〜：怪獣情報のポップアップのメインのモニター（CAM-01 MAIN）で、手前の足（怪獣の右脚）が地面から浮いて見えていたのを直した。
+  ・足の裏そのものは地面に着いていた（両足とも全高の ±0.2% 以内）。カメラが地面よりわずかに下（全高の −7%）にあり、足の裏を下から見上げていたため。
+  ・カメラの高さを足の少し上（全高の 28%。noah3d.js の SHOT_MAIN.camH）にした。向き（左前）と、体を少し見上げる構図はそのまま（見上げる角度は約5°）。
+  ・noah3d.js も v390（sw.js の noah3d.js の大きさの目安も直した）。テスト用：kaijuShots の main の返す値に camH（カメラの高さ）・pitch（見上げる角度）。
+- v391〜：怪獣情報のポップアップのモニターを「左向き」にした（v390 の右向きと見比べる版）。
+  ・CAM-01 MAIN：右前から撮る（怪獣の左脚が手前・顔が左向き・尾が右へ大きく入る）。高さは v390 と同じ足の少し上（全高の 28%）。
+  ・CAM-03 SIDE：右から撮って、メインと同じく顔が左向きに（尾は右）。3つのモニターの向きがそろう。CAM-02 FRONT はそのまま。
+  ・右前・右からは、日の光（左上から）の当たらない側になるが、空の光と縁の光で暗くなりすぎないのを、森林・海底の両方で確かめた。
+  ・向きは noah3d.js の SHOT_MAIN.az（+42 右前 / -42 左前）と SHOT_SIDE.from（1 右から / -1 左から）の2つの数で戻せる。
+  ・noah3d.js も v391（sw.js の目安も直した）。テスト用：noah3d の handle.debugShotSide(1|-1)
 
 ===============================================================================
 -->
@@ -6124,7 +6134,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v389',
+    currentPrototypeVersion:'v391',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -20644,6 +20654,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
   // v389：メイン・正面・真横の3つのモニター（特撮・SF の資料によくある、メイン＋サブの写し方）。
   //   中身は 3D のモデルを noah3d.js の kaijuShots で撮った写真（開いた直後に1回。いまの姿勢・ステージの光のまま）。
   //   正面・真横は正射影で、左に全高の目盛り（heightM。足の裏が 0）。撮れないとき（2D表示・モデルを読み込み中）は上から見た絵を1枚
+  //   v391〜：メインは右前から・真横は右からで、どちらも顔が左向き（向きは noah3d.js の SHOT_MAIN.az・SHOT_SIDE）
   const KP_CAMS = { main:'CAM-01 · MAIN', front:'CAM-02 · FRONT', side:'CAM-03 · SIDE' };
   function kpCamHtml(view, chg){
     const main = view === 'main';
