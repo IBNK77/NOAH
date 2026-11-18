@@ -41,6 +41,9 @@
 // v389〜：怪獣の写真 kaijuShots（怪獣情報のポップアップの「メイン・正面・真横」のモニター。怪獣だけを決まったカメラで撮って 2D の canvas へ写す）。
 // v390〜：メインのカメラを足の裏より上（SHOT_MAIN.camH）に置く（地面より下から見上げていたので、手前の足が浮いて見えていた）。
 // v391〜：メインは右前から（顔が左向き・尾が右へ大きく入る）、真横も右から撮って、3つのモニターの向きをそろえた（SHOT_MAIN.az・SHOT_SIDE）。
+// v392〜：基地（格納庫）の画面と発進シークエンス（buildHangar・renderHangar。bridge.boardView() が 'hangar' の間は戦場の代わりに描く）。
+//   見下ろしの格納庫・昇降台・機体・整備アーム（index.html の基地メニューのボタンの線の出る所。bridge.hangarAnchors）。
+//   発進：警報 → 台が上の階の滑走路へ昇る → 噛み合う → 点火 → 発進（時間は bridge.hangarInfo().launch）。発進した機体は戦場の下から飛んでくる（bridge.entryFrom）。
 // =============================================================================
 (function () {
 'use strict';
@@ -3054,15 +3057,24 @@ function start(bridge) {
     if (bridge.inputLocked()) return;
     pressId = e.pointerId;
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
-    showPick(pick(e.clientX, e.clientY));
+    showPick(hgOn ? null : pick(e.clientX, e.clientY));
     e.preventDefault();
   }
   function onMove(e) {
     if (pressId !== e.pointerId) return;
-    showPick(pick(e.clientX, e.clientY));
+    showPick(hgOn ? null : pick(e.clientX, e.clientY));
   }
   function onUp(e) {
     if (pressId !== e.pointerId) return;
+    // v392：格納庫では、機体を押したら index.html へ（機体の情報）。マスは選ばない
+    if (hgOn) {
+      const rect = canvas.getBoundingClientRect();
+      const hp = hgPick((e.clientX - rect.left) * (W / Math.max(1, rect.width)), (e.clientY - rect.top) * (H / Math.max(1, rect.height)));
+      pressId = null; showPick(null);
+      if (bridge.inputLocked()) return;
+      if (hp && bridge.hangarTap) { try { bridge.hangarTap(hp.part, { x: e.clientX, y: e.clientY }); } catch (err) {} }
+      return;
+    }
     const target = pick(e.clientX, e.clientY);
     pressId = null;
     showPick(null);
@@ -3347,10 +3359,12 @@ function start(bridge) {
         target.z += (1 - p) * (7 - (u.row + 0.5) + 1.05 + i * 0.12 + 2.5);
         target.y += (1 - p) * 0.4;
       }
-      if (!a.pos) a.pos = target.clone();
+      // v392：基地から発進した直後は、戦場の下（手前）から飛んでくる（bridge.entryFrom）
+      if (!a.pos) { a.pos = target.clone(); try { if (bridge.entryFrom && bridge.entryFrom(u)) { a.pos.z += 6.5; a.pos.y += 0.6; a.entry = true; } } catch (e) {} }
       if (a.pos.distanceToSquared(target) > 2e-5) aircraftMoving = true;
+      else a.entry = false;
       const dx = target.x - a.pos.x;
-      a.pos.lerp(target, 1 - Math.exp(-dt * 9));
+      a.pos.lerp(target, 1 - Math.exp(-dt * (a.entry ? 4.2 : 9)));
       const phase = now / 330 + type * 1.45, phase2 = now / 520 + type * 0.9;
       const bob = Math.sin(phase) * (type === 0 ? 0.038 : type === 1 ? 0.034 : 0.03);
       const grp = a.model.group;
@@ -3582,6 +3596,7 @@ function start(bridge) {
     const th = y + rowH;
     const k = Math.min(1, src.width / tw, src.height / th);
     const pr = renderer.getPixelRatio();
+    if (hgOn) leaveHangar();   // v392：格納庫の画面の間は、戦場の見え方（光・霧）に戻してから撮る（撮ったあとの renderFrame で格納庫に戻る）
     const hidden = [];
     const hide = parent => {
       for (const o of parent.children) {
@@ -3706,6 +3721,975 @@ function start(bridge) {
     return { ok: out.length > 0, views: out };
   }
 
+  // ===========================================================================
+  // v392 基地（格納庫）の画面と発進シークエンス
+  // ---------------------------------------------------------------------------
+  // index.html が「いまは基地の画面」と言っている間（bridge.boardView() === 'hangar'）は、戦場の代わりに格納庫を描く。
+  //   ・同じ scene の中に格納庫（hg.root）を置き、戦場の物を一時的に隠して描く（光の数・種類は変えない＝シェーダーを作り直さない）。
+  //     戦場へ戻るときは、隠した物の見え方・霧・光・映り込みをそのまま戻す（enterHangar / leaveHangar）。
+  //   ・見下ろし（HG.elev°）。真ん中に昇降台（ふだんは回らない）と機体、まわりに4本の整備アーム。基地メニューのボタンの線は
+  //     アームの先から出る（アームの先の画面の位置を bridge.hangarAnchors へ渡し、index.html が HTML のボタンと線を描く）。
+  //   ・発進（bridge.hangarInfo().launch。時間 t と区切り times は index.html が決める）：
+  //     警報（回転灯・アームが退く）→ 台が上の階の滑走路へ昇る（カメラも昇る。縦穴の光の輪が流れる）
+  //     → 滑走路の穴にカチッと噛み合う（留め具が閉じて緑に）→ 噴射 → 滑走路を走って画面の上へ → index.html が白く光らせて戦場へ。
+  //   ・大破の機体は、暗い色・煙・修理のアームの火花・台の赤い灯り。
+  //   ・すべて three.js の形と、ここで描く絵（canvas）で作る（画像のファイルは足さない）。
+  // ===========================================================================
+  const HG = {
+    R: 2.0,            // 昇降台の半径
+    S: 3.4,            // 機体の大きさ（盤面の機体の何倍か）
+    craftY: 0.42,      // 台の面から機体の中心までの高さ
+    floor: 18,         // 細かい絵を貼る床の広さ（一辺）
+    camH: 14.2,        // ふだんのカメラの高さ（台の面から）
+    elev: 80,          // 見下ろす角度（90 で真上）
+    fov: 40,
+    aimZ: 0.3,         // ふだん見ている所（台の中心から手前へ）
+    shaft0: 16.5,      // 縦穴の下の端（ふだんのカメラより上）
+    deckY: 30,         // 上の階（滑走路）の床の高さ
+    deckLen: 66,       // 滑走路の長さ（台の穴から先）
+  };
+  const HG_BG = 0x04070c;
+  // 4本の整備アーム（基地メニューのボタンの線が出る所）。天井から吊った左右2本のレール（ガントリー）の台車から柱が下がり、
+  //   その先の水平な2本の腕（肩・ひじは水平に回る）の先に工具と灯り（anchor）。色はガンメタル・黒・白い文字（ミリタリー調・色は控えめ）
+  //   side … どちらのレールか（-1 左・1 右）、tz … 台車の位置（奥 −・手前 +）、head … 腕の先を置く所 [x, z]（機体の上）
+  const HG_RAIL = { x: 3.0, y: 4.9, len: 22, w: 0.46, h: 0.5 };
+  const HG_ARM = { L1: 1.4, L2: 1.25, shoulderY: 2.7, tool: 0.42 };
+  const HG_ARMS = [
+    { key: 'upgrade', side: -1, tz: -2.35, head: [-0.98, -1.3] },    // 左上：機体強化
+    { key: 'card', side: 1, tz: -1.7, head: [0.92, -0.6] },          // 右：カード強化/除去
+    { key: 'rd', side: -1, tz: 2.15, head: [-1.18, 1.08] },          // 左下：研究開発
+    { key: 'hotline', side: 1, tz: 2.65, head: [1.12, 1.28] },       // 右下：防衛軍攻撃中止要請
+  ];
+  // 水平な2本の腕：肩 (sx, sz) から先 (px, pz) へ。ひじは機体（原点）から遠い側に曲げる。返す値は肩・前腕の向き（rotation.y）
+  function hgArmIK(sx, sz, px, pz, out) {
+    const L1 = HG_ARM.L1, L2 = HG_ARM.L2;
+    let dx = px - sx, dz = pz - sz, d = Math.hypot(dx, dz);
+    const dMax = L1 + L2 - 1e-3, dMin = Math.abs(L1 - L2) + 1e-3;
+    if (d > dMax) { dx *= dMax / d; dz *= dMax / d; d = dMax; }
+    if (d < dMin) { const k = dMin / Math.max(1e-6, d); dx *= k; dz *= k; d = dMin; }
+    const phi = Math.atan2(dz, dx);
+    const beta = Math.acos(Math.max(-1, Math.min(1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d))));
+    let best = null;
+    for (const sgn of [1, -1]) {
+      const a = phi + sgn * beta, ex = sx + Math.cos(a) * L1, ez = sz + Math.sin(a) * L1;
+      const far = ex * ex + ez * ez;
+      if (!best || far > best.far) best = { ex, ez, far };
+    }
+    const tx = sx + dx, tz = sz + dz;
+    out.upper = Math.atan2(sx - best.ex, sz - best.ez);          // 肩：ローカル −Z をひじへ
+    out.fore = Math.atan2(best.ex - tx, best.ez - tz);           // 前腕：ひじから先へ（world の向き）
+    return out;
+  }
+  let hg = null, hgOn = false, hgSaved = null, hgEnterAt = 0, hgAnchorKey = '', hgAnchorAt = 0, hgBusy = false, hgLastInfo = null;
+  const hgV = new THREE.Vector3(), hgV2 = new THREE.Vector3(), hgM = new THREE.Matrix4(), hgQ = new THREE.Quaternion(), hgC = new THREE.Color();
+  const hgBgColor = new THREE.Color(HG_BG);
+  const hgEase = p => { p = clamp01(p); return p * p * (3 - 2 * p); };
+  const hgEaseOut = (p, k = 3) => 1 - Math.pow(1 - clamp01(p), k);
+  const hgEaseIn = (p, k = 2) => Math.pow(clamp01(p), k);
+
+  // ---- 絵（canvas）-------------------------------------------------------------
+  const HG_FONT = '"NoahHUD","Avenir Next Condensed","DIN Condensed","Arial Narrow",sans-serif';
+  // 格納庫の床（台のまわり）。台の中心が絵の真ん中。1px ＝ HG.floor / N マス。上が奥（−Z）
+  function hgFloorTexture() {
+    const N = 1024, F = HG.floor, k = N / F, c0 = N / 2, TAU = Math.PI * 2;
+    const tex = canvasTexture(N, N, (g) => {
+      const r = rng(39201);
+      const X = x => c0 + x * k, Z = z => c0 + z * k;
+      g.fillStyle = '#151c25'; g.fillRect(0, 0, N, N);
+      // 天井の照明の明るさ（台のまわりが明るく、外へ暗く）
+      let grd = g.createRadialGradient(c0, c0 - 0.5 * k, 1.2 * k, c0, c0, 8.6 * k);
+      grd.addColorStop(0, 'rgba(96,118,144,.52)'); grd.addColorStop(0.55, 'rgba(62,80,102,.22)'); grd.addColorStop(1, 'rgba(40,52,66,0)');
+      g.fillStyle = grd; g.fillRect(0, 0, N, N);
+      // 床の板（1.5マス角）：明るさを少しずつ変え、継ぎ目・縁の光・四隅のボルト。ところどころ通気口
+      const PS = 1.5, s = PS * k;
+      for (let i = -6; i < 6; i++) for (let j = -6; j < 6; j++) {
+        const x0 = X(i * PS), y0 = Z(j * PS);
+        const tone = (r() - 0.5) * 0.09;
+        g.fillStyle = tone > 0 ? `rgba(150,176,206,${tone.toFixed(3)})` : `rgba(0,0,0,${(-tone * 1.6).toFixed(3)})`;
+        g.fillRect(x0, y0, s, s);
+        if (r() < 0.1 && Math.hypot(i * PS + PS / 2, j * PS + PS / 2) > 3.4) {
+          g.fillStyle = 'rgba(0,0,0,.42)';
+          for (let q = 0; q < 7; q++) g.fillRect(x0 + s * 0.2, y0 + s * (0.2 + q * 0.09), s * 0.6, s * 0.035);
+        }
+        g.fillStyle = 'rgba(0,0,0,.62)'; g.fillRect(x0, y0, s, 2.4); g.fillRect(x0, y0, 2.4, s);
+        g.fillStyle = 'rgba(170,196,226,.085)'; g.fillRect(x0 + 2.4, y0 + 2.4, s - 3, 1.3); g.fillRect(x0 + 2.4, y0 + 2.4, 1.3, s - 3);
+        g.fillStyle = 'rgba(0,0,0,.34)';
+        for (const [bx, by] of [[7, 7], [s - 7, 7], [7, s - 7], [s - 7, s - 7]]) { g.beginPath(); g.arc(x0 + bx, y0 + by, 2.4, 0, TAU); g.fill(); }
+      }
+      // 汚れ・こすれ跡
+      for (let i = 0; i < 700; i++) {
+        const x = r() * N, y = r() * N, rad = 2 + r() * 9;
+        g.fillStyle = `rgba(0,0,0,${(0.03 + r() * 0.05).toFixed(3)})`;
+        g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill();
+      }
+      g.lineCap = 'round';
+      for (let i = 0; i < 14; i++) {
+        const rr = (3.0 + r() * 2.6) * k, a0 = r() * TAU;
+        g.strokeStyle = `rgba(0,0,0,${(0.08 + r() * 0.1).toFixed(3)})`; g.lineWidth = 3 + r() * 6;
+        g.beginPath(); g.arc(c0, c0, rr, a0, a0 + 0.3 + r() * 0.7); g.stroke();
+      }
+      // 台の穴のまわり：暗い溝 → 細い金属の縁 → 警戒線（黄と黒の斜めの縞）→ 白い細線
+      const annulus = (ra, rb, style) => { g.fillStyle = style; g.beginPath(); g.arc(c0, c0, rb * k, 0, TAU); g.arc(c0, c0, ra * k, 0, TAU, true); g.fill(); };
+      const R0 = HG.R + 0.04, R1 = HG.R + 0.17, R2 = HG.R + 0.56;
+      annulus(R0 - 0.06, R0 + 0.06, '#05070a');
+      annulus(R0 + 0.06, R1, '#2c3644');
+      for (let i = 0; i < 48; i++) {   // 縁の刻み
+        const a = i / 48 * TAU;
+        g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(c0 + Math.cos(a) * (R0 + 0.07) * k, c0 + Math.sin(a) * (R0 + 0.07) * k); g.lineTo(c0 + Math.cos(a) * (R1 - 0.01) * k, c0 + Math.sin(a) * (R1 - 0.01) * k); g.stroke();
+      }
+      g.save();
+      g.beginPath(); g.arc(c0, c0, R2 * k, 0, TAU); g.arc(c0, c0, R1 * k, 0, TAU, true); g.clip();
+      g.fillStyle = '#0f1013'; g.fillRect(0, 0, N, N);
+      g.fillStyle = '#8c6a28';
+      const n = 52, w = TAU / n / 2, sk = 0.15;
+      for (let i = 0; i < n; i++) {
+        const a = i / n * TAU, ra = (R1 - 0.05) * k, rb = (R2 + 0.05) * k;
+        g.beginPath();
+        g.moveTo(c0 + Math.cos(a) * ra, c0 + Math.sin(a) * ra);
+        g.lineTo(c0 + Math.cos(a + w) * ra, c0 + Math.sin(a + w) * ra);
+        g.lineTo(c0 + Math.cos(a + w + sk) * rb, c0 + Math.sin(a + w + sk) * rb);
+        g.lineTo(c0 + Math.cos(a + sk) * rb, c0 + Math.sin(a + sk) * rb);
+        g.closePath(); g.fill();
+      }
+      for (let i = 0; i < 160; i++) {   // 塗装のはげ
+        const a = r() * TAU, rr = (R1 + r() * (R2 - R1)) * k;
+        g.fillStyle = `rgba(10,12,16,${(0.25 + r() * 0.35).toFixed(3)})`;
+        g.beginPath(); g.arc(c0 + Math.cos(a) * rr, c0 + Math.sin(a) * rr, 1 + r() * 3.5, 0, TAU); g.fill();
+      }
+      g.restore();
+      annulus(R2, R2 + 0.035, 'rgba(225,232,240,.55)');
+      annulus(R2 + 0.32, R2 + 0.345, 'rgba(225,232,240,.18)');
+      // 発進の向き（上＝奥）を示す線と矢羽根（塗装）
+      g.fillStyle = 'rgba(206,214,224,.34)';
+      for (const sx of [-1, 1]) g.fillRect(X(sx * 1.25) - 0.04 * k, Z(-8.6), 0.08 * k, (8.6 - (R2 + 0.12)) * k);
+      g.strokeStyle = 'rgba(206,214,224,.24)'; g.lineWidth = 0.085 * k; g.lineJoin = 'miter';
+      for (let zz = -4.75; zz > -8.4; zz -= 1.45) {
+        g.beginPath(); g.moveTo(X(-0.7), Z(zz + 0.5)); g.lineTo(X(0), Z(zz)); g.lineTo(X(0.7), Z(zz + 0.5)); g.stroke();
+      }
+      // 床の灯りの台座（3Dの灯りの下）
+      g.fillStyle = 'rgba(0,0,0,.6)';
+      for (let i = 0; i < 8; i++) for (const sx of [-1, 1]) g.fillRect(X(sx * 1.25) - 0.1 * k, Z(-3.15 - i * 0.75) - 0.17 * k, 0.2 * k, 0.34 * k);
+      // 天井のレールの真下：頭上注意の線（くすんだ黄の破線）と文字
+      g.save();
+      g.setLineDash([0.34 * k, 0.2 * k]); g.lineWidth = 0.05 * k; g.strokeStyle = 'rgba(180,150,80,.38)';
+      for (const sx of [-1, 1]) for (const off of [-0.42, 0.42]) { g.beginPath(); g.moveTo(X(sx * HG_RAIL.x + off), Z(-8.6)); g.lineTo(X(sx * HG_RAIL.x + off), Z(8.6)); g.stroke(); }
+      g.restore();
+      g.font = `700 ${Math.round(0.2 * k)}px ${HG_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = 'rgba(205,212,222,.28)';
+      for (const sx of [-1, 1]) for (const zz of [-0.2, 4.4]) { g.save(); g.translate(X(sx * HG_RAIL.x), Z(zz)); g.rotate(sx * Math.PI / 2); g.fillText('OVERHEAD ARM', 0, 0); g.restore(); }
+      // 床の文字（薄い塗装）
+      g.save(); g.fillStyle = 'rgba(205,216,230,.18)';
+      g.font = `800 ${Math.round(0.5 * k)}px ${HG_FONT}`;
+      g.translate(X(4.45), Z(0.55)); g.rotate(Math.PI / 2); g.fillText('LIFT 01', 0, 0);
+      g.font = `700 ${Math.round(0.26 * k)}px ${HG_FONT}`; g.fillStyle = 'rgba(205,216,230,.14)';
+      g.fillText('N.O.A.H.  ASYLUM ARK HANGAR', 0, 0.62 * k);
+      g.restore();
+      // 外側は暗く（床が闇に溶ける）
+      grd = g.createRadialGradient(c0, c0, 5.6 * k, c0, c0, 9.2 * k);
+      grd.addColorStop(0, 'rgba(3,5,8,0)'); grd.addColorStop(1, 'rgba(3,5,8,.94)');
+      g.fillStyle = grd; g.fillRect(0, 0, N, N);
+    });
+    tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    return tex;
+  }
+  // 昇降台の面（直径 2R）。同心円と放射の継ぎ目・中心のハブ・脚を置く所の印・縁のレール
+  function hgPlatformTexture() {
+    const N = 512, c = N / 2, k = N / (2 * HG.R), TAU = Math.PI * 2;
+    const tex = canvasTexture(N, N, (g) => {
+      const r = rng(5531);
+      let grd = g.createRadialGradient(c, c * 0.92, 0, c, c, c);
+      grd.addColorStop(0, '#3a4757'); grd.addColorStop(0.6, '#2b3644'); grd.addColorStop(1, '#202935');
+      g.fillStyle = grd; g.fillRect(0, 0, N, N);
+      const ringLine = (rr, w, style) => { g.strokeStyle = style; g.lineWidth = w; g.beginPath(); g.arc(c, c, rr * k, 0, TAU); g.stroke(); };
+      for (const rr of [0.48, 1.05, 1.6]) { ringLine(rr, 3, 'rgba(0,0,0,.55)'); ringLine(rr + 0.02, 1.2, 'rgba(180,205,232,.14)'); }
+      for (let i = 0; i < 16; i++) {
+        const a = i / 16 * TAU + 0.1;
+        g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 2.4;
+        g.beginPath(); g.moveTo(c + Math.cos(a) * 1.05 * k, c + Math.sin(a) * 1.05 * k); g.lineTo(c + Math.cos(a) * 1.6 * k, c + Math.sin(a) * 1.6 * k); g.stroke();
+      }
+      // 縁のレール（少し明るい金属）と、ボルト
+      g.strokeStyle = '#3e4b5c'; g.lineWidth = 0.2 * k; g.beginPath(); g.arc(c, c, 1.88 * k, 0, TAU); g.stroke();
+      ringLine(1.98, 2, 'rgba(0,0,0,.7)');
+      g.fillStyle = 'rgba(0,0,0,.4)';
+      for (let i = 0; i < 36; i++) { const a = i / 36 * TAU; g.beginPath(); g.arc(c + Math.cos(a) * 1.72 * k, c + Math.sin(a) * 1.72 * k, 2.2, 0, TAU); g.fill(); }
+      // 中心のハブ（六角）
+      g.fillStyle = '#1d2530'; g.beginPath();
+      for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + Math.PI / 6; g[i ? 'lineTo' : 'moveTo'](c + Math.cos(a) * 0.36 * k, c + Math.sin(a) * 0.36 * k); }
+      g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(180,205,232,.22)'; g.lineWidth = 2; g.stroke();
+      // 脚を置く所（前に1つ・後ろに2つ）：黄色い枠と斜線
+      const pad = (x, z, w, h) => {
+        const px = c + x * k, pz = c + z * k;
+        g.save(); g.beginPath(); g.rect(px - w * k / 2, pz - h * k / 2, w * k, h * k); g.clip();
+        g.fillStyle = 'rgba(20,22,26,.6)'; g.fillRect(px - w * k / 2, pz - h * k / 2, w * k, h * k);
+        g.strokeStyle = 'rgba(176,140,62,.6)'; g.lineWidth = 0.05 * k;
+        for (let q = -6; q < 10; q++) { g.beginPath(); g.moveTo(px - w * k / 2 + q * 0.12 * k, pz + h * k / 2); g.lineTo(px - w * k / 2 + q * 0.12 * k + h * k, pz - h * k / 2); g.stroke(); }
+        g.restore();
+        g.strokeStyle = 'rgba(176,140,62,.8)'; g.lineWidth = 0.04 * k; g.strokeRect(px - w * k / 2, pz - h * k / 2, w * k, h * k);
+      };
+      pad(0, -0.95, 0.34, 0.5); pad(-0.72, 0.42, 0.34, 0.52); pad(0.72, 0.42, 0.34, 0.52);
+      // 汚れ
+      for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(0,0,0,${(0.03 + r() * 0.05).toFixed(3)})`; g.beginPath(); g.arc(r() * N, r() * N, 1 + r() * 6, 0, TAU); g.fill(); }
+      // 外は透明にしない（円の板に貼る）。縁を少し暗く
+      grd = g.createRadialGradient(c, c, 1.75 * k, c, c, 2.0 * k);
+      grd.addColorStop(0, 'rgba(0,0,0,0)'); grd.addColorStop(1, 'rgba(0,0,0,.45)');
+      g.fillStyle = grd; g.fillRect(0, 0, N, N);
+    });
+    tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    return tex;
+  }
+  // 床に塗った機体の名前（AA1 など）。機体が替わるたびに描き直す
+  function hgPaintLabel(canvas, name) {
+    const g = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = 'rgba(214,224,238,.5)';
+    g.font = `800 ${Math.round(h * 0.78)}px ${HG_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(name, w / 2, h * 0.47);
+    // ステンシルの抜き（横の細い切れ目）と、かすれ
+    g.globalCompositeOperation = 'destination-out';
+    g.fillStyle = 'rgba(0,0,0,1)';
+    g.fillRect(0, h * 0.44, w, h * 0.035);
+    const r = rng(name.length * 977 + name.charCodeAt(name.length - 1));
+    for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(0,0,0,${(0.2 + r() * 0.6).toFixed(2)})`; g.beginPath(); g.arc(r() * w, r() * h, 1 + r() * 4, 0, Math.PI * 2); g.fill(); }
+    g.globalCompositeOperation = 'source-over';
+  }
+  // 縦穴の壁（暗い金属・縦のレール・光の輪）。下から上へ繰り返す
+  const hgShaftTexture = () => canvasTexture(128, 256, (g) => {
+    g.fillStyle = '#0b1118'; g.fillRect(0, 0, 128, 256);
+    for (let y = 0; y < 256; y += 64) { g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, y, 128, 3); g.fillStyle = 'rgba(120,150,185,.12)'; g.fillRect(0, y + 3, 128, 1); }
+    for (const x of [8, 64, 120]) { g.fillStyle = '#18212b'; g.fillRect(x - 5, 0, 10, 256); g.fillStyle = 'rgba(150,180,215,.22)'; g.fillRect(x - 5, 0, 1.5, 256); }
+    const band = (y, col, hgt) => { const grd = g.createLinearGradient(0, y - hgt, 0, y + hgt); grd.addColorStop(0, 'rgba(0,0,0,0)'); grd.addColorStop(0.5, col); grd.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = grd; g.fillRect(0, y - hgt, 128, hgt * 2); };
+    band(128, 'rgba(170,230,255,1)', 9);
+    band(128, 'rgba(255,255,255,.9)', 2.5);
+  });
+  // 上の階の床（繰り返し。4マス角）
+  const hgDeckTexture = () => canvasTexture(256, 256, (g) => {
+    const r = rng(812);
+    g.fillStyle = '#121921'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+      const t = (r() - 0.5) * 0.08;
+      g.fillStyle = t > 0 ? `rgba(150,176,206,${t.toFixed(3)})` : `rgba(0,0,0,${(-t * 1.5).toFixed(3)})`;
+      g.fillRect(i * 128, j * 128, 128, 128);
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(i * 128, j * 128, 128, 2); g.fillRect(i * 128, j * 128, 2, 128);
+      g.fillStyle = 'rgba(170,196,226,.08)'; g.fillRect(i * 128 + 2, j * 128 + 2, 125, 1);
+    }
+    for (let i = 0; i < 120; i++) { g.fillStyle = `rgba(0,0,0,${(0.03 + r() * 0.05).toFixed(3)})`; g.beginPath(); g.arc(r() * 256, r() * 256, 1 + r() * 5, 0, Math.PI * 2); g.fill(); }
+  });
+  // 滑走路（幅 4.6 × 長さ 8 を繰り返す）。縁の白線・中心の破線・細かいざらつき
+  const hgRunwayTexture = () => canvasTexture(256, 448, (g) => {
+    const r = rng(77);
+    g.fillStyle = '#0d1218'; g.fillRect(0, 0, 256, 448);
+    for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '160,180,205'},${(0.02 + r() * 0.04).toFixed(3)})`; g.fillRect(r() * 256, r() * 448, 2, 2); }
+    g.fillStyle = 'rgba(230,236,244,.78)'; g.fillRect(10, 0, 7, 448); g.fillRect(239, 0, 7, 448);
+    g.fillStyle = 'rgba(230,236,244,.7)'; g.fillRect(124, 60, 8, 150);
+    g.fillStyle = 'rgba(200,210,222,.22)'; g.fillRect(40, 0, 3, 448); g.fillRect(213, 0, 3, 448);
+    g.fillStyle = 'rgba(0,0,0,.25)'; for (let i = 0; i < 18; i++) { const x = 60 + r() * 136; g.fillRect(x, r() * 448, 3 + r() * 4, 30 + r() * 80); }   // 焦げ跡
+  });
+  // 上の階の、台の穴のまわりの印（透明の地に、警戒線・LOCK の印・矢印・文字）。7 マス角
+  function hgLiftDecalTexture() {
+    const N = 512, c = N / 2, k = N / 7, TAU = Math.PI * 2;
+    return canvasTexture(N, N, (g) => {
+      g.clearRect(0, 0, N, N);
+      const R1 = HG.R + 0.08, R2 = HG.R + 0.52;
+      g.save(); g.beginPath(); g.arc(c, c, R2 * k, 0, TAU); g.arc(c, c, R1 * k, 0, TAU, true); g.clip();
+      g.fillStyle = '#0f1013'; g.fillRect(0, 0, N, N);
+      g.fillStyle = '#8c6a28';
+      const n = 44, w = TAU / n / 2, sk = 0.15;
+      for (let i = 0; i < n; i++) {
+        const a = i / n * TAU, ra = (R1 - 0.05) * k, rb = (R2 + 0.05) * k;
+        g.beginPath(); g.moveTo(c + Math.cos(a) * ra, c + Math.sin(a) * ra); g.lineTo(c + Math.cos(a + w) * ra, c + Math.sin(a + w) * ra);
+        g.lineTo(c + Math.cos(a + w + sk) * rb, c + Math.sin(a + w + sk) * rb); g.lineTo(c + Math.cos(a + sk) * rb, c + Math.sin(a + sk) * rb); g.closePath(); g.fill();
+      }
+      g.restore();
+      g.strokeStyle = 'rgba(225,232,240,.6)'; g.lineWidth = 2.5; g.beginPath(); g.arc(c, c, (R2 + 0.04) * k, 0, TAU); g.stroke();
+      g.font = `800 ${Math.round(0.24 * k)}px ${HG_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = 'rgba(214,224,238,.55)';
+      for (let i = 0; i < 4; i++) {
+        const a = i / 4 * TAU + Math.PI / 4;
+        g.save(); g.translate(c + Math.cos(a) * (R2 + 0.42) * k, c + Math.sin(a) * (R2 + 0.42) * k); g.rotate(a + Math.PI / 2); g.fillText('LOCK', 0, 0); g.restore();
+      }
+      g.fillStyle = 'rgba(214,224,238,.36)'; g.font = `800 ${Math.round(0.34 * k)}px ${HG_FONT}`;
+      g.save(); g.translate(c + (R2 + 0.95) * k, c); g.rotate(Math.PI / 2); g.fillText('DECK 01', 0, 0); g.restore();
+    });
+  }
+  // 噴射の炎（上がノズル：白 → 黄 → 橙 → 透明。横は中心が明るい）
+  const hgFlameTexture = () => canvasTexture(64, 256, (g) => {
+    const along = g.createLinearGradient(0, 0, 0, 256);
+    along.addColorStop(0, 'rgba(255,255,255,1)'); along.addColorStop(0.12, 'rgba(255,240,200,1)'); along.addColorStop(0.35, 'rgba(255,170,80,.85)');
+    along.addColorStop(0.7, 'rgba(255,110,40,.35)'); along.addColorStop(1, 'rgba(255,80,30,0)');
+    g.fillStyle = along; g.fillRect(0, 0, 64, 256);
+    g.globalCompositeOperation = 'destination-in';
+    const across = g.createLinearGradient(0, 0, 64, 0);
+    across.addColorStop(0, 'rgba(0,0,0,0)'); across.addColorStop(0.3, 'rgba(0,0,0,.75)'); across.addColorStop(0.5, 'rgba(0,0,0,1)'); across.addColorStop(0.7, 'rgba(0,0,0,.75)'); across.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = across; g.fillRect(0, 0, 64, 256);
+    g.globalCompositeOperation = 'source-over';
+  });
+  // 回転灯の光の帯（地面に落ちる扇形。2本、反対向き）
+  const hgFanTexture = () => canvasTexture(256, 256, (g) => {
+    const c = 128;
+    for (const a0 of [0, Math.PI]) {
+      const grd = g.createRadialGradient(c, c, 4, c, c, 128);
+      grd.addColorStop(0, 'rgba(255,190,120,.9)'); grd.addColorStop(0.35, 'rgba(255,150,70,.35)'); grd.addColorStop(1, 'rgba(255,120,40,0)');
+      g.fillStyle = grd;
+      g.beginPath(); g.moveTo(c, c); g.arc(c, c, 128, a0 - 0.32, a0 + 0.32); g.closePath(); g.fill();
+    }
+  });
+
+  // ---- 映り込みの空（格納庫：暗い部屋に天井の照明の板と、横の青い光の帯）--------------
+  function hgMakeEnv() {
+    const pm = new THREE.PMREMGenerator(renderer);
+    const sc = new THREE.Scene();
+    const geos = [], mats = [];
+    const mk = (geo, mat) => { geos.push(geo); mats.push(mat); const m = new THREE.Mesh(geo, mat); sc.add(m); return m; };
+    mk(new THREE.BoxGeometry(32, 16, 32), new THREE.MeshBasicMaterial({ color: 0x18202b, side: THREE.BackSide })).position.y = 5;
+    const panelGeo = new THREE.PlaneGeometry(3.4, 1.0); panelGeo.rotateX(Math.PI / 2);
+    const panelMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xeaf3ff).multiplyScalar(5), side: THREE.DoubleSide });
+    geos.push(panelGeo); mats.push(panelMat);
+    for (const [x, z] of [[-4.5, -3], [4.5, -3], [-4.5, 3], [4.5, 3], [0, -8], [0, 8]]) { const p = new THREE.Mesh(panelGeo, panelMat); p.position.set(x, 12.8, z); sc.add(p); }
+    const stripMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x4fb8ff).multiplyScalar(2.4), side: THREE.DoubleSide });
+    const stripGeo = new THREE.PlaneGeometry(28, 0.4); geos.push(stripGeo); mats.push(stripMat);
+    for (const x of [-15.8, 15.8]) { const s = new THREE.Mesh(stripGeo, stripMat); s.rotation.y = Math.PI / 2; s.position.set(x, 2.5, 0); sc.add(s); }
+    const fl = mk(new THREE.PlaneGeometry(32, 32), new THREE.MeshBasicMaterial({ color: 0x0a0e13 })); fl.rotation.x = -Math.PI / 2; fl.position.y = -2.2;
+    const rt = pm.fromScene(sc, 0.04);
+    pm.dispose(); geos.forEach(x => x.dispose()); mats.forEach(x => x.dispose());
+    return rt;
+  }
+
+  // ---- 組み立て ---------------------------------------------------------------
+  function buildHangar() {
+    const t0 = performance.now();
+    const root = new THREE.Group(); root.name = 'noahHangar'; root.visible = false;
+    const O = { root, arms: [], beacons: [], smoke: [], sparks: [], exhaust: [], craft: null, label: '' };
+    const std = (o) => new THREE.MeshStandardMaterial(o);
+    const basic = (o) => new THREE.MeshBasicMaterial(Object.assign({ toneMapped: false }, o));
+    const add = (parent, geo, mat, o = {}) => {
+      const m = new THREE.Mesh(geo, mat);
+      if (o.p) m.position.fromArray(o.p);
+      if (o.r) m.rotation.set(o.r[0], o.r[1], o.r[2]);
+      if (o.shadow) { m.castShadow = true; }
+      if (o.recv) m.receiveShadow = true;
+      parent.add(m); return m;
+    };
+    const envRT = hgMakeEnv();
+    O.envRT = envRT; O.envTex = envRT.texture;
+    const metal = (color, rough = 0.45, metal = 0.5) => std({ color, roughness: rough, metalness: metal, envMap: O.envTex, envMapIntensity: 0.7 });
+
+    // 床（台の穴の開いた板）。UV は床の絵の座標に合わせる
+    const F = HG.floor;
+    const shape = new THREE.Shape();
+    shape.moveTo(-F / 2, -F / 2); shape.lineTo(F / 2, -F / 2); shape.lineTo(F / 2, F / 2); shape.lineTo(-F / 2, F / 2); shape.closePath();
+    const hole = new THREE.Path(); hole.absarc(0, 0, HG.R + 0.04, 0, Math.PI * 2, true); shape.holes.push(hole);
+    const floorGeo = new THREE.ShapeGeometry(shape, 48);
+    { const pos = floorGeo.attributes.position, uv = floorGeo.attributes.uv; for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) + F / 2) / F, (pos.getY(i) + F / 2) / F); uv.needsUpdate = true; }
+    floorGeo.rotateX(-Math.PI / 2);
+    O.floorTex = hgFloorTexture();
+    const floorMat = std({ map: O.floorTex, roughness: 0.62, metalness: 0.32, envMap: O.envTex, envMapIntensity: 0.35 });
+    const floor = add(root, floorGeo, floorMat, { recv: true });
+    // 外側の床（暗い。絵なし）
+    const os = new THREE.Shape();
+    os.moveTo(-45, -45); os.lineTo(45, -45); os.lineTo(45, 45); os.lineTo(-45, 45); os.closePath();
+    const oh = new THREE.Path(); oh.moveTo(-F / 2 + 0.05, -F / 2 + 0.05); oh.lineTo(-F / 2 + 0.05, F / 2 - 0.05); oh.lineTo(F / 2 - 0.05, F / 2 - 0.05); oh.lineTo(F / 2 - 0.05, -F / 2 + 0.05); oh.closePath();
+    os.holes.push(oh);
+    const outerGeo = new THREE.ShapeGeometry(os); outerGeo.rotateX(-Math.PI / 2);
+    add(root, outerGeo, std({ color: 0x07090d, roughness: 0.9, metalness: 0.1 }), { p: [0, -0.01, 0] });
+    // 床の下の穴（台が昇ると見える）
+    const pitGeo = new THREE.CylinderGeometry(HG.R + 0.05, HG.R + 0.05, 7, 64, 1, true);
+    const shaftTex = hgShaftTexture(); shaftTex.wrapS = shaftTex.wrapT = THREE.RepeatWrapping;
+    const pitTex = shaftTex.clone(); pitTex.needsUpdate = true; pitTex.repeat.set(6, 2.4);
+    add(root, pitGeo, basic({ map: pitTex, side: THREE.BackSide, color: 0x6a7a8c }), { p: [0, -3.5, 0] });
+    const pitBottom = new THREE.CircleGeometry(HG.R + 0.06, 48); pitBottom.rotateX(-Math.PI / 2);
+    add(root, pitBottom, basic({ color: 0x020305 }), { p: [0, -6.9, 0] });
+    // 機体の名前（床の塗装）
+    const labelCanvas = document.createElement('canvas'); labelCanvas.width = 512; labelCanvas.height = 192;
+    O.labelCanvas = labelCanvas;
+    O.labelTex = new THREE.CanvasTexture(labelCanvas); O.labelTex.colorSpace = THREE.SRGBColorSpace; O.labelTex.anisotropy = 4;
+    const labelGeo = new THREE.PlaneGeometry(1.6, 0.6); labelGeo.rotateX(-Math.PI / 2);
+    O.labelMesh = add(root, labelGeo, std({ map: O.labelTex, transparent: true, depthWrite: false, roughness: 0.7, metalness: 0.1 }), { p: [0, 0.004, -3.6], recv: true });
+    O.labelMesh.renderOrder = 0.5;
+
+    // 昇降台（台・側面・縁の灯り・脚の受け・機体）。発進のときはこの group ごと昇る
+    const plat = new THREE.Group(); root.add(plat); O.plat = plat;
+    O.platTex = hgPlatformTexture();
+    const topGeo = new THREE.CircleGeometry(HG.R, 72); topGeo.rotateX(-Math.PI / 2);
+    add(plat, topGeo, std({ map: O.platTex, roughness: 0.5, metalness: 0.45, envMap: O.envTex, envMapIntensity: 0.55 }), { p: [0, 0.03, 0], recv: true });
+    add(plat, new THREE.CylinderGeometry(HG.R, HG.R * 0.97, 1.8, 72, 1, true), metal(0x1b232d, 0.4, 0.6), { p: [0, -0.88, 0] });
+    add(plat, new THREE.CylinderGeometry(HG.R + 0.004, HG.R + 0.004, 0.06, 72, 1, true), basic({ color: 0x9cbbd8 }), { p: [0, -0.22, 0] });
+    add(plat, new THREE.CylinderGeometry(HG.R * 0.4, HG.R * 0.4, 6, 24, 1, true), metal(0x2a333e, 0.35, 0.7), { p: [0, -4.7, 0] });   // 下の柱
+    // 縁の灯り（24個。ふだんは水色がゆっくり回る・警報は橙・ロックで緑・大破は赤）
+    const ringGeo = new THREE.BoxGeometry(0.17, 0.035, 0.07);
+    O.ringLights = new THREE.InstancedMesh(ringGeo, basic({ color: 0xffffff }), 24);
+    for (let i = 0; i < 24; i++) {
+      const a = i / 24 * Math.PI * 2;
+      hgM.compose(hgV.set(Math.cos(a) * 1.86, 0.05, Math.sin(a) * 1.86), hgQ.setFromAxisAngle(hgV2.set(0, 1, 0), -a + Math.PI / 2), new THREE.Vector3(1, 1, 1));
+      O.ringLights.setMatrixAt(i, hgM); O.ringLights.setColorAt(i, hgC.setRGB(0.4, 0.55, 0.7));
+    }
+    O.ringLights.frustumCulled = false;
+    plat.add(O.ringLights);
+    // 機体を載せる所（小さな受け台）
+    const padMat = metal(0x2a313b, 0.5, 0.5);
+    for (const [x, z] of [[0, -0.95], [-0.72, 0.42], [0.72, 0.42]]) add(plat, new THREE.CylinderGeometry(0.13, 0.17, 0.3, 12), padMat, { p: [x, 0.18, z], shadow: true });
+    O.craftHolder = new THREE.Group(); O.craftHolder.position.y = 0.03 + HG.craftY; O.craftHolder.scale.setScalar(HG.S);
+    plat.add(O.craftHolder);
+    // 噴射の炎（機体の噴射口ごとに1枚。形と材質は共有）と、噴射の光（発進のとき）
+    O.flameGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5);
+    O.flameMat = new THREE.MeshBasicMaterial({ map: hgFlameTexture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+    O.flames = [];
+    for (let i = 0; i < 4; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xff9a4a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      sp.visible = false; plat.add(sp); O.exhaust.push(sp);
+    }
+
+    // 整備アーム：天井から吊った左右のレール（ガントリー）→ 台車 → 下がる柱（伸び縮みする）→ 水平な2本の腕 → 工具と灯り
+    const armMats = {
+      gun: metal(0x5b636d, 0.46, 0.55),     // ガンメタル（腕・柱）
+      rail: metal(0x2c3137, 0.52, 0.55),    // レール
+      dark: metal(0x1c2026, 0.55, 0.5),
+      black: metal(0x101215, 0.6, 0.4),
+      mark: std({ color: 0xd5dbe3, roughness: 0.7, metalness: 0.05 }),   // 白い印
+    };
+    const R_ = HG_RAIL;
+    const armGeo = {
+      rail: new THREE.BoxGeometry(R_.w, R_.h, R_.len), flange: new THREE.BoxGeometry(R_.w + 0.2, 0.06, R_.len),
+      strut: new THREE.BoxGeometry(0.16, 11, 0.16), brace: new THREE.BoxGeometry(0.62, 0.12, 0.34),
+      trolley: new THREE.BoxGeometry(0.64, 0.34, 0.8), wheel: new THREE.CylinderGeometry(0.1, 0.1, 0.72, 12).rotateZ(Math.PI / 2),
+      dropOuter: new THREE.CylinderGeometry(0.13, 0.13, 1, 14).translate(0, -0.5, 0), dropInner: new THREE.CylinderGeometry(0.085, 0.085, 1, 12).translate(0, -0.5, 0),
+      shoulder: new THREE.CylinderGeometry(0.25, 0.25, 0.26, 20), elbow: new THREE.CylinderGeometry(0.19, 0.19, 0.22, 18), wrist: new THREE.CylinderGeometry(0.15, 0.15, 0.2, 16),
+      upper: new THREE.BoxGeometry(0.25, 0.16, HG_ARM.L1).translate(0, 0, -HG_ARM.L1 / 2), fore: new THREE.BoxGeometry(0.2, 0.14, HG_ARM.L2).translate(0, 0, -HG_ARM.L2 / 2),
+      stripe: new THREE.BoxGeometry(0.06, 0.012, HG_ARM.L1 * 0.62).translate(0, 0.086, -HG_ARM.L1 * 0.5), stripe2: new THREE.BoxGeometry(0.05, 0.012, HG_ARM.L2 * 0.5).translate(0, 0.076, -HG_ARM.L2 * 0.45), tool: new THREE.BoxGeometry(0.16, HG_ARM.tool, 0.16).translate(0, -HG_ARM.tool / 2, 0),
+      tip: new THREE.CylinderGeometry(0.035, 0.08, 0.14, 10).translate(0, -0.07, 0), lamp: new THREE.BoxGeometry(0.15, 0.03, 0.15),
+      label: new THREE.PlaneGeometry(0.42, 0.95).rotateX(-Math.PI / 2),
+    };
+    // レール（I形の梁）と、天井へ上がる吊り材
+    for (const sx of [-1, 1]) {
+      const x = sx * R_.x;
+      add(root, armGeo.rail, armMats.rail, { p: [x, R_.y, 0], shadow: true, recv: true });
+      add(root, armGeo.flange, armMats.dark, { p: [x, R_.y - R_.h / 2, 0], shadow: true });
+      add(root, armGeo.flange, armMats.dark, { p: [x, R_.y + R_.h / 2, 0], shadow: true });
+      for (const z of [-3.45, 3.65]) {
+        add(root, armGeo.strut, armMats.dark, { p: [x, R_.y + R_.h / 2 + 5.5, z], shadow: true });
+        add(root, armGeo.brace, armMats.black, { p: [x, R_.y + R_.h / 2 + 0.06, z] });
+      }
+    }
+    // レールの上の白い文字（ARM-1〜4。上から見える）
+    const labelTex = (txt) => canvasTexture(96, 216, (g) => {
+      g.clearRect(0, 0, 96, 216);
+      g.save(); g.translate(48, 108); g.rotate(-Math.PI / 2);
+      g.fillStyle = 'rgba(220,226,234,.82)'; g.font = `800 40px ${HG_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(txt, 0, 2);
+      g.restore();
+    });
+    HG_ARMS.forEach((A, ai) => {
+      const sx = A.side * R_.x, sz = A.tz;
+      // 台車（レールの下）と車輪
+      const trolley = new THREE.Group(); trolley.position.set(sx, R_.y - R_.h / 2 - 0.2, sz); root.add(trolley);
+      add(trolley, armGeo.trolley, armMats.dark, { shadow: true });
+      add(trolley, armGeo.wheel, armMats.black, { p: [0, 0.2, -0.26] });
+      add(trolley, armGeo.wheel, armMats.black, { p: [0, 0.2, 0.26] });
+      const lab = new THREE.Mesh(armGeo.label, new THREE.MeshStandardMaterial({ map: labelTex(`ARM-${ai + 1}`), transparent: true, depthWrite: false, roughness: 0.7, metalness: 0 }));
+      lab.position.set(sx, R_.y + R_.h / 2 + 0.035, sz); lab.renderOrder = 0.5; root.add(lab);
+      // 下がる柱（外筒は決まった長さ、内筒は肩の高さに合わせて伸び縮み）
+      const dropTop = trolley.position.y - 0.17;
+      const outer = add(root, armGeo.dropOuter, armMats.gun, { p: [sx, dropTop, sz], shadow: true });
+      outer.scale.y = 0.75;
+      const inner = add(root, armGeo.dropInner, armMats.dark, { p: [sx, dropTop - 0.7, sz], shadow: true });
+      // 肩（水平に回る）・上腕・ひじ・前腕・手首・工具・灯り
+      const shoulder = new THREE.Group(); shoulder.position.set(sx, HG_ARM.shoulderY, sz); root.add(shoulder);
+      add(shoulder, armGeo.shoulder, armMats.black, { shadow: true });
+      const upper = new THREE.Group(); shoulder.add(upper);
+      add(upper, armGeo.upper, armMats.gun, { shadow: true });
+      add(upper, armGeo.stripe, armMats.mark);
+      const elbow = new THREE.Group(); elbow.position.z = -HG_ARM.L1; upper.add(elbow);
+      add(elbow, armGeo.elbow, armMats.black, { shadow: true });
+      const fore = new THREE.Group(); elbow.add(fore);
+      add(fore, armGeo.fore, armMats.gun, { shadow: true });
+      add(fore, armGeo.stripe2, armMats.mark);
+      const wrist = new THREE.Group(); wrist.position.z = -HG_ARM.L2; fore.add(wrist);
+      add(wrist, armGeo.wrist, armMats.black, { shadow: true });
+      add(wrist, armGeo.tool, armMats.dark, { p: [0, -0.08, 0], shadow: true });
+      add(wrist, armGeo.tip, armMats.black, { p: [0, -0.08 - HG_ARM.tool, 0] });
+      const lampMat = basic({ color: 0xcfe6ff });
+      add(wrist, armGeo.lamp, lampMat, { p: [0, 0.115, 0] });
+      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xcfe6ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      glow.scale.setScalar(0.62); glow.position.set(0, 0.14, 0); wrist.add(glow);
+      const anchor = new THREE.Object3D(); anchor.position.set(0, 0.13, 0); wrist.add(anchor);
+      // 作業灯（機体の上に落ちる薄い光）と、大破のときの火花（工具の先）
+      const pool = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xe6f2ff, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      pool.scale.setScalar(1.25); pool.renderOrder = 0.8; root.add(pool);
+      const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xffc070, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      spark.position.set(0, -0.12 - HG_ARM.tool, 0); spark.visible = false; wrist.add(spark); O.sparks.push(spark);
+      const [hx, hz] = A.head;
+      // 退くときの先：レールの近く（台車の少し外）へたたむ
+      const retract = [sx - A.side * 0.62, sz + (sz < 0 ? -0.62 : 0.62)];
+      O.arms.push({ key: A.key, side: A.side, sx, sz, head: [hx, hz], retract, shoulder, upper, elbow, fore, wrist, inner, dropTop, glow, pool, anchor, lampMat, ik: {} });
+    });
+    // 回転灯（台のまわりの4か所。発進の警報のときだけ光って回る）
+    const fanTex = hgFanTexture();
+    const fanGeo = new THREE.PlaneGeometry(4.2, 4.2); fanGeo.rotateX(-Math.PI / 2);
+    const postGeo = new THREE.CylinderGeometry(0.09, 0.12, 0.36, 14), domeGeo = new THREE.SphereGeometry(0.12, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    for (const [x, z] of [[3.05, 0.2], [-3.05, 0.2]]) {
+      const b = new THREE.Group(); b.position.set(x, 0, z); root.add(b);
+      add(b, postGeo, armMats.dark, { p: [0, 0.18, 0], shadow: true });
+      const domeMat = std({ color: 0x17120f, emissive: 0xff7a1a, emissiveIntensity: 0, roughness: 0.18, metalness: 0.1 });
+      add(b, domeGeo, domeMat, { p: [0, 0.36, 0] });
+      const fan = new THREE.Mesh(fanGeo, new THREE.MeshBasicMaterial({ map: fanTex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      fan.position.y = 0.03; fan.visible = false; fan.renderOrder = 0.6; b.add(fan);
+      O.beacons.push({ g: b, domeMat, fan });
+    }
+    // 床の灯り（発進の向きへ流れる）
+    O.guideLights = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.03, 0.26), basic({ color: 0xffffff }), 16);
+    for (let i = 0; i < 8; i++) for (let s = 0; s < 2; s++) {
+      hgM.makeTranslation((s ? 1 : -1) * 1.25, 0.016, -3.15 - i * 0.75);
+      O.guideLights.setMatrixAt(i * 2 + s, hgM); O.guideLights.setColorAt(i * 2 + s, hgC.setRGB(0.4, 0.5, 0.6));
+    }
+    O.guideLights.frustumCulled = false; root.add(O.guideLights);
+
+    // 上の階（縦穴・滑走路）。発進のときだけ見せる
+    const up = new THREE.Group(); up.visible = false; root.add(up); O.up = up;
+    const shaftLen = HG.deckY - HG.shaft0;
+    shaftTex.repeat.set(6, shaftLen / 2.6);
+    add(up, new THREE.CylinderGeometry(HG.R + 0.2, HG.R + 0.2, shaftLen, 64, 1, true), basic({ map: shaftTex, side: THREE.BackSide }), { p: [0, (HG.shaft0 + HG.deckY) / 2 - 0.02, 0] });
+    // 甲板（台の穴の開いた板）
+    const DW = 18, DZ0 = 9, DZ1 = -HG.deckLen - 2;
+    const ds = new THREE.Shape();
+    ds.moveTo(-DW / 2, -DZ0); ds.lineTo(DW / 2, -DZ0); ds.lineTo(DW / 2, -DZ1); ds.lineTo(-DW / 2, -DZ1); ds.closePath();
+    const dh = new THREE.Path(); dh.absarc(0, 0, HG.R + 0.04, 0, Math.PI * 2, true); ds.holes.push(dh);
+    const deckGeo = new THREE.ShapeGeometry(ds, 48);
+    { const pos = deckGeo.attributes.position, uv = deckGeo.attributes.uv; for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / 4, pos.getY(i) / 4); uv.needsUpdate = true; }
+    deckGeo.rotateX(-Math.PI / 2);
+    const deckTex = hgDeckTexture(); deckTex.wrapS = deckTex.wrapT = THREE.RepeatWrapping; deckTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    add(up, deckGeo, std({ map: deckTex, roughness: 0.6, metalness: 0.35, envMap: O.envTex, envMapIntensity: 0.35 }), { p: [0, HG.deckY, 0], recv: true });
+    // 穴の縁の厚み（甲板の板の下）
+    add(up, new THREE.CylinderGeometry(HG.R + 0.05, HG.R + 0.05, 0.9, 64, 1, true), metal(0x232c37, 0.4, 0.6), { p: [0, HG.deckY - 0.45, 0] });
+    const rwTex = hgRunwayTexture(); rwTex.wrapS = rwTex.wrapT = THREE.RepeatWrapping; rwTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const rwLen = HG.deckLen - HG.R - 0.6;
+    const rwGeo = new THREE.PlaneGeometry(4.6, rwLen); rwGeo.rotateX(-Math.PI / 2);
+    rwTex.repeat.set(1, rwLen / 8);
+    add(up, rwGeo, std({ map: rwTex, roughness: 0.75, metalness: 0.2 }), { p: [0, HG.deckY + 0.004, -(HG.R + 0.6) - rwLen / 2], recv: true });
+    const decalGeo = new THREE.PlaneGeometry(7, 7); decalGeo.rotateX(-Math.PI / 2);
+    const decal = add(up, decalGeo, std({ map: hgLiftDecalTexture(), transparent: true, depthWrite: false, roughness: 0.6, metalness: 0.2 }), { p: [0, HG.deckY + 0.006, 0], recv: true });
+    decal.renderOrder = 0.5;
+    // 滑走路の両側の壁と灯りの帯
+    const wallMat = metal(0x18202a, 0.5, 0.5);
+    for (const sx of [-1, 1]) {
+      add(up, new THREE.BoxGeometry(0.7, 1.5, HG.deckLen + 8), wallMat, { p: [sx * 3.65, HG.deckY + 0.75, -HG.deckLen / 2 + 1], shadow: false, recv: true });
+      add(up, new THREE.BoxGeometry(0.06, 0.06, HG.deckLen + 8), basic({ color: 0xc4d8ec }), { p: [sx * 3.28, HG.deckY + 1.47, -HG.deckLen / 2 + 1] });
+      add(up, new THREE.BoxGeometry(0.05, 0.05, HG.deckLen + 8), basic({ color: 0x46698c }), { p: [sx * 3.28, HG.deckY + 0.3, -HG.deckLen / 2 + 1] });
+    }
+    // 滑走路の灯り（両側に並ぶ。発進のとき前へ流れる）
+    const RL = Math.floor((HG.deckLen - 4) / 1.55);
+    O.runwayLights = new THREE.InstancedMesh(new THREE.BoxGeometry(0.15, 0.05, 0.32), basic({ color: 0xffffff }), RL * 2);
+    O.runwayZ = [];
+    for (let i = 0; i < RL; i++) for (let s = 0; s < 2; s++) {
+      const z = -(HG.R + 1.1) - i * 1.55;
+      hgM.makeTranslation((s ? 1 : -1) * 2.48, HG.deckY + 0.03, z);
+      O.runwayLights.setMatrixAt(i * 2 + s, hgM); O.runwayLights.setColorAt(i * 2 + s, hgC.setRGB(0.3, 0.32, 0.36));
+      O.runwayZ.push(z);
+    }
+    O.runwayLights.frustumCulled = false; up.add(O.runwayLights);
+    // 出口の明かり（滑走路の先）
+    const exitGeo = new THREE.PlaneGeometry(6.6, 6); exitGeo.rotateX(-Math.PI / 2);
+    add(up, exitGeo, basic({ color: 0xd8ecff, fog: false }), { p: [0, HG.deckY + 0.01, -HG.deckLen - 1.5] });
+    // 留め具（台が噛み合うとき、4方向から閉じる）と、その灯り
+    O.clamps = [];
+    const clampGeo = new THREE.BoxGeometry(0.5, 0.24, 0.38), indGeo = new THREE.BoxGeometry(0.18, 0.05, 0.1);
+    for (let i = 0; i < 4; i++) {
+      const a = i / 4 * Math.PI * 2;
+      const cg = new THREE.Group(); cg.rotation.y = -a; up.add(cg);
+      const block = add(cg, clampGeo, metal(0x7d6a44, 0.5, 0.35), { p: [HG.R + 0.45, HG.deckY + 0.12, 0], r: [0, Math.PI / 2, 0], shadow: true });
+      const indMat = basic({ color: 0xff8a2a });
+      add(block, indGeo, indMat, { p: [0, 0.14, 0] });
+      O.clamps.push({ g: cg, block, indMat });
+    }
+    // 噛み合ったときの光の輪
+    const lockGeo = new THREE.RingGeometry(HG.R - 0.02, HG.R + 0.28, 72); lockGeo.rotateX(-Math.PI / 2);
+    O.lockRing = add(up, lockGeo, new THREE.MeshBasicMaterial({ color: 0x8dffc8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), { p: [0, HG.deckY + 0.03, 0] });
+    O.lockRing.renderOrder = 0.7;
+    // 大破のときの煙
+    const smokeTex = dustTexture();
+    for (let i = 0; i < 7; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, color: 0x9aa1ab, transparent: true, opacity: 0, depthWrite: false }));
+      sp.visible = false; sp.userData.seed = i * 0.137 + 0.05; plat.add(sp); O.smoke.push(sp);
+    }
+    scene.add(root);
+    O.buildMs = Math.round(performance.now() - t0);
+    return O;
+  }
+
+  // ---- 機体（台の上）-------------------------------------------------------------
+  function hgSyncCraft(info) {
+    const type = Math.max(0, Math.min(4, info.type | 0)), dmg = info.state === 'destroyed';
+    const tpl = aircraftTemplate(type);
+    const c = hg.craft;
+    if (c && c.type === type && c.dmg === dmg && (c.model.real || !tpl)) return;
+    if (c) { hg.flames.forEach(f => { if (f.parent) f.parent.remove(f); }); hg.craftHolder.remove(c.model.group); c.model.dispose(); }
+    hg.flames.length = 0;
+    const model = tpl ? makeAircraftFromModel(tpl, type) : makeAircraft(type);
+    model.group.traverse(o => {
+      if (!o.isMesh) return;
+      o.castShadow = !o.userData.noahDepthOnly;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach(m => {
+        if (!m || !m.isMeshStandardMaterial) return;
+        if (m.userData) delete m.userData.noahEnv;          // 戦場の空を映さない（格納庫の映り込み）
+        if (m.envMap !== hg.envTex) { m.envMap = hg.envTex; m.needsUpdate = true; }
+        m.envMapIntensity = 0.95;
+        if (dmg) m.color.multiplyScalar(0.46);
+      });
+    });
+    model.engines.forEach(f => { f.visible = false; });
+    for (const [x, y, z, r = 1] of (AIRCRAFT_ENGINES[type] || [])) {
+      const fl = new THREE.Mesh(hg.flameGeo, hg.flameMat);
+      fl.position.set(x, y, z + 0.02); fl.userData.r = r; fl.visible = false; fl.renderOrder = 4.2; fl.frustumCulled = false;
+      model.group.add(fl); hg.flames.push(fl);
+    }
+    hg.craftHolder.add(model.group);
+    hg.craft = { model, type, dmg };
+  }
+  function hgSyncLabel(name) {
+    if (hg.label === name) return;
+    hg.label = name;
+    hgPaintLabel(hg.labelCanvas, name);
+    hg.labelTex.needsUpdate = true;
+  }
+
+  // ---- 見え方の切り替え ----------------------------------------------------------
+  function enterHangar(now) {
+    if (hgOn) return;
+    if (!hg) hg = buildHangar();
+    hgOn = true; hgEnterAt = now; hgAnchorKey = '';
+    const vis = [];
+    for (const o of scene.children) {
+      if (o === hg.root || o.isLight || o === sun.target) continue;
+      vis.push([o, o.visible]); o.visible = false;
+    }
+    const sc = sun.shadow.camera;
+    hgSaved = {
+      vis, bg: scene.background,
+      fog: scene.fog ? [scene.fog.color.getHex(), scene.fog.near, scene.fog.far] : null,
+      hemi: [hemi.color.getHex(), hemi.groundColor.getHex(), hemi.intensity],
+      sun: [sun.color.getHex(), sun.intensity, sun.position.clone(), sun.target.position.clone()],
+      shadow: [sc.left, sc.right, sc.top, sc.bottom, sc.near, sc.far],
+      flash: [flash.intensity, flash.color.getHex(), flash.position.clone(), flash.distance],
+      exposure: renderer.toneMappingExposure,
+      u: [noahU.uNoahCloud.value, noahU.uNoahCaus.value, noahU.uNoahRim.value.clone(), noahU.uNoahRimK.value.clone()],
+      fov: camera.fov,
+    };
+    hg.root.visible = true;
+    scene.background = hgBgColor;
+    if (scene.fog) { scene.fog.color.setHex(HG_BG); scene.fog.near = 20; scene.fog.far = 58; }
+    hemi.color.setHex(0x9fb4d0); hemi.groundColor.setHex(0x0a0d12); hemi.intensity = 0.72;
+    sun.color.setHex(0xfff0dc); sun.intensity = 2.5;
+    sc.left = -6.8; sc.right = 6.8; sc.top = 6.8; sc.bottom = -6.8; sc.near = 1; sc.far = 34; sc.updateProjectionMatrix();
+    flash.intensity = 0; flash.distance = 14;
+    noahU.uNoahCloud.value = 0; noahU.uNoahCaus.value = 0;
+    // 観測HUD・HPの札・2Dの演出の絵は隠す（戦場の物）
+    const hudEl = host.querySelector('.noahHud');
+    if (hudEl) hudEl.classList.add('hgHide');
+    hpLayer.classList.add('hgHide');
+    try { bridge.drawEffects(null); } catch (e) {}
+    pressId = null; showPick(null);
+  }
+  function leaveHangar() {
+    if (!hgOn) return;
+    hgOn = false;
+    const S = hgSaved; hgSaved = null;
+    hg.root.visible = false;
+    if (S) {
+      for (const [o, v] of S.vis) o.visible = v;
+      scene.background = S.bg;
+      if (scene.fog && S.fog) { scene.fog.color.setHex(S.fog[0]); scene.fog.near = S.fog[1]; scene.fog.far = S.fog[2]; }
+      hemi.color.setHex(S.hemi[0]); hemi.groundColor.setHex(S.hemi[1]); hemi.intensity = S.hemi[2];
+      sun.color.setHex(S.sun[0]); sun.intensity = S.sun[1]; sun.position.copy(S.sun[2]); sun.target.position.copy(S.sun[3]); sun.target.updateMatrixWorld();
+      const sc = sun.shadow.camera; [sc.left, sc.right, sc.top, sc.bottom, sc.near, sc.far] = S.shadow; sc.updateProjectionMatrix();
+      flash.intensity = S.flash[0]; flash.color.setHex(S.flash[1]); flash.position.copy(S.flash[2]); flash.distance = S.flash[3];
+      renderer.toneMappingExposure = S.exposure;
+      noahU.uNoahCloud.value = S.u[0]; noahU.uNoahCaus.value = S.u[1]; noahU.uNoahRim.value.copy(S.u[2]); noahU.uNoahRimK.value.copy(S.u[3]);
+      camera.fov = S.fov; camera.updateProjectionMatrix();
+    }
+    const hudEl = host.querySelector('.noahHud');
+    if (hudEl) hudEl.classList.remove('hgHide');
+    hpLayer.classList.remove('hgHide');
+    hgAnchorKey = '';
+    try { if (bridge.hangarAnchors) bridge.hangarAnchors(null); } catch (e) {}
+  }
+  // 初めて格納庫を見せる前に作って、シェーダーも作っておく（基地の機体のターンの始め・下ごしらえのとき）
+  function prepareHangar(type) {
+    if (!running || contextLost) return false;
+    const t0 = performance.now();
+    try {
+      if (!hg) hg = buildHangar();
+      if (type != null) hgSyncCraft({ type, state: 'base' });
+      const vis = [hg.root.visible, hg.up.visible];
+      hg.root.visible = true; hg.up.visible = true;
+      hg.beacons.forEach(b => { b.fan.visible = true; }); hg.smoke.forEach(s => { s.visible = true; }); hg.sparks.forEach(s => { s.visible = true; }); hg.exhaust.forEach(s => { s.visible = true; });
+      if (hg.craft) hg.craft.model.engines.forEach(f => { f.visible = true; });
+      try { renderer.compile(hg.root, camera, scene); } catch (e) {}
+      hg.beacons.forEach(b => { b.fan.visible = false; }); hg.smoke.forEach(s => { s.visible = false; }); hg.sparks.forEach(s => { s.visible = false; }); hg.exhaust.forEach(s => { s.visible = false; });
+      if (hg.craft) hg.craft.model.engines.forEach(f => { f.visible = false; });
+      hg.root.visible = hgOn ? true : vis[0]; hg.up.visible = vis[1];
+    } catch (e) { console.warn('[N.O.A.H. 3D] 格納庫の準備で問題がありました', e); return false; }
+    stats.hangarPrepMs = Math.round(performance.now() - t0);
+    return true;
+  }
+
+  // ---- アームの姿勢 -------------------------------------------------------------
+  // 肩の高さ ys・先の位置 (px, pz) から、腕の向き（IK）と柱の内筒の長さを決める
+  function hgPoseArm(arm, ys, px, pz) {
+    hgArmIK(arm.sx, arm.sz, px, pz, arm.ik);
+    arm.shoulder.position.y = ys;
+    arm.upper.rotation.y = arm.ik.upper;
+    arm.fore.rotation.y = arm.ik.fore - arm.ik.upper;   // 前腕はひじ（上腕の子）の中なので、上腕の向きを引く
+    arm.wrist.rotation.y = -arm.ik.fore;                 // 工具の向きは変えない
+    arm.inner.scale.y = Math.max(0.05, arm.dropTop - 0.7 - (ys + 0.13) + 0.05);
+  }
+
+  // ---- カメラ -------------------------------------------------------------------
+  function hgCamera(ax, ay, az, elevDeg, height, fov, rollZ = 0) {
+    const e = THREE.MathUtils.degToRad(elevDeg);
+    const dist = height / Math.sin(e);
+    camera.fov = fov; camera.aspect = W / H; camera.updateProjectionMatrix();
+    camera.position.set(ax, ay + Math.sin(e) * dist, az + Math.cos(e) * dist);
+    camera.up.set(rollZ, 0, -1);   // 画面の上 ＝ 奥（−Z）。真上から見下ろしても向きが決まる
+    camera.lookAt(ax, ay, az);
+    camera.updateMatrixWorld();
+  }
+
+  // ---- 1コマ ---------------------------------------------------------------------
+  function renderHangar(g, now, dt) {
+    let info = null;
+    try { info = bridge.hangarInfo ? bridge.hangarInfo() : null; } catch (e) { info = null; }
+    if (!info) info = { unit: g.active, type: 0, name: 'AA1', state: 'base', launch: null };
+    hgLastInfo = info;
+    if (!hgOn) enterHangar(now);
+    hgSyncCraft(info);
+    hgSyncLabel(String(info.name || 'AA1'));
+    const t = now / 1000;
+    const L = info.launch || null, T = L ? L.times : null;
+    const lt = L ? Math.max(0, Number(L.t) || 0) : -1;   // 発進の始まりからの ms
+    const dmg = info.state === 'destroyed';
+    const enterP = clamp01((now - hgEnterAt) / 700);
+    hgBusy = !!L || enterP < 1;
+
+    // 区切りごとの進み具合（0〜1）
+    const seg = (a, b) => (L ? clamp01((lt - a) / Math.max(1, b - a)) : 0);
+    const pAlert = L ? seg(T.alert, T.lift) : 0;
+    const pLift = L ? seg(T.lift, T.lock) : 0;
+    const pLock = L ? seg(T.lock, T.ignite) : 0;
+    const pIgnite = L ? seg(T.ignite, T.go) : 0;
+    const pGo = L ? seg(T.go, T.out) : 0;
+    const lifting = L && lt >= T.lift;
+    const locked = L && lt >= T.lock;
+
+    // 台の高さ：ゆっくり動き出して速く、最後は穴に吸い込まれるように止まる（止まる瞬間に少しだけ沈む＝噛み合う手ごたえ）
+    let platY = 0;
+    if (L) {
+      const u = pLift;
+      platY = HG.deckY * (u < 0.5 ? 0.5 * hgEaseIn(u * 2, 2.2) : 0.5 + 0.5 * hgEaseOut((u - 0.5) * 2, 2.4));
+      if (locked) { const k = (lt - T.lock) / 1000; platY = HG.deckY - 0.05 * Math.exp(-k * 18) * Math.sin(k * 60); }
+    }
+    hg.plat.position.y = platY;
+    hg.up.visible = !!(L && lt >= T.lift - 60);
+
+    // 機体：ふだんは少し浮いて静かに上下。発進では前へ（−Z）走る
+    let craftZ = 0, craftLift = 0;
+    if (L && lt >= T.go) {
+      const tau = (lt - T.go) / 1000;
+      craftZ = -34 * Math.pow(tau, 2.15);
+      craftLift = Math.min(0.9, tau * 1.6);
+    }
+    hg.craftHolder.position.set(0, 0.03 + HG.craftY + Math.sin(t * 1.3) * 0.012 + craftLift, craftZ);
+    hg.craftHolder.rotation.set(L && lt >= T.go ? -Math.min(0.1, (lt - T.go) / 3000) : 0, 0, 0);
+    // 噴射：ふだんは消えている。点火で伸び、発進で長く明るく
+    const thrust = !L ? 0 : (lt < T.ignite ? 0 : lt < T.go ? 0.35 + 0.35 * pIgnite : 1);
+    const cm = hg.craft && hg.craft.model;
+    if (cm) {
+      const flick = 0.85 + Math.sin(now / 37) * 0.1 + Math.random() * 0.08;
+      cm.engines.forEach(f => { f.visible = thrust > 0.01; const rr = (f.userData.r || 1); f.scale.set(rr, (f.userData.len || 1) * flick * (1 + thrust * 1.2), rr); });
+      hg.flames.forEach((fl, i) => {
+        fl.visible = thrust > 0.01;
+        if (!fl.visible) return;
+        const r = fl.userData.r || 1, fk = 0.82 + 0.18 * Math.sin(now / 23 + i * 1.7) + Math.random() * 0.08;
+        fl.scale.set(0.085 * r * (1 + 0.35 * thrust), 1, (0.18 + thrust * 1.25) * fk);
+      });
+      if (cm.lights) {
+        const Lg = cm.lights, blink = (t + 0.37) % 1.6;
+        Lg.engines.forEach(sp => { sp.material.opacity = (0.1 + thrust * 0.75) * (0.8 + 0.2 * flick); sp.scale.setScalar(0.13 * (1 + thrust * 0.7)); });
+        Lg.port.material.opacity = Lg.star.material.opacity = 0.95 * (0.8 + 0.2 * Math.sin(now / 300));
+        Lg.strobe.material.opacity = (blink < 0.07 || (blink > 0.2 && blink < 0.26)) ? 1 : 0;
+      }
+    }
+    // 噴射の光の筋（機体の後ろ）
+    hg.exhaust.forEach((sp, i) => {
+      const on = thrust > 0.01;
+      sp.visible = on;
+      if (!on) return;
+      const k = i / hg.exhaust.length;
+      sp.position.set(0, 0.03 + HG.craftY + craftLift - 0.05, craftZ + HG.S * (0.62 + k * (0.45 + thrust * 1.1)));
+      sp.scale.set(HG.S * 0.34 * (1 - k * 0.45), HG.S * (0.45 + thrust * 0.7) * (1 - k * 0.3), 1);
+      sp.material.opacity = thrust * (0.42 - k * 0.08) * (0.8 + 0.2 * Math.random());
+    });
+    // 爆発の光（PointLight）を噴射口の後ろに置いて、甲板・壁を照らす
+    if (thrust > 0.01) {
+      flash.color.setHex(0xffb070); flash.distance = 16;
+      flash.intensity = 3 + thrust * 9;
+      flash.position.set(0, platY + 0.5 + craftLift, craftZ + HG.S * 0.75);
+    } else flash.intensity = 0;
+
+    // アーム：ふだんは機体の上（先の灯りから基地メニューの線が出る）。大破なら2本が修理（低く・機体に寄る）。警報でたたんで上がる
+    const retractP = L ? hgEase(seg(T.alert + 100, T.alert + 700)) : 0;
+    hg.arms.forEach((arm, i) => {
+      const fix = dmg && i < 2 && !L;
+      let px = arm.head[0], pz = arm.head[1], ys = HG_ARM.shoulderY;
+      if (fix) { px *= 0.86; pz *= 0.86; ys = 2.12 + Math.sin(t * 2.2 + i * 1.7) * 0.03; }
+      px += (arm.retract[0] - px) * retractP; pz += (arm.retract[1] - pz) * retractP; ys += (3.35 - ys) * retractP;
+      hgPoseArm(arm, ys, px, pz);
+      const pulse = 0.78 + 0.22 * Math.sin(t * 2.0 + i * 1.3);
+      const on = (L ? 0.35 * (1 - retractP) : pulse) * (0.2 + 0.8 * enterP);
+      arm.glow.material.opacity = 0.55 * on;
+      arm.lampMat.color.setRGB(0.08 + 0.74 * on, 0.08 + 0.82 * on, 0.1 + 0.9 * on);
+      arm.pool.visible = !L;
+      if (!L) { arm.pool.position.set(px, 0.03 + HG.craftY + 0.28, pz); arm.pool.material.opacity = 0.11 * enterP; }
+    });
+    // 修理の火花（大破）
+    hg.sparks.forEach((sp, i) => {
+      const on = dmg && !L && i < 2 && Math.random() < 0.6;
+      sp.visible = on;
+      if (on) { sp.scale.setScalar(0.3 + Math.random() * 0.55); sp.material.opacity = 0.7 + Math.random() * 0.3; }
+    });
+    // 煙（大破）
+    hg.smoke.forEach((sp, i) => {
+      sp.visible = dmg && !L;
+      if (!sp.visible) return;
+      const life = 3.2, ph = ((t + sp.userData.seed * life * 7) % life) / life;
+      const src = i % 2 ? [-0.55, 0.25] : [0.45, 0.65];
+      sp.position.set(src[0] + Math.sin(ph * 3 + i) * 0.25, 0.03 + HG.craftY + 0.35 + ph * 2.8, src[1] - ph * 1.3);
+      sp.scale.setScalar(0.7 + ph * 2.1);
+      sp.material.opacity = 0.55 * Math.sin(Math.PI * ph);
+    });
+
+    // 台の縁の灯り：ふだん水色（ゆっくり回る）・警報で橙の点滅・昇る間は橙・ロックで緑・大破は赤
+    const lockFlash = locked ? Math.max(0, 1 - (lt - T.lock) / 450) : 0;
+    for (let i = 0; i < 24; i++) {
+      const a = i / 24;
+      let rr, gg, bb;
+      if (L && !locked) {
+        const on = lifting ? 0.85 : (Math.floor(lt / 125) % 2 ? 1 : 0.25);
+        rr = 1.0 * on; gg = 0.48 * on; bb = 0.12 * on;
+      } else if (L) {
+        const k = 0.75 + lockFlash * 0.6;
+        rr = 0.25 * k; gg = 1.0 * k; bb = 0.55 * k;
+      } else if (dmg) {
+        const k = 0.35 + 0.65 * Math.max(0, Math.sin(t * 3.0));
+        rr = 1.0 * k; gg = 0.16 * k; bb = 0.2 * k;
+      } else {
+        const ph = (a - t * 0.22) % 1, k = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.cos(((ph + 1) % 1) * Math.PI * 2), 6);
+        rr = 0.42 * k; gg = 0.6 * k; bb = 0.78 * k;
+      }
+      const lit = 0.15 + 0.85 * enterP;
+      hg.ringLights.setColorAt(i, hgC.setRGB(rr * lit, gg * lit, bb * lit));
+    }
+    hg.ringLights.instanceColor.needsUpdate = true;
+    // 床の灯り：発進の向き（奥）へ流れる
+    for (let i = 0; i < 8; i++) {
+      const ph = ((i / 8) - t * (L ? 1.6 : 0.5)) % 1, k = Math.pow(0.5 + 0.5 * Math.cos(((ph + 1) % 1) * Math.PI * 2), 4);
+      const base = L && !locked ? [1, 0.5, 0.15] : [0.5, 0.6, 0.72];
+      const v = (0.18 + 0.82 * k) * (0.2 + 0.8 * enterP);
+      for (let s = 0; s < 2; s++) hg.guideLights.setColorAt(i * 2 + s, hgC.setRGB(base[0] * v, base[1] * v, base[2] * v));
+    }
+    hg.guideLights.instanceColor.needsUpdate = true;
+    // 回転灯：警報から昇り終えるまで
+    const beaconOn = L && !locked;
+    hg.beacons.forEach((b, i) => {
+      b.fan.visible = beaconOn;
+      b.domeMat.emissiveIntensity = beaconOn ? 2.2 + Math.sin(t * 20) * 0.4 : 0.05;
+      if (beaconOn) { b.fan.rotation.y = t * 9 + i * 1.2; b.fan.material.opacity = 0.75; }
+    });
+    // 上の階：留め具（噛み合う）・ロックの光・滑走路の灯り（点火で前へ流れる）
+    if (hg.up.visible) {
+      const cp = locked ? hgEaseOut((lt - T.lock) / 160, 3) : 0;
+      hg.clamps.forEach(c => {
+        c.block.position.x = HG.R + 0.45 - 0.3 * cp;
+        c.indMat.color.setHex(locked && lt >= T.lock + 110 ? 0x46ff9a : 0xff8a2a);
+      });
+      hg.lockRing.material.opacity = lockFlash * 0.9;
+      hg.lockRing.scale.setScalar(1 + (1 - lockFlash) * 0.35);
+      const wave = L && lt >= T.ignite ? (lt - T.ignite) / 1000 * 46 : -1;   // 先頭が進んだ距離
+      for (let i = 0; i < hg.runwayZ.length; i++) {
+        const d = -hg.runwayZ[i] - HG.R;
+        let v = 0.22;
+        if (locked) v = 0.42;
+        if (wave >= 0) { const dd = wave - d; v = dd < 0 ? 0.42 : 0.42 + 0.9 * Math.exp(-dd / 5); }
+        const c = wave >= 0 && wave - d > -0.5 ? [0.75, 0.92, 1] : [1, 0.92, 0.8];
+        hg.runwayLights.setColorAt(i, hgC.setRGB(c[0] * v, c[1] * v, c[2] * v));
+      }
+      hg.runwayLights.instanceColor.needsUpdate = true;
+    }
+
+    // 光：台を照らす太陽（台と一緒に昇る）
+    sun.position.set(-4.2, platY + 13, 4.8); sun.target.position.set(0, platY, 0); sun.target.updateMatrixWorld();
+    // 入ったときは暗い所から明るく（照明が点く）
+    renderer.toneMappingExposure = 1.02 * (0.3 + 0.7 * hgEaseOut(enterP, 2));
+    noahU.uNoahRim.value.setRGB(0.12, 0.22, 0.34).multiplyScalar(1 + thrust * 0.5);
+    noahU.uNoahRimK.value.setRGB(0, 0, 0);
+
+    // カメラ
+    let camY = HG.camH, aimY = 0, aimZ = HG.aimZ, elev = HG.elev, fov = HG.fov, aimZoff = 0;
+    if (!L) {
+      // 入ったときは少し高い所から降りてくる
+      camY = HG.camH + 2.4 * (1 - hgEaseOut(enterP, 3));
+    } else {
+      // 昇る：台が先に動き、カメラはあとから付いていく（最後は台の上の、ふだんと同じ高さ）。
+      //   カメラの高さ（絶対）＝ camH ＋ 上がった分、見ている所 ＝ 台。縦穴の中では真上から（穴の真ん中にいる）
+      const v = seg(T.lift + 160, T.lock - 60);
+      const camAbs = HG.camH + HG.deckY * hgEase(v);
+      aimY = platY;
+      camY = Math.max(4, camAbs - aimY);
+      const inShaft = hgEase(seg(T.lift, T.lift + 380)) * (1 - hgEase(seg(T.lock - 260, T.lock + 220)));
+      elev = HG.elev + (89 - HG.elev) * inShaft;
+      aimZ = HG.aimZ * (1 - inShaft);
+      // 発進：前へ傾けて、走る機体を追う
+      if (lt >= T.ignite) {
+        const k = hgEase(seg(T.ignite, T.go + 420));
+        elev = HG.elev - 24 * k;
+        fov = HG.fov + 6 * k;
+        aimZoff = craftZ * 0.42 - 3.2 * k;
+        camY = HG.camH - 2.4 * k;
+      }
+      // 警報の間・飛び出す瞬間は少し揺れる
+      if (lt < T.lift) aimZoff += Math.sin(t * 50) * 0.012;
+      if (lt >= T.go && lt < T.go + 300) aimZoff += Math.sin(t * 60) * 0.05 * (1 - (lt - T.go) / 300);
+    }
+    hgCamera(0, aimY, aimZ + aimZoff, elev, camY, fov);
+
+    // 画面の上のボタン（アームの先）の位置を index.html へ（ふだんだけ。変わったときだけ）
+    if (!L && bridge.hangarAnchors) {
+      hg.root.updateMatrixWorld(true);
+      const pts = hg.arms.map(a => { a.anchor.getWorldPosition(hgV); const s = toScreen(hgV); return [Math.round(s.x * 2) / 2, Math.round(s.y * 2) / 2]; });
+      hgV.set(0, 0.03 + HG.craftY, 0); const cs = toScreen(hgV);
+      hgV.set(HG.R * 0.82, 0.03 + HG.craftY, 0); const ce = toScreen(hgV);
+      const key = JSON.stringify(pts) + Math.round(cs.x) + ',' + Math.round(cs.y) + ',' + W + 'x' + H;
+      if (key !== hgAnchorKey || now - hgAnchorAt > 1500) {
+        hgAnchorKey = key; hgAnchorAt = now;
+        try { bridge.hangarAnchors({ arms: hg.arms.map((a, i) => ({ key: a.key, x: pts[i][0], y: pts[i][1] })), craft: { x: cs.x, y: cs.y, r: Math.abs(ce.x - cs.x) }, w: W, h: H, enter: enterP < 1 }); } catch (e) {}
+      }
+    }
+
+    const r0 = performance.now();
+    renderer.render(scene, camera);
+    bloomUsed = bloomOn && quality === 0 && bloom.apply(0.55, 0.8);
+    stats.renderMs += performance.now() - r0;
+    stats.frames++;
+    stats.hangarFrames = (stats.hangarFrames || 0) + 1;
+  }
+  // 格納庫を押したとき：機体の上なら 'craft'
+  function hgPick(px, py) {
+    if (!hgOn || !hg) return null;
+    hgV.set(0, hg.plat.position.y + 0.03 + HG.craftY, 0); const cs = toScreen(hgV);
+    hgV.set(HG.R * 0.8, hg.plat.position.y + 0.03 + HG.craftY, 0); const ce = toScreen(hgV);
+    const rr = Math.max(24, Math.abs(ce.x - cs.x));
+    return Math.hypot(px - cs.x, py - cs.y) <= rr ? { kind: 'hangar', part: 'craft' } : null;
+  }
+  const hangarWanted = () => { try { return !!(bridge.boardView && bridge.boardView() === 'hangar'); } catch (e) { return false; } };
+
   // v380：ソフトリフレッシュで作り直すときは、盤面に前の絵をかぶせている間（bridge.boardCovered）なら、盤面が出ていても下ごしらえする
   let warmState = 'pending';   // pending → running → done / skipped（ready() はこれが終わるのを待つ）
   async function warmUp() {
@@ -3721,6 +4705,9 @@ function start(bridge) {
         if (!running || contextLost || (bridge.boardVisible() && !covered())) break;
         warmPass(group);
       }
+      // v392：基地（格納庫）の画面も作っておく（床などの絵を描き、シェーダーを作る）
+      await yieldToUi(50);
+      if (running && !contextLost && (!bridge.boardVisible() || covered())) prepareHangar(null);
     } catch (e) {
       console.warn('[N.O.A.H. 3D] 下ごしらえで問題がありました（ゲームには影響しません）', e);
     }
@@ -3816,14 +4803,15 @@ function start(bridge) {
     if (budget >= 2) { lastRaf = 0; windowStart = 0; intervals.length = 0; return; }
     watchSpeed(now);
     // 動きの少ないときは毎秒30回ほどに抑えて電池を節約する（v380：ポップアップの下では毎秒15回ほど）
-    const busy = g.effects.length > 0 || walkAmp > 0.02 || pressId !== null || lunge > 0.02 || charge > 0.02 || aircraftMoving ||
+    const hangarView = hangarWanted();   // v392：基地（格納庫）の画面
+    const busy = hangarView ? (hgBusy || !hgOn || pressId !== null) : g.effects.length > 0 || walkAmp > 0.02 || pressId !== null || lunge > 0.02 || charge > 0.02 || aircraftMoving ||
       (g.kaijuMotion && now - g.kaijuMotion.start < g.kaijuMotion.duration + 100) ||
       (g.kaijuEndMotion && now - g.kaijuEndMotion.start < 1000 * ((KAIJU_END_SEC[g.kaijuEndMotion.kind] || 0) + 0.6)) ||   // v376 決着の動き
       (typeof g.aircraftEntryProgress === 'number' && g.aircraftEntryProgress < 1) || camSettling || shakeAmp > 0 || Math.abs(cam.elev - desiredPose(g).elev) > 0.3;
     lastBusy = busy;
     // v381：画面に IDLE_DEEP_MS 触っていないときは、動きのないときの描く回数を毎秒20回ほどに（考えている間の熱を減らす）
     const untouched = bridge.lastInputAt ? now - bridge.lastInputAt() > IDLE_DEEP_MS : false;
-    pace = busy ? 0 : (budget === 1 ? 64 : (untouched ? 48 : 31));
+    pace = busy ? 0 : (budget === 1 ? 64 : (untouched ? 48 : (hangarView ? 40 : 31)));   // v392：格納庫のふだんの動き（灯りの流れ・まばたき）は毎秒25回で十分
     if (!busy && now - lastRender < pace) return;
     lastRender = now;
     try {
@@ -3839,6 +4827,9 @@ function start(bridge) {
   }
 
   function renderFrame(g, now, dt) {
+    // v392：基地（格納庫）の画面。戦場の物は動かさない（戻ったときに続きから）
+    if (hangarWanted()) { renderer.info.reset(); renderHangar(g, now, dt); return; }
+    if (hgOn) leaveHangar();
     const t = now / 1000;
     const geom = bridge.geom();
     renderer.info.reset();
@@ -4006,6 +4997,8 @@ function start(bridge) {
     parsedScenes.forEach(s => disposeObject(s));
     parsedScenes.length = 0;
     scanMat.dispose();
+    if (hg && hg.envRT) { hg.envRT.dispose(); }
+    hg = null; hgOn = false;
     if (envRT) { envRT.dispose(); envRT = null; }
     envTex = null;
     groundTex.dispose(); heightTex.dispose(); normalTex.dispose(); tacticalTex.dispose(); glowTex.dispose();
@@ -4022,6 +5015,18 @@ function start(bridge) {
     kaijuReal() { return !!kaiju.real; },
     // v389：怪獣の写真（メイン・正面・真横）。list … [{ view:'main'|'front'|'side', canvas }]。写せなければ null
     kaijuShots(list) { return kaijuShots(list); },
+    // v392：基地（格納庫）。prepareHangar(type) … 格納庫を作ってシェーダーも用意する（基地の機体のターンの始めに呼ぶ。type は機体の番号）。
+    //   hangarState … テスト用（いまの様子）。debugHangarParts … テスト用（部品）
+    prepareHangar(type) { return prepareHangar(type == null ? null : type); },
+    hangarState() {
+      return { on: hgOn, built: !!hg, busy: hgBusy, buildMs: hg ? hg.buildMs : null, prepMs: stats.hangarPrepMs == null ? null : stats.hangarPrepMs, frames: stats.hangarFrames || 0,
+        platY: hg ? +hg.plat.position.y.toFixed(3) : null, craftZ: hg ? +hg.craftHolder.position.z.toFixed(3) : null, upVisible: hg ? hg.up.visible : null,
+        craft: hg && hg.craft ? { type: hg.craft.type, real: !!hg.craft.model.real, dmg: hg.craft.dmg } : null, label: hg ? hg.label : '',
+        cam: [camera.position.x, camera.position.y, camera.position.z].map(v => +v.toFixed(2)), fov: camera.fov,
+        clamps: hg ? hg.clamps.map(c => +c.block.position.x.toFixed(3)) : null, beacons: hg ? hg.beacons.filter(b => b.fan.visible).length : 0,
+        sceneVisible: scene.children.filter(o => o.visible && !o.isLight && (!hg || o !== hg.root)).length };
+    },
+    debugHangarParts() { return hg; },
     debugShotMain(o) { if (o) Object.assign(SHOT_MAIN, o); return Object.assign({}, SHOT_MAIN); },
     debugShotSide(from) { if (from) SHOT_SIDE.from = from > 0 ? 1 : -1; return SHOT_SIDE.from; },   // テスト用（v391）：真横を撮る側   // テスト用（v389）：メインの写真の角度（{ az, camH, pitch, fov, margin }。camH を null にすると pitch で決める）
     // v380 ソフトリフレッシュ（3Dの作り直し）用。
@@ -4149,5 +5154,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v391' };
+window.NOAH3D = { start, version: 'v392' };
 })();

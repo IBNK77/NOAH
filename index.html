@@ -445,6 +445,28 @@ SAVE / CONTINUE（v336〜）：
   ・右前・右からは、日の光（左上から）の当たらない側になるが、空の光と縁の光で暗くなりすぎないのを、森林・海底の両方で確かめた。
   ・向きは noah3d.js の SHOT_MAIN.az（+42 右前 / -42 左前）と SHOT_SIDE.from（1 右から / -1 左から）の2つの数で戻せる。
   ・noah3d.js も v391（sw.js の目安も直した）。テスト用：noah3d の handle.debugShotSide(1|-1)
+- v392〜：基地の機体のターンを、ポップアップから「格納庫」の画面にした（盤面が戦場から基地に切り替わる）。
+  ・基地状態（大破を含む）の機体のターンが始まると、盤面が格納庫になる（前の「基地」のポップアップの代わり。入口は showBaseActions）。
+    見下ろしの格納庫の真ん中に昇降台（ふだんは回らない）と機体（3Dのモデル）。まわりに4本の整備アームがあり、
+    機体強化（左上）・カード強化/除去（右）・研究開発（左下）・防衛軍攻撃中止要請（右下）のボタンが、アームの先の灯りから線でつながる。
+    中身は前のポップアップと同じ（各メニューの「戻る」で格納庫へ戻る）。防衛軍攻撃中止要請が使えないときはボタンが暗く、押すと理由を知らせる。
+  ・下の「前線確認」で戦場を見られる。そのあいだ右下のボタンは「基地」（上の小さな文字は RETURN）で、押すと格納庫へ戻る。
+  ・右下のボタンは、格納庫では「ターン終了」（出撃してターン終了／基地待機・修理してターン終了／戻る）。
+    出撃を選ぶと戦場でマスを選ぶ（右下は「基地」＝やめて格納庫へ）。出撃先を選んでいる間に怪獣を押しても、選ぶのはやめない。
+  ・マスを選ぶと格納庫へ戻って発進シークエンス（約4.5秒。画面をタップすると最後まで飛ばせる）：
+    警報（回転灯・アームが退く）→ 台が上の階の滑走路へ昇る（カメラも一緒に昇り、縦穴の光の輪が流れる）→ 滑走路の穴にカチッと噛み合う
+    （留め具が閉じて緑に）→ 点火 → 滑走路を走って画面の上へ → 白く光って戦場へ。その機体は選んだマスへ、戦場の下から飛んでくる。
+    効果音はどれも合成（警報・上昇・ロック・点火・発進。金属的な響きにはしない）。ポーズ中・画面が裏にある間は進まない。
+  ・上辺のプレートは「AA1 基地」（大破は「AA1 大破」）、下の行は「AA1号［基地］」と右に BASE（ATTACK > MOVE > MAIN の代わり）。
+  ・大破：機体が暗く、煙と修理のアームの火花、台の灯りが赤。右上に HP の帯（修理以外ができない間は「修理のみ」・ボタンに LOCK）。
+  ・機体のターンが終わると戦場に戻る（次の機体も基地なら、その機体のターンの始めに格納庫へ）。帰還して基地に着くターンは今まで通り自動。
+    エンドレスの幕間基地は今まで通りポップアップ。続きから（操作待ちで保存した所）が基地の機体のターンなら、格納庫から再開する。
+  ・3Dの格納庫は noah3d.js の buildHangar（形はすべて three.js、絵は canvas で描く。画像のファイルは足していない）。
+    同じ scene の中に置き、戦場の物を一時的に隠して描く（光の数・種類は変えない＝シェーダーを作り直さない）。戦場へ戻るときは全部元に戻す。
+    格納庫は作戦の前の下ごしらえで作り、基地の機体のターンの始めにも用意する（prepareHangar）。ふだんの格納庫は毎秒25回ほど描く。
+  ・3Dを使えない端末（2D表示）でも、簡単な格納庫と発進（台が近づく・緑の輪・機体が上へ）を出す。
+  ・ルール説明（基地状態）にも書き足した。noah3d.js も v392（sw.js の目安も直した）。
+  ・テスト用：bridge.debugHangar() / debugBaseTurn(i) / debugLaunchAt(ms|null) / debugLaunchSkip()、noah3d の handle.hangarState() / prepareHangar(type)
 
 ===============================================================================
 -->
@@ -4342,6 +4364,156 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   #modal.kaijuPopModal .uhPop *,#modal.kaijuPopModal .uhPop *::before,#modal.kaijuPopModal .uhPop *::after{ animation:none !important; }
 }
 
+/* 13f ──────────────────────────────────────── v392 基地（格納庫）の画面 */
+/* 3D の観測HUD・HPの札は、格納庫の間は隠す（noah3d.js が付ける） */
+#boardHost .hgHide{ display:none !important; }
+#boardWrap.hangarView .bzCap{ display:none; }
+#hangarHud{
+  --hg:#c9d4e2; --hg-rgb:201,212,226; --hg-lamp:#d8ecff;
+  position:absolute; inset:2px; z-index:4; display:none; pointer-events:none;
+  border-radius:4px; overflow:hidden; font-family:var(--f-ui);
+  -webkit-user-select:none; user-select:none;
+}
+#hangarHud.show{ display:block; }
+#hangarHud .hgLines{ position:absolute; left:0; top:0; overflow:visible; pointer-events:none; }
+.hgLine .hgL{ fill:none; stroke:var(--hg); stroke-width:1.2; stroke-linejoin:round; opacity:.8; }
+.hgLine .hgDot{ fill:var(--hg); }
+.hgLine .hgTick{ fill:var(--hg); }
+.hgLine .hgRing{ fill:none; stroke:var(--hg); stroke-width:1.1; opacity:.8; transform-box:fill-box; transform-origin:center; animation:hgRing 2.6s ease-in-out infinite; }
+.hgLine.off .hgL{ stroke:rgba(150,162,178,.55); stroke-dasharray:3 3; }
+.hgLine.off .hgDot,.hgLine.off .hgTick{ fill:rgba(150,162,178,.7); }
+.hgLine.off .hgRing{ stroke:rgba(150,162,178,.45); animation:none; }
+@keyframes hgRing{ 0%,100%{ transform:scale(.8); opacity:.85; } 50%{ transform:scale(1.25); opacity:.35; } }
+/* 機体のまわりのボタン（機体側の角を斜めに切った板） */
+.hgCall{
+  --hg-clip:polygon(0 0,100% 0,calc(100% - 11px) 100%,0 100%);
+  position:absolute; pointer-events:auto; appearance:none; -webkit-appearance:none; border:0; margin:0; cursor:pointer;
+  display:flex; align-items:center; gap:calc(7px * var(--hgS, 1)); min-height:calc(40px * var(--hgS, 1)); min-width:31%;
+  padding:calc(5px * var(--hgS, 1)) calc(21px * var(--hgS, 1)) calc(6px * var(--hgS, 1)) calc(9px * var(--hgS, 1)); color:var(--plat); text-align:left; font:inherit;
+  background:linear-gradient(180deg, rgba(var(--hg-rgb),.55), rgba(var(--hg-rgb),.16) 70%, rgba(var(--hg-rgb),.34));
+  clip-path:var(--hg-clip); -webkit-clip-path:var(--hg-clip);
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .12s ease, filter .15s ease;
+}
+.hgCall::before{
+  content:""; position:absolute; inset:1px; z-index:0;
+  background:linear-gradient(180deg, rgba(16,20,26,.93), rgba(8,10,14,.9));
+  clip-path:var(--hg-clip); -webkit-clip-path:var(--hg-clip);
+}
+.hgCall::after{   /* 上辺の細い光 */
+  content:""; position:absolute; left:1px; right:12px; top:1px; height:1px; z-index:1;
+  background:linear-gradient(90deg, rgba(var(--hg-rgb),.9), rgba(var(--hg-rgb),0));
+}
+.hgCall > *{ position:relative; z-index:2; }
+.hgCall[data-hg="card"],.hgCall[data-hg="hotline"]{
+  --hg-clip:polygon(0 0,100% 0,100% 100%,11px 100%);
+  padding:calc(5px * var(--hgS, 1)) calc(10px * var(--hgS, 1)) calc(6px * var(--hgS, 1)) calc(19px * var(--hgS, 1));
+}
+.hgCall[data-hg="card"]::after,.hgCall[data-hg="hotline"]::after{ left:12px; right:1px; background:linear-gradient(270deg, rgba(var(--hg-rgb),.9), rgba(var(--hg-rgb),0)); }
+.hgCall[data-hg="upgrade"]{ left:2.6%; top:12%; }
+.hgCall[data-hg="card"]{ right:2.6%; top:19.5%; }
+.hgCall[data-hg="rd"]{ left:2.6%; top:66.5%; }
+.hgCall[data-hg="hotline"]{ right:2.6%; top:72%; }
+.hgLamp{ flex:none; width:5px; height:5px; border-radius:1px; background:var(--hg-lamp); box-shadow:0 0 6px rgba(216,236,255,.85); animation:noahLamp 2.6s ease-in-out infinite; }
+.hgCall .hgTxt{ display:flex; flex-direction:column; gap:2px; line-height:1.1; }
+.hgCall .hgTxt i{ font-style:normal; font-family:var(--f-hud); font-size:max(6px, calc(7.5px * var(--hgS, 1))); font-weight:700; letter-spacing:.16em; color:rgba(var(--hg-rgb),.72); white-space:nowrap; }
+.hgCall .hgTxt b{ font-size:calc(13px * var(--hgS, 1)); font-weight:800; letter-spacing:.04em; color:var(--plat); text-shadow:0 1px 2px rgba(0,0,0,.7); white-space:nowrap; }
+.hgCall .hgNote{ position:absolute; right:10px; top:5px; font-style:normal; font-family:var(--f-hud); font-size:max(6.5px, calc(8px * var(--hgS, 1))); font-weight:700; letter-spacing:.06em; color:rgba(226,234,246,.8); }
+.hgCall[data-hg="upgrade"] .hgNote,.hgCall[data-hg="rd"] .hgNote{ right:20px; }
+.hgCall .hgNote:empty{ display:none; }
+.hgCall .hgTxt i + b{ margin-right:calc(26px * var(--hgS, 1)); }
+.hgCall[data-hg="upgrade"] .hgTxt i + b,.hgCall[data-hg="card"] .hgTxt i + b,.hgCall[data-hg="rd"] .hgTxt i + b{ margin-right:0; }
+.hgCall:active{ transform:translateY(1px); }
+.hgCall.pressFlash{ filter:brightness(1.45) saturate(1.2); }
+.hgCall.off{ filter:saturate(.2) brightness(.72); }
+.hgCall.off .hgLamp{ background:#5a6474; box-shadow:none; }
+/* 前線確認（下辺の真ん中のタブ） */
+.hgFront{
+  --hg-clip:polygon(13px 0,calc(100% - 13px) 0,100% 100%,0 100%);
+  position:absolute; pointer-events:auto; appearance:none; -webkit-appearance:none; border:0; margin:0; cursor:pointer;
+  left:50%; bottom:0; transform:translateX(-50%); min-width:36%; height:calc(38px * var(--hgS, 1)); padding:2px calc(24px * var(--hgS, 1)) 0; font:inherit;
+  background:linear-gradient(180deg, rgba(214,226,246,.62), rgba(214,226,246,.18));
+  clip-path:var(--hg-clip); -webkit-clip-path:var(--hg-clip);
+  -webkit-tap-highlight-color:transparent;
+}
+.hgFront::before{ content:""; position:absolute; inset:1px 1px 0; background:linear-gradient(180deg,#151a21,#080a0e); clip-path:var(--hg-clip); -webkit-clip-path:var(--hg-clip); }
+.hgFront .hgTxt{ position:relative; display:flex; flex-direction:column; align-items:center; gap:2px; line-height:1.05; }
+.hgFront .hgTxt i{ font-style:normal; font-family:var(--f-hud); font-size:max(6px, calc(7.5px * var(--hgS, 1))); font-weight:700; letter-spacing:.28em; color:rgba(var(--hg-rgb),.72); white-space:nowrap; }
+.hgFront .hgTxt b{ font-size:calc(13px * var(--hgS, 1)); font-weight:800; letter-spacing:.1em; color:var(--plat); white-space:nowrap; }
+.hgFront:active{ transform:translateX(-50%) translateY(1px); }
+.hgFront.pressFlash{ filter:brightness(1.4); }
+/* 大破の帯（右上） */
+.hgBanner{
+  position:absolute; right:2.6%; top:4.2%; display:none; flex-direction:column; gap:3px; min-width:42%;
+  padding:5px 10px 6px; border-radius:3px; pointer-events:none;
+  background:linear-gradient(180deg, rgba(60,8,16,.82), rgba(28,4,10,.82));
+  box-shadow:inset 0 0 0 1px rgba(var(--order-rgb),.65), 0 0 14px rgba(var(--order-rgb),.25);
+}
+#hangarHud.dmg .hgBanner{ display:flex; }
+.hgBanner b{ font-size:calc(11.5px * var(--hgS, 1)); font-weight:800; letter-spacing:.08em; color:#ffc4cc; }
+.hgBanner span{ font-family:var(--f-hud); font-size:max(7px, calc(9.5px * var(--hgS, 1))); font-weight:700; letter-spacing:.06em; color:rgba(255,226,230,.86); }
+.hgBanner .hgBar{ position:relative; display:block; height:4px; border-radius:2px; background:rgba(255,255,255,.14); overflow:hidden; }
+.hgBanner .hgBar u{ position:absolute; left:0; top:0; bottom:0; width:0; background:linear-gradient(90deg,#ff5a6a,#ffb0b8); }
+.hgBanner .hgBar s{ position:absolute; top:-1px; bottom:-1px; width:2px; margin-left:-1px; background:#fff; text-decoration:none; opacity:.85; }
+/* 発進シークエンスの文字 */
+.hgSeq{ position:absolute; inset:0; display:none; pointer-events:none; }
+#hangarHud.launching .hgSeq{ display:block; }
+#hangarHud.launching .hgCall,#hangarHud.launching .hgFront,#hangarHud.launching .hgLines,#hangarHud.launching .hgBanner{ display:none; }
+.hgSeqHead{
+  position:absolute; left:50%; top:9.5%; transform:translateX(-50%); display:flex; align-items:center; gap:8px;
+  padding:4px 12px; white-space:nowrap; border-radius:2px;
+  background:rgba(4,8,14,.62); box-shadow:inset 0 0 0 1px rgba(255,160,80,.5);
+  font-family:var(--f-hud); font-size:max(6.5px, calc(8.5px * var(--hgS, 1))); font-weight:700; letter-spacing:.3em; color:#ffd2a6;
+}
+.hgSeqHead i{ width:6px; height:6px; border-radius:50%; background:#ff8a3c; box-shadow:0 0 8px #ff8a3c; animation:noahLamp .5s ease-in-out infinite; }
+.hgSeqHead em{ font-style:normal; letter-spacing:.1em; color:var(--plat); }
+.hgSeqWord{
+  position:absolute; left:0; right:0; top:17%; text-align:center;
+  font-family:var(--f-hud); font-size:calc(30px * var(--hgS, 1)); font-weight:800; letter-spacing:.3em; color:#fff;
+  text-shadow:0 0 14px rgba(255,150,70,.85), 0 2px 4px rgba(0,0,0,.85);
+}
+.hgSeqWord.pop{ animation:hgWord .5s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes hgWord{ from{ opacity:0; letter-spacing:.7em; filter:blur(3px); } to{ opacity:1; letter-spacing:.3em; filter:none; } }
+.hgSeqSub{ position:absolute; left:0; right:0; top:27.5%; text-align:center; font-size:calc(11px * var(--hgS, 1)); font-weight:700; letter-spacing:.12em; color:rgba(232,240,250,.9); text-shadow:0 1px 3px rgba(0,0,0,.95); }
+.hgSeq[data-stage="lift"] .hgSeqWord{ text-shadow:0 0 14px rgba(140,210,255,.85), 0 2px 4px rgba(0,0,0,.85); }
+.hgSeq[data-stage="lock"] .hgSeqWord{ color:#dfffee; text-shadow:0 0 16px rgba(70,255,150,.95), 0 2px 4px rgba(0,0,0,.85); }
+.hgSeq[data-stage="ignite"] .hgSeqWord,.hgSeq[data-stage="go"] .hgSeqWord{ color:#fff6ea; text-shadow:0 0 18px rgba(255,170,90,.95), 0 2px 4px rgba(0,0,0,.85); }
+.hgSeqBar{ position:absolute; left:20%; right:20%; bottom:10%; height:3px; border-radius:2px; background:rgba(255,255,255,.12); overflow:hidden; }
+.hgSeqBar u{ position:absolute; inset:0; background:linear-gradient(90deg,#ff8a3c,#ffd27a); transform-origin:left center; transform:scaleX(0); }
+.hgSkip{ position:absolute; left:0; right:0; bottom:4%; text-align:center; font-family:var(--f-hud); font-size:8px; font-weight:700; letter-spacing:.34em; color:rgba(214,226,246,.62); animation:noahLamp 1.6s ease-in-out infinite; }
+/* 発進の最後に白く光る／画面が替わる一瞬を隠す幕 */
+#boardWrap .hgFlash{ position:absolute; inset:2px; z-index:6; border-radius:4px; pointer-events:none; opacity:0; background:radial-gradient(circle at 50% 28%, #fff 0%, #e6f5ff 45%, #a9d8ff 100%); }
+#boardWrap .hgFlash.in{ animation:hgFlashIn .3s ease-in forwards; }
+#boardWrap .hgFlash.out{ animation:hgFlashOut .6s ease-out forwards; }
+#boardWrap .hgFlash.cut{ background:#04070c; animation:hgFlashOut .42s ease-out forwards; }
+@keyframes hgFlashIn{ from{ opacity:0; } to{ opacity:1; } }
+@keyframes hgFlashOut{ from{ opacity:1; } to{ opacity:0; } }
+/* 格納庫が開くとき：ボタンが順に出て、線が伸びる */
+#hangarHud.hgIn .hgCall{ animation:hgCallIn .5s cubic-bezier(.2,.8,.2,1) both; }
+#hangarHud.hgIn .hgCall[data-hg="upgrade"]{ animation-delay:.16s; }
+#hangarHud.hgIn .hgCall[data-hg="card"]{ animation-delay:.24s; }
+#hangarHud.hgIn .hgCall[data-hg="rd"]{ animation-delay:.32s; }
+#hangarHud.hgIn .hgCall[data-hg="hotline"]{ animation-delay:.4s; }
+#hangarHud.hgIn .hgFront{ animation:hgFrontIn .45s .48s cubic-bezier(.2,.8,.2,1) both; }
+#hangarHud.hgIn .hgLine:not(.off) .hgL{ stroke-dasharray:100; animation:hgDraw .6s .3s ease-out both; }
+#hangarHud.hgIn .hgLine circle,#hangarHud.hgIn .hgLine rect{ animation:hgPop .35s .75s ease-out both; }
+#hangarHud.hgIn .hgLine:not(.off) .hgRing{ animation:hgPop .35s .75s ease-out both, hgRing 2.6s 1.1s ease-in-out infinite; }
+@keyframes hgCallIn{ from{ opacity:0; transform:translateY(7px); filter:brightness(2.2); } to{ opacity:1; transform:none; filter:none; } }
+@keyframes hgFrontIn{ from{ opacity:0; transform:translateX(-50%) translateY(10px); } to{ opacity:1; transform:translateX(-50%); } }
+@keyframes hgDraw{ from{ stroke-dashoffset:100; } to{ stroke-dashoffset:0; } }
+@keyframes hgPop{ from{ opacity:0; } to{ opacity:1; } }
+/* 下の行の右：BASE（基地の機体のターンの間は ATTACK > MOVE > MAIN の代わり） */
+.baseStep{ flex:0 0 auto; display:none; align-items:center; font-family:var(--f-hud); font-size:9px; font-weight:700; letter-spacing:.16em; color:var(--plat); }
+.baseStep span{ position:relative; padding:3px 7px 4px; }
+.baseStep span::after{ content:""; position:absolute; left:7px; right:calc(7px + .16em); bottom:0; height:2px; border-radius:2px; background:var(--rp); box-shadow:0 0 8px rgba(var(--rp-rgb),.9); }
+#app[data-hangar="1"] .phaseSteps{ display:none; }
+#app[data-hangar="1"] .baseStep{ display:flex; }
+/* 右下のボタンの上の小さな文字（ふだん NEXT。前線確認・出撃先を選んでいる間は RETURN） */
+.endBtn[data-cap]::before{ content:attr(data-cap); }
+@media (prefers-reduced-motion:reduce){
+  #hangarHud *,#hangarHud *::before,#hangarHud *::after{ animation:none !important; }
+}
+
 /* 14 ──────────────────────────────────────────────────────── Phase overlay */
 #inputShield{
   position:fixed;
@@ -5700,6 +5872,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   <div id="infoRow">
     <div id="infoLeft"><span class="unitMark" aria-hidden="true"></span><span class="infoPill infoUnit" id="infoUnit">AA1号</span><span class="infoPill infoState state-deployed" id="infoState">出撃</span></div>
     <div class="phaseSteps" aria-hidden="true"><span data-step="attack">ATTACK</span><span data-step="move">MOVE</span><span data-step="main">MAIN</span></div>
+    <div class="baseStep" aria-hidden="true"><span>BASE</span></div>
   </div>
   <div id="handRow" class="row">
     <button id="deckBtn" class="smallBtn slot"><span class="slotLabel">山札</span><span class="count" id="deckCount"></span></button>
@@ -6134,7 +6307,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v391',
+    currentPrototypeVersion:'v392',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -13573,6 +13746,7 @@ function getRandomExplosionCell(){
         <div class="ruleParagraph">基地状態は、アサイラムアークが基地内に待機している状態です。</div>
         <div class="ruleParagraph">基地状態の機体は盤面上に存在しないため、怪獣の攻撃対象になりません。</div>
         <div class="ruleParagraph">基地状態では、研究開発、機体強化、カード除外、防衛軍攻撃中止要請、ターン終了を行えます。</div>
+        <div class="ruleParagraph">基地状態の機体のターンでは、盤面が基地（格納庫）の画面に切り替わります。各コマンドは、機体のまわりのボタン（整備アームから線でつながっています）から選びます。下の「前線確認」で戦場の様子を確認でき、右下の「基地」で格納庫へ戻れます。格納庫の機体を押すと、その機体の情報を確認できます。</div>
 
         <div class="ruleParagraphGap">研究開発では、RPを消費して新しいカードを配備できます。研究開発候補一覧では、配備可能なカードの内容を確認できます。研究開発開始を行うと、属性が重複しない形で3枚の候補カードが提示され、その中から1枚を選んで、好きなアサイラムアーク1機へ配備します。配備先の機体が出撃状態なら山札へ追加して終幕を除いてシャッフルし、基地にいる機体なら基地内へ入ります（出撃するときに、基地内カードと山札をまとめてシャッフルして山札になります）。</div>
 
@@ -13582,9 +13756,9 @@ function getRandomExplosionCell(){
 
         <div class="ruleParagraphGap">防衛軍攻撃中止要請では、RPを消費して、そのラウンドの防衛軍行動を中止させます。必要RPは初回RP50で、使用するたびに50ずつ上昇します。防衛軍攻撃中止要請を使用した場合、その機体は基地状態のままターンを終了します。</div>
 
-        <div class="ruleParagraphGap">ターン終了を選択した場合、出撃するか、修理するかを選択できます。</div>
+        <div class="ruleParagraphGap">右下の「ターン終了」を押すと、出撃するか、修理（基地待機）するかを選択できます。</div>
 
-        <div class="ruleParagraphGap">出撃を選択した場合、基地内カードと残っている山札をまとめてシャッフルし、新しい山札として再編成します。その後、戦場の3×3マスから空きマスを選んで出撃します。出撃した場合、その機体のターンは終了します。</div>
+        <div class="ruleParagraphGap">出撃を選択した場合、基地内カードと残っている山札をまとめてシャッフルし、新しい山札として再編成します。その後、戦場の3×3マスから空きマスを選んで出撃します。出撃した場合、その機体のターンは終了します。出撃するマスを選んでいる間は、右下の「基地」で格納庫へ戻れます。マスを選ぶと、発進シークエンス（画面をタップすると省略できます）のあとで戦場へ出ます。</div>
 
         <div class="ruleParagraphGap">基地待機・修理を選択した場合、基地状態の機体のHPは最大まで回復します。大破状態の修理量は従来どおり整備性の数値分です。また、基地で修理を行うことで状態異常を回復できます。修理を行った場合、その機体のターンは終了します。</div>
 
@@ -15797,7 +15971,7 @@ function checkGameEnd(){
     }
     noahRenderHand(unit,hasPendingProgress,pendingDiscard);
     ui.cannon.forEach((btn,i)=>{ btn.className='slot cannonSlot'; btn.innerHTML=''; const slotActive=i<activeCannons(unit); const card=unit.cannons[i]; const face=document.createElement('div'); face.className='cardFace ' + (!slotActive ? 'cat-locked' : (card ? ('cat-'+def(card.id).category + ' ' + rarityClass(card.id)) : 'cat-empty')); btn.appendChild(face); btn.disabled = hasPendingProgress || pendingDiscard || game.inputLocked || game.gameOver || unit.state!=='deployed' || (!card && game.mode!=='loadAmmo'); if(!slotActive){ const x=document.createElement('div'); x.className='slotLabel'; x.textContent='×'; btn.appendChild(x);} else if(card){ const cat=def(card.id).category; const src=MISSILE_IMG_SRCS[cat]; if(src){ const img=document.createElement('img'); const anim=(game.cannonAnim && game.cannonAnim.unitIndex===game.active && game.cannonAnim.slot===i) ? (' ' + game.cannonAnim.type) : ''; img.className='ammoSprite' + anim; img.src=src; img.alt=''; btn.appendChild(img); } } if(game.mode==='loadAmmo' && slotActive && !card) btn.classList.add('highlight'); });
-    const actionDisabled=hasPendingProgress || pendingDiscard || game.inputLocked || game.gameOver || unit.state!=='deployed' || game.phase!=='main'; const supplyDisabled=hasPendingProgress || pendingDiscard || game.inputLocked || game.gameOver || !canResearchDevelopmentByState(unit); ui.supplyBtn.disabled=supplyDisabled; if(ui.dfBtn) ui.dfBtn.classList.toggle('defenseWeaponWarning', isDefenseButtonWarningActive()); ui.endTurnBtn.disabled=game.inputLocked || pendingDiscard; if(noahPendingEvent){ ui.endTurnBtn.disabled=false; ui.endTurnBtn.textContent = 'イベント'; } else if(game.gameOver){ ui.endTurnBtn.textContent = 'リザルト'; } else if(pendingDiscard){ ui.endTurnBtn.textContent = '整理中'; } else if(hasPendingProgress){ ui.endTurnBtn.textContent = '進行'; } else if(unit.state==='deployed'){ ui.endTurnBtn.textContent = game.phase==='attack' ? (game.returnToMainAfterAttack ? 'MAIN' : 'MOVE') : (game.phase==='move' ? 'MAIN' : 'ターン終了'); } else if(unit.state==='base'){ ui.endTurnBtn.textContent = '基地'; } else if(unit.state==='destroyed'){ ui.endTurnBtn.textContent = '大破'; } else { ui.endTurnBtn.textContent = '進行'; } drawBoard(); }
+    const actionDisabled=hasPendingProgress || pendingDiscard || game.inputLocked || game.gameOver || unit.state!=='deployed' || game.phase!=='main'; const supplyDisabled=hasPendingProgress || pendingDiscard || game.inputLocked || game.gameOver || !canResearchDevelopmentByState(unit); ui.supplyBtn.disabled=supplyDisabled; if(ui.dfBtn) ui.dfBtn.classList.toggle('defenseWeaponWarning', isDefenseButtonWarningActive()); ui.endTurnBtn.disabled=game.inputLocked || pendingDiscard; if(noahPendingEvent){ ui.endTurnBtn.disabled=false; ui.endTurnBtn.textContent = 'イベント'; } else if(game.gameOver){ ui.endTurnBtn.textContent = 'リザルト'; } else if(pendingDiscard){ ui.endTurnBtn.textContent = '整理中'; } else if(hasPendingProgress){ ui.endTurnBtn.textContent = '進行'; } else if(unit.state==='deployed'){ ui.endTurnBtn.textContent = game.phase==='attack' ? (game.returnToMainAfterAttack ? 'MAIN' : 'MOVE') : (game.phase==='move' ? 'MAIN' : 'ターン終了'); } else if(unit.state==='base' || unit.state==='destroyed'){ ui.endTurnBtn.textContent = noahHangarActive() ? (noahBoardView()==='hangar' ? 'ターン終了' : '基地') : (unit.state==='base' ? '基地' : '大破'); } else { ui.endTurnBtn.textContent = '進行'; } { const back = noahHangarActive() && noahBoardView()==='field'; if(back) ui.endTurnBtn.dataset.cap = 'RETURN'; else delete ui.endTurnBtn.dataset.cap; } noahHangarSync(); drawBoard(); }
   // v335 UI v2: 盤面まわりの装飾・ゲージ・フェーズ表示を同期する（ゲーム処理には影響しない）。
   function noahSyncHudDecor(unit){
     if(ui.app){
@@ -15815,7 +15989,7 @@ function checkGameEnd(){
       }
     }
     const stageEl = document.getElementById('boardStage');
-    if(stageEl){
+    if(stageEl && noahBoardView() !== 'hangar'){   // v392：格納庫の間は「基地」（noahHangarSync が書く）
       const stageName = currentStageDef().name;
       if(stageEl.textContent !== stageName) stageEl.textContent = stageName;
     }
@@ -16092,6 +16266,7 @@ function checkGameEnd(){
     boardCtx.shadowBlur=0;
     boardCtx.shadowColor='rgba(0,0,0,0)';
     boardCtx.clearRect(0,0,canvasW,canvasH);
+    if(noahBoardView()==='hangar'){ noahDrawHangar2D(geom); return; }   // v392 格納庫（3D を使えないとき）
     if(!drawLoopBackground(geom)){
       for(let y=0;y<7;y++){
         for(let x=0;x<7;x++){
@@ -19049,7 +19224,8 @@ function showHandPopup(index){ if(game.inputLocked) return;
     //   ほかの効果音より一段大きく、派手に（大きい音はリミッターに当てて、音圧を上げる）
     const VOL = { start:2.8, stream:5.5, tick:3.2, riser:3.7, esc:[1, 1.3, 1.3, 1.3], stall:1.2, pre:[1, 1, 3.7, 3.9, 1.8], charge:3.8, burst:[1.3, 1.3, 1.3, 1.3],
       fly:5.4, land:2.1, flip:2.6, stamp:[4.2, 4.4, 1.4, 1.3, 1.3], heartbeat:1.2, glitch:3.9, down:1.3, result:[5.6, 5.6, 3.2, 3.2, 3.2],
-      hudOpen:7.5, hudSwitch:7.5, hudClose:6.5 };   // v385 機体解析HUD（ほかの画面を開く音と同じくらいに合わせる）
+      hudOpen:7.5, hudSwitch:7.5, hudClose:6.5,   // v385 機体解析HUD（ほかの画面を開く音と同じくらいに合わせる）
+      hgOpen:4.8, hgPeek:8.5, hgAlarm:3, hgLift:5.6, hgLock:3.6, hgIgnite:7, hgLaunch:2.4 };   // v392 格納庫・発進シークエンス（OfflineAudioContext で測って合わせた）
     const R = {
       start(c){
         tone(c, { f:220, f2:1760, gd:.16, d:.22, v:.12 });
@@ -19169,6 +19345,51 @@ function showHandPopup(index){ if(game.inputLocked) return;
       hudClose(c){
         tone(c, { f:1480, f2:400, gd:.13, d:.15, v:.055 });
         tone(c, { type:'triangle', f:784, t:.07, d:.09, v:.03, a:.003 });
+      },
+      // v392 格納庫：画面が点く（低いうなり＋電子音）・前線確認／基地へ戻る（さっと切り替わる音）
+      hgOpen(c){
+        tone(c, { f:98, f2:196, gd:.28, d:.45, v:.09, a:.03 });
+        tone(c, { type:'triangle', f:880, t:.12, d:.1, v:.035, a:.003 });
+        tone(c, { type:'triangle', f:1318.5, t:.2, d:.18, v:.03, a:.003 });
+        for(let i = 0; i < 5; i++) tone(c, { type:'square', f:1900 + Math.random() * 1400, t:.05 + i * .03, d:.02, a:.002, v:.012, lp:4000 });
+        noise(c, { f:1200, f2:4200, d:.36, v:.03, q:1, a:.08 });
+      },
+      hgPeek(c){
+        noise(c, { f:5200, f2:900, d:.2, v:.05, q:1.3, a:.01 });
+        tone(c, { type:'triangle', f:1174.66, d:.08, v:.04, a:.002 });
+        tone(c, { type:'triangle', f:1567.98, t:.05, d:.1, v:.03, a:.002 });
+      },
+      // 発進シークエンス：警報（2つの高さの電子音）→ 上昇（うなりが上がり、光の輪が通る音）→ ロック（カチッ。短いノイズと低い一打ち＋確認の音）
+      //   → 点火（タービンが回り出す）→ 発進（ドン＋噴射の音が遠ざかる）。金属的な響きにはしない
+      hgAlarm(c){
+        for(let i = 0; i < 4; i++){
+          const f = i % 2 ? 1046.5 : 783.99;
+          tone(c, { type:'triangle', f, t:i * .19, d:.16, v:.07, a:.004 });
+          tone(c, { type:'square', f:f * 2, t:i * .19, d:.1, v:.012, a:.004, lp:2600 });
+        }
+        tone(c, { f:72, f2:58, d:.8, v:.16, a:.05 });
+      },
+      hgLift(c){
+        tone(c, { type:'sawtooth', f:55, f2:150, gd:1.6, d:1.75, v:.05, lp:300, lp2:1500, a:.25 });
+        noise(c, { f:380, f2:2800, d:1.7, v:.07, q:.9, a:.55 });
+        for(let i = 0; i < 10; i++) tone(c, { f:1150 + i * 95, t:.35 + i * .115, d:.05, a:.003, v:.024 });
+      },
+      hgLock(c){
+        noise(c, { ft:'highpass', f:3200, d:.035, v:.15, a:.001 });
+        tone(c, { type:'square', f:2400, d:.03, v:.03, a:.001, lp:5000 });
+        tone(c, { f:150, f2:70, d:.12, v:.3, a:.002 });
+        tone(c, { type:'triangle', f:1318.5, t:.09, d:.12, v:.05, a:.003 });
+        tone(c, { type:'triangle', f:1760, t:.16, d:.22, v:.05, a:.003 });
+      },
+      hgIgnite(c){
+        tone(c, { type:'sawtooth', f:180, f2:1100, gd:.4, d:.45, v:.045, lp:900, lp2:3200, a:.1 });
+        noise(c, { f:500, f2:3000, d:.45, v:.08, q:1.2, a:.3 });
+      },
+      hgLaunch(c){
+        boom(c, { f:95, f2:30, d:.9, v:.55, nv:.3 });
+        noise(c, { ft:'lowpass', f:2400, f2:280, d:1.25, v:.16, q:.4, a:.02 });
+        noise(c, { f:5200, f2:600, d:.85, v:.08, q:1.5, t:.05 });
+        tone(c, { type:'sawtooth', f:900, f2:2600, gd:.3, d:.5, v:.03, lp:3000 });
       },
     };
     const S = {};
@@ -21189,32 +21410,19 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(noahPendingEvent){ noahEventPendingHint(); return; }   // v382
     if(game.inputLocked) return;
     if(game.gameOver) return;
+    if(noahBoardView()==='hangar'){ noahHangarBoardTap(e); return; }   // v392 格納庫（2D のとき。3D は bridge.hangarTap）
     const unit=curUnit();
     const cell=(e && e.noahCell) ? e.noahCell : boardCellFromEvent(e);   // v352: 3D表示では選んだマスが届く
     const tappedUnitCol=unitColFromBoardX(cell.x);
 
     if(game.mode==='sortie'){
       if(cell.x>=2 && cell.x<=4 && cell.y>=0 && cell.y<=2){
-        game.mode=null;
-        render();
-        showKaijuPlanPopup();
+        showKaijuPlanPopup();   // v392：出撃先を選んでいる間に怪獣を押しても、選ぶのはやめない（やめるのは右下の「基地」）
         return;
       }
       if(tappedUnitCol<0 || ![4,5,6].includes(cell.y)){ showToast('出撃する空きマスを選んでください'); return; }
       if(isGridOccupied(tappedUnitCol,cell.y,null)){ showToast('そのマスには他の機体がいます'); return; }
-      game.stats.sorties += 1;
-      refillAtBase(unit);
-      unit.state='deployed';
-      unit.col=tappedUnitCol;
-      unit.row=cell.y;
-      game.phase='attack';
-      game.returnToMainAfterAttack=false;
-      unit.moved=false;
-      game.mode=null;
-      playTapSound();
-      showToast(unit.name + ' は戦場へ出撃しました');
-      addLog(unit.name + `：${positionLabel(unit)}へ出撃、山札補充`);
-      advanceTurn();
+      noahLaunchStart(unit, tappedUnitCol, cell.y);   // v392：格納庫へ戻って発進シークエンス → 終わったら出撃（noahLaunchFinish）
       return;
     }
 
@@ -21248,7 +21456,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     const inspect=noahUnitHudTargetAt(cell);
     if(inspect>=0){ showUnitInfo(inspect, { from:'board', pt:noahLastBoardTapPt }); return; }   // v386：設定で カード / 全画面
   }
-  function promptEndTurn(){ if(noahPendingEvent){ noahResumeEvent(); return; } if(game.inputLocked) return; if(hasPendingDiscard()){ showToast('手札破棄を完了してください'); return; } const unit=curUnit(); if(game.gameOver){ reopenMissionResult(); return; } if(game.pendingProgress){ showProgressPrompt(); return; } if(unit.state==='deployed' && game.phase==='attack'){ ensureArtifactFlags(unit).attackDistanceBonus = 0; if(game.returnToMainAfterAttack){ game.returnToMainAfterAttack=false; game.phase='main'; game.mode=null; game.pendingHandIndex=null; render(); showQuickTitle('MAIN PHASE'); return; } game.phase='move'; game.mode='move'; game.pendingHandIndex=null; render(); showQuickTitle('MOVE PHASE'); return; } if(unit.state==='deployed' && game.phase==='move'){ game.phase='main'; game.mode=null; game.pendingHandIndex=null; render(); showQuickTitle('MAIN PHASE'); return; } if(unit.state==='deployed' && game.phase==='main'){ openModal('ターン終了', `${unit.name} のターンを終了します。`, [{text:'終了',onClick(){ confirmFinishDeployedTurn(false); }},{text:'帰還',onClick(){ confirmFinishDeployedTurn(true); }},{text:'×',onClick(){}}]); return; } if(unit.state==='base'){ showBaseActions(unit,'基地'); return; } if(unit.state==='destroyed'){ showBaseActions(unit,'大破'); return; } showToast('この状態では自動進行です'); }
+  function promptEndTurn(){ if(noahPendingEvent){ noahResumeEvent(); return; } if(game.inputLocked) return; if(hasPendingDiscard()){ showToast('手札破棄を完了してください'); return; } const unit=curUnit(); if(game.gameOver){ reopenMissionResult(); return; } if(game.pendingProgress){ showProgressPrompt(); return; } if(unit.state==='deployed' && game.phase==='attack'){ ensureArtifactFlags(unit).attackDistanceBonus = 0; if(game.returnToMainAfterAttack){ game.returnToMainAfterAttack=false; game.phase='main'; game.mode=null; game.pendingHandIndex=null; render(); showQuickTitle('MAIN PHASE'); return; } game.phase='move'; game.mode='move'; game.pendingHandIndex=null; render(); showQuickTitle('MOVE PHASE'); return; } if(unit.state==='deployed' && game.phase==='move'){ game.phase='main'; game.mode=null; game.pendingHandIndex=null; render(); showQuickTitle('MAIN PHASE'); return; } if(unit.state==='deployed' && game.phase==='main'){ openModal('ターン終了', `${unit.name} のターンを終了します。`, [{text:'終了',onClick(){ confirmFinishDeployedTurn(false); }},{text:'帰還',onClick(){ confirmFinishDeployedTurn(true); }},{text:'×',onClick(){}}]); return; } if(unit.state==='base' || unit.state==='destroyed'){ /* v392 格納庫：戦場を見ている間（前線確認・出撃先を選ぶ）は「基地」へ戻る／格納庫では「ターン終了」 */ if(noahHangarActive()){ if(noahBoardView()==='field'){ try{ rdSfx.hgPeek(); }catch(e){} noahHangarBack(); return; } showBaseTurnEndOptions(unit, noahHangar.title || noahHangarTitleOf(unit)); return; } showBaseActions(unit, noahHangarTitleOf(unit)); return; } showToast('この状態では自動進行です'); }
   function confirmFinishDeployedTurn(doReturn){
     const unit=curUnit();
     if(!doReturn && unit.deck.length<=4){
@@ -21283,7 +21491,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     unit.cannons.forEach(card=>{ if(card) delete card.quickFireReady; });
   }
   function finishDeployedTurn(doReturn){ const unit=curUnit(); ensureArtifactFlags(unit).attackDistanceBonus = 0; game.returnToMainAfterAttack=false; clearQuickFireFlags(unit); if(doReturn){ const returnGrid=findReturnGridForUnit(unit); if(!returnGrid){ showToast('帰還経路が塞がっています'); promptEndTurn(); return; } game.stats.returns += 1; returnRefresh(unit); unit.col=returnGrid.col; unit.row=returnGrid.row; unit.state='returning'; const jamNote=returnGrid.row===6 ? '後列へ退避し、帰還します' : `${rowLabel(returnGrid.row)}で帰還姿勢に入ります`; showToast(unit.name + ' は' + jamNote); addLog(unit.name + '：' + positionLabel(unit) + 'で帰還へ'); } else { normalRefresh(unit); applyTurnEndKaijuTrait(unit); addLog(unit.name + '：ターン終了'); } game.mode=null; game.phase='attack'; game.pendingHandIndex=null; advanceTurn(); }
-  function advanceTurn(){ if(checkGameEnd()) return; if(game.active < game.units.length-1){ game.active += 1; render(); startTurn(); } else { resolveRoundEnd(); } }
+  function advanceTurn(){ noahHangarClose(); /* v392 */ if(checkGameEnd()) return; if(game.active < game.units.length-1){ game.active += 1; render(); startTurn(); } else { resolveRoundEnd(); } }
   function resolveRoundEnd(){ if(game.gameOver) return; resolveRoundEventOrders(()=>{ playBgm('alert'); showQuickTitle('KAIJU TURN', resolveKaijuPhase); }); }   // v371：命令（上層部の圧力）を先に確かめる
   async function resolveDefensePhase(){
     if(game.inputLocked) return;
@@ -21621,9 +21829,14 @@ function showHandPopup(index){ if(game.inputLocked) return;
   }
   function startTurn(){
     if(game.gameOver) return;
+    noahHangarClose();   // v392
     noahWriteSave('turn');
     normalizeArtifactState();
     const unit=curUnit();
+    if(unit && (unit.state==='base' || unit.state==='destroyed') && noah3dHandle && noah3dActive && noah3dHandle.prepareHangar){
+      const type = aircraftImageIndex(unit.aircraftId);
+      setTimeout(()=>{ try{ if(noah3dHandle && noah3dHandle.prepareHangar) noah3dHandle.prepareHangar(type); }catch(e){} }, 90);
+    }
     resetUnitArtifactFlags(unit);
     game.mode=null;
     game.pendingHandIndex=null;
@@ -22104,20 +22317,476 @@ function showCardEnchantChoice(unit,item){
     const lockNote = info.destroyedLocked ? '<div class="muted" style="margin-top:8px;">大破中です。HPが最大値の半分以上まで回復するまで、修理以外の行動はできません。</div>' : '';
     openModal('ターン終了', `<div class="muted">基地状態のターン終了処理を選択してください。</div>${lockNote}`, actions);
   }
+  // ===========================================================================
+  // v392 基地（格納庫）の画面
+  // ---------------------------------------------------------------------------
+  // ・基地状態（大破を含む）の機体のターンでは、盤面を戦場から格納庫の画面に切り替える（前の「基地」のポップアップの代わり）。
+  //   入口は showBaseActions(unit, title)（ターンの始め・各メニューの「戻る」・右下のボタン）。
+  // ・格納庫：機体のまわりのボタン（機体強化・カード強化/除去・研究開発・防衛軍攻撃中止要請）は、整備アームの先から線でつなぐ
+  //   （アームの先の画面の位置は 3D が bridge.hangarAnchors で知らせる。2D のときは noahDrawHangar2D が決める）。
+  //   下の「前線確認」で戦場を見る（右下のボタンが「基地」になり、押すと戻る）。右下の「ターン終了」で出撃・待機を選ぶ。
+  //   出撃を選ぶと戦場でマスを選ぶ（右下は「基地」＝やめて戻る）。マスを選ぶと格納庫へ戻って発進シークエンス（タップで飛ばせる）→ 戦場へ。
+  // ・どちらの画面を見せるかは noahBoardView()。render のたびに noahHangarSync が HUD・上辺のプレート・下の行を合わせる。
+  //   機体のターンが終わったら（advanceTurn・startTurn）格納庫を閉じる。エンドレスの幕間基地は今まで通りポップアップ。
+  // ===========================================================================
+  let noahHangar = null;          // { key, unitIndex, title, peek, launch }
+  let noahHangarEl = null;        // 格納庫の HUD（#hangarHud）
+  let noahHangarViewNow = 'field';
+  let noahHangarAnchors = null;   // アームの先の位置（{ arms:[{key,x,y}], craft:{x,y,r}, w, h }）
+  let noahHangarInTimer = 0;
+  let noahHangarNoCut = false;    // 発進が終わって戦場へ戻るとき（白い光のまま）は、切り替わりの幕を出さない
+  // 発進シークエンスの区切り（ms）。3D（noah3d.js）も同じ数字で動く
+  const NOAH_LAUNCH_T = { alert:0, lift:800, lock:2550, ignite:3050, go:3350, out:4150, total:4450 };
+  // ボタンはどれも同じ落ち着いた色（ミリタリー調）。上の小さな文字はアームの番号（レールの上の ARM-1〜4 と同じ）
+  const NOAH_HANGAR_CALLS = [
+    { key:'upgrade', cap:'ARM-1 ／ UPGRADE', label:'機体強化', flash:'primary' },
+    { key:'card', cap:'ARM-2 ／ CARD SYSTEM', label:'カード強化/除去', flash:'primary' },
+    { key:'rd', cap:'ARM-3 ／ R&amp;D', label:'研究開発', flash:'research' },
+    { key:'hotline', cap:'ARM-4 ／ HOTLINE', label:'防衛軍攻撃中止要請', flash:'danger' },
+  ];
+  function noahHangarKey(){ return `${game.round}:${game.active}`; }
+  function noahHangarUnit(){ return noahHangar && game && game.units ? game.units[noahHangar.unitIndex] || null : null; }
+  function noahHangarActive(){
+    if(!noahHangar || !gameStarted || !game || game.gameOver || game.endlessIntermission) return false;
+    if(noahHangar.launch) return !noahHangar.launch.done;
+    if(noahHangar.key !== noahHangarKey() || noahHangar.unitIndex !== game.active) return false;
+    const u = curUnit();
+    return !!u && (u.state==='base' || u.state==='destroyed');
+  }
+  // 盤面に見せる画面：'hangar'（格納庫）／'field'（戦場）
+  function noahBoardView(){
+    if(!noahHangarActive()) return 'field';
+    if(noahHangar.launch) return 'hangar';
+    if(noahHangar.peek || game.mode==='sortie') return 'field';
+    return 'hangar';
+  }
+  function noahHangarTitleOf(unit){ return unit && unit.state==='destroyed' ? '大破' : '基地'; }
+  function noahHangarClose(){
+    const L = noahHangar && noahHangar.launch;
+    if(L && L.raf) cancelAnimationFrame(L.raf);
+    noahHangar = null;
+  }
+  // 入口（前の「基地」のポップアップを開いていた所から呼ばれる）
   function showBaseActions(unit,title){
-    const info=baseRepairInfo(unit);
-    const modalTitle = `${String(unit.name || '').replace(/号$/, '')}:${title || '基地'}`;
-    const lockNote = info.destroyedLocked ? `<div class="danger">大破中：HPが最大値の半分以上まで回復するまで、修理以外の基地コマンドは実行できません。</div>` : '';
-    const actions = info.destroyedLocked
-      ? [{text:'ターン終了', onClick(){ showBaseTurnEndOptions(unit,title); }}]
-      : [
-        {text:'研究開発', keepOpen:true, onClick(){ showSupplyPopup(); }},
-        {text:'機体強化', keepOpen:true, onClick(){ showStatUpgradePopup(unit,title); }},
-        {text:'カード強化/除去', keepOpen:true, onClick(){ showCardManageMenu(unit,title); }},
-        {text:`防衛軍攻撃中止要請 (RP${defenseHotlineCost()})`, disabled:(game.lp < defenseHotlineCost() || game.defenseHotlineActive || !defenseActionHasEffect()), onClick(){ showDefenseHotlineConfirm(unit,title); }},
-        {text:'ターン終了', onClick(){ showBaseTurnEndOptions(unit,title); }}
-      ];
-    openModal(modalTitle, lockNote, actions, {closeX:true});
+    if(!unit || !gameStarted || !game) return;
+    if(game.endlessIntermission){ showEndlessIntermissionUnitMenu(game.units.indexOf(unit)); return; }
+    const idx = game.units.indexOf(unit);
+    const same = noahHangar && !noahHangar.launch && noahHangar.unitIndex===idx && noahHangar.key===noahHangarKey();
+    if(same){ noahHangar.peek = false; if(title) noahHangar.title = title; }
+    else noahHangar = { key:noahHangarKey(), unitIndex:idx, title:title || noahHangarTitleOf(unit), peek:false, launch:null };
+    if(game.mode==='sortie'){ game.mode=null; game.pendingHandIndex=null; }
+    render();
+  }
+  // 前線確認（戦場を見る）／基地へ戻る（前線確認・出撃先を選んでいる間の右下のボタン）
+  function noahHangarPeek(){
+    if(!noahHangarActive() || noahHangar.launch) return;
+    noahHangar.peek = true;
+    render();
+  }
+  function noahHangarBack(){
+    if(!noahHangarActive() || noahHangar.launch) return;
+    if(game.mode==='sortie'){ game.mode=null; game.pendingHandIndex=null; }
+    noahHangar.peek = false;
+    render();
+  }
+
+  // ---- HUD（HTML）--------------------------------------------------------------
+  function noahHangarEnsureDom(){
+    if(noahHangarEl && noahHangarEl.isConnected) return noahHangarEl;
+    const wrap = document.getElementById('boardWrap');
+    if(!wrap) return null;
+    const el = document.createElement('div');
+    el.id = 'hangarHud';
+    el.innerHTML = `<svg class="hgLines" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${NOAH_HANGAR_CALLS.map(c=>`<g class="hgLine" data-line="${c.key}"><path class="hgL" pathLength="100" d=""/><rect class="hgTick" width="5" height="5" x="-9" y="-9"/><circle class="hgRing" r="5.5" cx="-9" cy="-9"/><circle class="hgDot" r="2.2" cx="-9" cy="-9"/></g>`).join('')}</svg>`
+      + NOAH_HANGAR_CALLS.map(c=>`<button class="hgCall" type="button" data-hg="${c.key}"><span class="hgLamp" aria-hidden="true"></span><span class="hgTxt"><i>${c.cap}</i><b>${c.label}</b><em class="hgNote"></em></span></button>`).join('')
+      + `<button class="hgFront" type="button" data-hg="front"><span class="hgTxt"><i>FRONT LINE</i><b>前線確認</b></span></button>`
+      + `<div class="hgBanner" aria-live="polite"><b></b><span></span><i class="hgBar"><u></u><s></s></i></div>`
+      + `<div class="hgSeq" aria-live="polite"><div class="hgSeqHead"><i></i><span>LAUNCH SEQUENCE</span><em></em></div><div class="hgSeqWord"></div><div class="hgSeqSub"></div><div class="hgSeqBar"><u></u></div><div class="hgSkip">TAP TO SKIP</div></div>`;
+    wrap.appendChild(el);
+    el.querySelectorAll('[data-hg]').forEach(btn=>btn.addEventListener('click', ()=>noahHangarCommand(btn.getAttribute('data-hg'), btn)));
+    try{ new ResizeObserver(()=>noahHangarLayoutLines()).observe(el); }catch(e){}
+    noahHangarEl = el;
+    return el;
+  }
+  function noahHangarCommand(key, btn){
+    if(noahPendingEvent){ noahEventPendingHint(); return; }
+    if(!noahHangarActive() || noahBoardView()!=='hangar' || noahHangar.launch) return;
+    if(game.inputLocked) return;
+    const unit = noahHangarUnit();
+    if(!unit) return;
+    const title = noahHangar.title || noahHangarTitleOf(unit);
+    if(key==='front'){
+      flashThen(btn, 'primary', ()=>{ rdSfx.hgPeek(); noahHangarPeek(); });
+      return;
+    }
+    if(baseRepairInfo(unit).destroyedLocked){ showToast('大破中：HPが最大値の半分以上まで回復するまで、修理以外の基地コマンドは実行できません', 2600); return; }
+    const c = NOAH_HANGAR_CALLS.find(x=>x.key===key);
+    flashThen(btn, c ? c.flash : 'primary', ()=>{
+      if(key==='rd') showSupplyPopup();
+      else if(key==='upgrade') showStatUpgradePopup(unit, title);
+      else if(key==='card') showCardManageMenu(unit, title);
+      else if(key==='hotline') showDefenseHotlineConfirm(unit, title);   // 使えないときは理由を知らせる（前のボタンは押せなかった）
+    });
+  }
+  // 3D（または 2D の格納庫）から：アームの先の位置
+  function noahHangarSetAnchors(a){
+    noahHangarAnchors = a || null;
+    noahHangarLayoutLines();
+  }
+  // ボタンとアームの先を、縦→横の折れ線でつなぐ（曲がり角は少し斜めに切る）
+  function noahHangarLayoutLines(){
+    const el = noahHangarEl;
+    if(!el || !el.isConnected) return;
+    const svg = el.querySelector('.hgLines');
+    const W = el.clientWidth, H = el.clientHeight;
+    if(!W || !H) return;
+    const sc = Math.max(0.72, Math.min(1.12, W / 357)).toFixed(3);
+    if(el.style.getPropertyValue('--hgS') !== sc) el.style.setProperty('--hgS', sc);
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    const box = el.getBoundingClientRect();
+    const A = noahHangarAnchors;
+    NOAH_HANGAR_CALLS.forEach(c=>{
+      const g = svg.querySelector(`[data-line="${c.key}"]`);
+      const btn = el.querySelector(`.hgCall[data-hg="${c.key}"]`);
+      const p = A && A.arms ? A.arms.find(x=>x.key===c.key) : null;
+      if(!g || !btn || !p || !Number.isFinite(p.x) || !Number.isFinite(p.y)){ if(g) g.style.display='none'; return; }
+      g.style.display = '';
+      const r = btn.getBoundingClientRect();
+      const R = { l:r.left-box.left, t:r.top-box.top, r:r.right-box.left, b:r.bottom-box.top };
+      const px = p.x, py = p.y;
+      let pts;
+      const ch = 6;
+      if(R.b <= py - 4 || R.t >= py + 4){
+        const up = R.b <= py - 4;            // ボタンがアームの先より上
+        const sx = Math.max(R.l + 14, Math.min(R.r - 14, px)), sy = up ? R.b : R.t;
+        if(Math.abs(sx - px) < 3) pts = [[sx, sy], [px, py]];
+        else{
+          const dir = px > sx ? 1 : -1, vy = up ? 1 : -1;
+          const cy = py - vy * Math.min(ch, Math.abs(py - sy) * .5);
+          pts = [[sx, sy], [sx, cy], [sx + dir * Math.min(ch, Math.abs(px - sx) * .5), py], [px, py]];
+        }
+      }else{
+        const left = px < R.l, sx = left ? R.l : R.r, sy = Math.max(R.t + 8, Math.min(R.b - 8, py));
+        pts = [[sx, sy], [px, sy], [px, py]];
+      }
+      const d = 'M' + pts.map(q=>q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' L');
+      const path = g.querySelector('.hgL');
+      if(path.getAttribute('d') !== d) path.setAttribute('d', d);
+      const s0 = pts[0];
+      const tick = g.querySelector('.hgTick'); tick.setAttribute('x', (s0[0] - 2.5).toFixed(1)); tick.setAttribute('y', (s0[1] - 2.5).toFixed(1));
+      g.querySelectorAll('circle').forEach(ci=>{ ci.setAttribute('cx', px.toFixed(1)); ci.setAttribute('cy', py.toFixed(1)); });
+    });
+  }
+  // render のたびに：HUD の表示・ボタンの状態・上辺のプレート・下の行・画面が替わったときの演出
+  function noahHangarSync(){
+    if(!ui.app || !game) return;
+    const active = noahHangarActive();
+    const view = noahBoardView();
+    const unit = active ? noahHangarUnit() : null;
+    const launch = active && noahHangar.launch ? noahHangar.launch : null;
+    ui.app.dataset.hangar = active ? '1' : '';
+    const wrap = document.getElementById('boardWrap');
+    if(wrap){
+      wrap.classList.toggle('hangarView', view==='hangar');
+      wrap.classList.toggle('hangarLaunch', !!launch);
+    }
+    // 上辺のプレート：「AA1 基地」／戦場では「FIELD ステージ名」
+    const keyEl = document.querySelector('#boardWrap .bzKey'), stageEl = document.getElementById('boardStage');
+    if(view==='hangar' && unit){
+      const short = String(unit.name || '').replace(/号$/, '');
+      if(keyEl && keyEl.textContent !== short) keyEl.textContent = short;
+      const ttl = noahHangarTitleOf(unit);
+      if(stageEl && stageEl.textContent !== ttl) stageEl.textContent = ttl;
+    }else if(keyEl && keyEl.textContent !== 'FIELD'){
+      keyEl.textContent = 'FIELD';
+      if(stageEl) stageEl.textContent = currentStageDef().name;
+    }
+    if(active) noahHangarEnsureDom();
+    const el = noahHangarEl;
+    if(el){
+      el.classList.toggle('show', view==='hangar');
+      el.classList.toggle('launching', !!launch);
+      if(unit && !launch){
+        const info = baseRepairInfo(unit);
+        const locked = !!info.destroyedLocked;
+        el.classList.toggle('dmg', unit.state==='destroyed');
+        el.classList.toggle('locked', locked);
+        const cost = defenseHotlineCost();
+        const hotOff = game.lp < cost || game.defenseHotlineActive || !defenseActionHasEffect();
+        el.querySelectorAll('.hgCall').forEach(btn=>{
+          const k = btn.getAttribute('data-hg');
+          const off = locked || (k==='hotline' && hotOff);
+          btn.classList.toggle('off', off);
+          btn.setAttribute('aria-disabled', off ? 'true' : 'false');
+          const g = el.querySelector(`[data-line="${k}"]`);
+          if(g) g.classList.toggle('off', off);
+          const note = btn.querySelector('.hgNote');
+          let txt = '';
+          if(k==='hotline') txt = game.defenseHotlineActive ? '使用済み' : `RP${cost}`;
+          if(locked) txt = 'LOCK';
+          if(note && note.textContent !== txt) note.textContent = txt;
+        });
+        // 大破：上に帯（HPと、修理以外もできるようになるまで）
+        const ban = el.querySelector('.hgBanner');
+        if(unit.state==='destroyed'){
+          const th = destroyedRecoveryThreshold(unit);
+          ban.querySelector('b').textContent = locked ? '大破 ─ 修理のみ' : '大破 ─ 損傷あり';
+          ban.querySelector('span').textContent = `HP ${unit.hp}/${unit.maxHp}` + (locked ? `　復旧まで ${Math.max(0, th - unit.hp)}` : '');
+          ban.querySelector('.hgBar u').style.width = `${Math.max(0, Math.min(100, unit.hp / Math.max(1, unit.maxHp) * 100))}%`;
+          ban.querySelector('.hgBar s').style.left = `${Math.max(0, Math.min(100, th / Math.max(1, unit.maxHp) * 100))}%`;
+        }
+      }
+      if(launch) noahLaunchHud(launch);
+    }
+    if(view !== noahHangarViewNow){
+      const prev = noahHangarViewNow;
+      noahHangarViewNow = view;
+      noahHangarOnViewChange(prev, view, !!launch);
+    }
+    noahHangarLayoutLines();
+  }
+  function noahHangarOnViewChange(prev, view, launching){
+    // 画面の切り替わりの一瞬を隠す（暗い幕がさっと引く）。発進の終わり（白く光っている）では出さない
+    if(!launching && !noahHangarNoCut) noahBoardFlash('cut');
+    if(view==='hangar' && !launching){
+      try{ rdSfx.hgOpen(); }catch(e){}
+      const el = noahHangarEl;
+      if(el){
+        el.classList.remove('hgIn'); void el.offsetWidth; el.classList.add('hgIn');
+        clearTimeout(noahHangarInTimer);
+        noahHangarInTimer = setTimeout(()=>{ if(noahHangarEl) noahHangarEl.classList.remove('hgIn'); }, 1400);
+      }
+    }
+  }
+
+  // ---- 発進シークエンス --------------------------------------------------------
+  // 出撃するマスを選んだら：格納庫へ戻って、台が上の階の滑走路へ昇る → カチッと噛み合う → 発進 → 戦場へ（その機体はそのマスに出る）。
+  //   時間は L.t（ms。ポーズ中・画面が裏にある間は進まない）。画面をタップすると最後（白く光る所）まで飛ばす
+  function noahLaunchStart(unit, col, row){
+    const idx = game.units.indexOf(unit);
+    if(!noahHangar || noahHangar.unitIndex !== idx) noahHangar = { key:noahHangarKey(), unitIndex:idx, title:noahHangarTitleOf(unit), peek:false, launch:null };
+    game.mode = null; game.pendingHandIndex = null;
+    noahHangar.peek = false;
+    const now = performance.now();
+    const L = { col, row, unitIndex:idx, game, startedAt:now, lastAt:now, t:0, fired:{}, done:false, raf:0, skipAt:0, flashed:false };
+    noahHangar.launch = L;
+    setInputLocked(true);
+    playTapSound();
+    render();
+    if(!noah3dActive) drawBoard();
+    L.raf = requestAnimationFrame(noahLaunchTick);
+  }
+  function noahLaunchTick(now){
+    const L = noahHangar && noahHangar.launch;
+    if(!L || L.done) return;
+    if(L.game !== game || !gameStarted || game.gameOver){ noahLaunchAbort(); return; }
+    const dt = Math.max(0, Math.min(100, now - L.lastAt));
+    L.lastAt = now;
+    const paused = ui.pauseBg && ui.pauseBg.style.display === 'flex';
+    if(!paused && !L.frozen) L.t += dt;
+    const T = NOAH_LAUNCH_T;
+    const cue = (name, at, fn)=>{ if(!L.fired[name] && L.t >= at){ L.fired[name] = true; try{ fn(); }catch(e){} } };
+    cue('alert', T.alert, ()=>rdSfx.hgAlarm());
+    cue('lift', T.lift, ()=>rdSfx.hgLift());
+    cue('lock', T.lock, ()=>rdSfx.hgLock());
+    cue('ignite', T.ignite, ()=>rdSfx.hgIgnite());
+    cue('go', T.go, ()=>rdSfx.hgLaunch());
+    cue('out', T.out, ()=>noahBoardFlash('in'));
+    if(noahHangarEl) noahLaunchHud(L);
+    if(!noah3dActive) drawBoard();
+    if(L.t >= T.total){ noahLaunchFinish(); return; }
+    L.raf = requestAnimationFrame(noahLaunchTick);
+  }
+  // タップで飛ばす：最後の白く光る所へ（そこまでの音は鳴らさない）
+  function noahLaunchSkip(){
+    const L = noahHangar && noahHangar.launch;
+    if(!L || L.done) return;
+    if(performance.now() - L.startedAt < 450) return;   // マスを選んだタップの続き（あとから来るクリック）では飛ばさない
+    const T = NOAH_LAUNCH_T;
+    if(L.t >= T.out) return;
+    ['alert','lift','lock','ignite','go'].forEach(k=>{ L.fired[k] = true; });
+    L.t = T.out;
+    L.skipAt = performance.now();
+    try{ rdSfx.hgPeek(); }catch(e){}
+  }
+  function noahLaunchAbort(){
+    const L = noahHangar && noahHangar.launch;
+    if(L){ L.done = true; if(L.raf) cancelAnimationFrame(L.raf); }
+    noahHangar = null;
+    noahBoardFlash('off');
+    if(L && L.game === game && game) setInputLocked(false);
+  }
+  function noahLaunchFinish(){
+    const L = noahHangar && noahHangar.launch;
+    if(!L || L.done) return;
+    L.done = true;
+    const unit = game.units[L.unitIndex];
+    noahHangar = null;
+    if(!unit){ setInputLocked(false); render(); return; }
+    // 出撃（v391 までの、マスを選んだときの処理と同じ）
+    game.stats.sorties += 1;
+    refillAtBase(unit);
+    unit.state='deployed';
+    unit.col=L.col;
+    unit.row=L.row;
+    game.phase='attack';
+    game.returnToMainAfterAttack=false;
+    unit.moved=false;
+    game.mode=null;
+    unit._noahLaunchAt = performance.now();   // 3D：戦場の下から飛んでくる（少ししたら消す。セーブに残さない）
+    setTimeout(()=>{ try{ delete unit._noahLaunchAt; }catch(e){} }, 1600);
+    showToast(unit.name + ' は戦場へ出撃しました');
+    addLog(unit.name + `：${positionLabel(unit)}へ出撃、山札補充`);
+    noahHangarNoCut = true;
+    try{ render(); }finally{ noahHangarNoCut = false; }
+    noahBoardFlash('out');
+    setTimeout(()=>{
+      if(L.game !== game || !gameStarted) return;
+      setInputLocked(false);
+      advanceTurn();
+    }, 760);
+  }
+  // 盤面を白く光らせる（発進の最後）。'in' … 光る、'out' … 引く、'off' … すぐ消す
+  function noahBoardFlash(mode){
+    const wrap = document.getElementById('boardWrap');
+    if(!wrap) return;
+    let f = wrap.querySelector('.hgFlash');
+    if(!f){ f = document.createElement('div'); f.className = 'hgFlash'; f.setAttribute('aria-hidden', 'true'); wrap.appendChild(f); }
+    f.classList.remove('in', 'out');
+    if(mode==='off') return;
+    void f.offsetWidth;
+    f.classList.add(mode);
+  }
+  // 発進中の文字（段階・進み具合）
+  function noahLaunchHud(L){
+    const el = noahHangarEl;
+    if(!el) return;
+    const T = NOAH_LAUNCH_T, t = L.t;
+    const unit = game.units[L.unitIndex];
+    const stage = t < T.lift ? 'alert' : t < T.lock ? 'lift' : t < T.ignite ? 'lock' : t < T.go ? 'ignite' : 'go';
+    const seq = el.querySelector('.hgSeq');
+    if(seq.dataset.stage !== stage){
+      seq.dataset.stage = stage;
+      const word = { alert:'STANDBY', lift:'LIFT UP', lock:'LOCKED', ignite:'IGNITION', go:'LAUNCH' }[stage];
+      const sub = { alert:'発進準備 ─ 昇降台 上昇開始', lift:'滑走路デッキへ上昇中', lock:'カタパルト接続 ─ 固定完了', ignite:'エンジン点火', go:'発進！' }[stage];
+      const w = seq.querySelector('.hgSeqWord'); w.textContent = word; w.classList.remove('pop'); void w.offsetWidth; w.classList.add('pop');
+      seq.querySelector('.hgSeqSub').textContent = sub;
+      const tgt = unit ? `${String(unit.name || '').replace(/号$/, '')} ▸ ${positionLabelAt(L.col, L.row)}` : '';
+      seq.querySelector('.hgSeqHead em').textContent = tgt;
+    }
+    seq.querySelector('.hgSeqBar u').style.transform = `scaleX(${Math.max(0, Math.min(1, t / T.out)).toFixed(3)})`;
+  }
+  function positionLabelAt(col, row){
+    try{ return positionLabel(col, row); }catch(e){ return ''; }
+  }
+
+  // ---- 2D（3D を使えない端末）の格納庫 --------------------------------------------
+  //   床・警戒線・台・4本のアーム・機体の絵。発進は台が近づく（拡大）→ 緑の輪 → 機体が上へ。アームの先の位置を HUD へ渡す
+  function noahDrawHangar2D(geom){
+    const {canvasW:W, canvasH:H} = geom;
+    const g = boardCtx, now = performance.now(), t = now / 1000;
+    const L = noahHangar && noahHangar.launch, T = NOAH_LAUNCH_T, lt = L ? L.t : -1;
+    const unit = noahHangarUnit();
+    const dmg = unit && unit.state==='destroyed';
+    const cx = W / 2, cy = H * 0.47, R = Math.min(W, H) * 0.215;
+    const lift = L ? Math.max(0, Math.min(1, (lt - T.lift) / (T.lock - T.lift))) : 0;
+    const zoom = L ? 1 + 0.45 * Math.sin(Math.PI * lift) * (lt < T.lock ? 1 : 0) : 1;
+    g.save();
+    g.fillStyle = '#0a0f15'; g.fillRect(0, 0, W, H);
+    // 床（昇っている間は暗く沈む）
+    g.globalAlpha = L && lt >= T.lift ? Math.max(0.15, 1 - lift * 1.2) : 1;
+    const grd = g.createRadialGradient(cx, cy, R * 0.6, cx, cy, Math.max(W, H) * 0.75);
+    grd.addColorStop(0, '#2a3644'); grd.addColorStop(1, '#0b1016');
+    g.fillStyle = grd; g.fillRect(0, 0, W, H);
+    g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1;
+    const ps = R * 0.75;
+    for(let x = cx % ps; x < W; x += ps){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+    for(let y = cy % ps; y < H; y += ps){ g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+    // 警戒線
+    g.save(); g.beginPath(); g.arc(cx, cy, R * 1.3, 0, Math.PI * 2); g.arc(cx, cy, R * 1.07, 0, Math.PI * 2, true); g.clip();
+    g.fillStyle = '#131519'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#c98c27';
+    for(let i = 0; i < 40; i++){ const a = i / 40 * Math.PI * 2; g.beginPath(); g.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); g.lineTo(cx + Math.cos(a + .08) * R, cy + Math.sin(a + .08) * R); g.lineTo(cx + Math.cos(a + .2) * R * 1.4, cy + Math.sin(a + .2) * R * 1.4); g.lineTo(cx + Math.cos(a + .12) * R * 1.4, cy + Math.sin(a + .12) * R * 1.4); g.closePath(); g.fill(); }
+    g.restore();
+    // 天井のレール（左右）と、そこから下がるアーム（3D と同じ並び。色はガンメタル・黒・白い灯り）
+    const railX = [cx - R * 1.5, cx + R * 1.5];
+    g.globalAlpha = (L && lt >= T.lift) ? Math.max(0, 1 - lift * 2) : 1;
+    g.fillStyle = '#2b3036'; railX.forEach(x=>g.fillRect(x - R * 0.12, 0, R * 0.24, H));
+    g.fillStyle = 'rgba(0,0,0,.45)'; railX.forEach(x=>g.fillRect(x - R * 0.12, 0, R * 0.04, H));
+    const arms = [[-1, -0.59, 'upgrade', -0.49, -0.33], [1, -0.46, 'card', 0.45, -0.2], [-1, 0.54, 'rd', -0.59, 0.27], [1, 0.66, 'hotline', 0.56, 0.32]];
+    const anchors = [];
+    arms.forEach(([side, ty, key, hx0, hy0])=>{
+      const bx = cx + side * R * 1.5, by = cy + ty * R * 2.0;
+      const k = L ? Math.max(0, 1 - Math.max(0, lt - 100) / 500) : 1;
+      const hx = bx + (cx + hx0 * R * 2 - bx) * k + (1 - k) * (-side * R * 0.3), hy = by + (cy + hy0 * R * 2 - by) * k;
+      const ex = (bx + hx) / 2 + (hy - by) * 0.18 * side, ey = (by + hy) / 2 - (hx - bx) * 0.18 * side;   // ひじ（少し外へ）
+      g.lineCap = 'round';
+      g.strokeStyle = '#3a4048'; g.lineWidth = R * 0.12;
+      g.beginPath(); g.moveTo(bx, by); g.lineTo(ex, ey); g.lineTo(hx, hy); g.stroke();
+      g.fillStyle = '#121418';
+      [[bx, by, 0.13], [ex, ey, 0.1], [hx, hy, 0.08]].forEach(([x, y, r])=>{ g.beginPath(); g.arc(x, y, R * r, 0, Math.PI * 2); g.fill(); });
+      g.fillStyle = '#d8ecff'; g.shadowColor = '#d8ecff'; g.shadowBlur = 8; g.beginPath(); g.arc(hx, hy, R * 0.045, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
+      anchors.push({ key, x:hx, y:hy });
+    });
+    g.globalAlpha = 1;
+    // 台と機体
+    g.save();
+    g.translate(cx, cy); g.scale(zoom, zoom);
+    const pg = g.createRadialGradient(0, -R * 0.1, 0, 0, 0, R);
+    pg.addColorStop(0, '#3a4757'); pg.addColorStop(1, '#202935');
+    g.fillStyle = pg; g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 2;
+    [0.25, 0.55, 0.82].forEach(k=>{ g.beginPath(); g.arc(0, 0, R * k, 0, Math.PI * 2); g.stroke(); });
+    const locked = L && lt >= T.lock;
+    for(let i = 0; i < 24; i++){
+      const a = i / 24 * Math.PI * 2;
+      const on = L ? (locked ? 1 : (lt >= T.lift ? 0.85 : (Math.floor(lt / 125) % 2 ? 1 : .25))) : (0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.cos(a - t * 1.4), 6));
+      g.fillStyle = L ? (locked ? `rgba(70,255,150,${on})` : `rgba(255,130,40,${on})`) : (dmg ? `rgba(255,50,60,${0.3 + 0.7 * Math.max(0, Math.sin(t * 3))})` : `rgba(80,190,255,${on})`);
+      g.beginPath(); g.arc(Math.cos(a) * R * 0.93, Math.sin(a) * R * 0.93, Math.max(1.5, R * 0.025), 0, Math.PI * 2); g.fill();
+    }
+    const idx = unit ? aircraftImageIndex(unit.aircraftId) : 0;
+    const img = aircraftImgs[idx];
+    let fy = 0;
+    if(L && lt >= T.go) fy = -Math.pow((lt - T.go) / 1000, 2) * H * 3.2;
+    if(img && img.complete && img.naturalWidth){
+      const s = R * 1.6 / Math.max(img.naturalWidth, img.naturalHeight);
+      if(L && lt >= T.ignite){
+        const len = R * (0.35 + (lt >= T.go ? 0.75 : 0.2)), top = fy + img.naturalHeight * s * 0.4;
+        const fg = g.createLinearGradient(0, top, 0, top + len * 2);
+        fg.addColorStop(0, 'rgba(255,255,240,.95)'); fg.addColorStop(.25, 'rgba(255,190,100,.8)'); fg.addColorStop(1, 'rgba(255,110,40,0)');
+        g.fillStyle = fg; g.beginPath(); g.ellipse(0, top + len, R * 0.12, len, 0, 0, Math.PI * 2); g.fill();
+      }
+      g.globalAlpha = dmg ? 0.6 : 1;
+      g.drawImage(img, -img.naturalWidth * s / 2, fy - img.naturalHeight * s / 2, img.naturalWidth * s, img.naturalHeight * s);
+      g.globalAlpha = 1;
+    }
+    if(locked){ const k = Math.max(0, 1 - (lt - T.lock) / 450); g.strokeStyle = `rgba(140,255,200,${k})`; g.lineWidth = 6; g.beginPath(); g.arc(0, 0, R * (1.05 + (1 - k) * 0.3), 0, Math.PI * 2); g.stroke(); }
+    g.restore();
+    // 昇っている間：縦穴の光の輪が流れる
+    if(L && lt >= T.lift && lt < T.lock){
+      for(let i = 0; i < 6; i++){
+        const ph = ((lt / 1000) * 2.2 + i / 6) % 1;
+        g.strokeStyle = `rgba(170,230,255,${(0.5 * (1 - ph)).toFixed(3)})`; g.lineWidth = 2;
+        g.beginPath(); g.arc(cx, cy, R * (1.2 + ph * 2.2), 0, Math.PI * 2); g.stroke();
+      }
+    }
+    g.restore();
+    if(!L){
+      const key = anchors.map(a=>a.x.toFixed(0) + ',' + a.y.toFixed(0)).join(';') + W + 'x' + H;
+      if(noahHangarDraw2DKey !== key){ noahHangarDraw2DKey = key; noahHangarSetAnchors({ arms:anchors, craft:{ x:cx, y:cy, r:R * 0.8 }, w:W, h:H }); }
+    }
+    noahHangar2DCraft = { x:cx, y:cy, r:R * 0.8 };
+  }
+  let noahHangarDraw2DKey = '';
+  let noahHangar2DCraft = null;
+  // 2D のとき：盤面を押した → 機体の上なら機体の情報
+  function noahHangarBoardTap(e){
+    if(!e || e.noahCell || !noahHangar2DCraft) return;
+    const r = ui.board.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const c = noahHangar2DCraft;
+    if(Math.hypot(x - c.x, y - c.y) <= c.r) showUnitInfo(noahHangar.unitIndex, { from:'board', pt:{ x:e.clientX, y:e.clientY } });
   }
   ui.supplyBtn.innerHTML = `<img class="noahEmblemIcon" src="${TITLE_LOGO_SRC}" alt="">`;
   ui.statusBtn.innerHTML = `<img class="aaUnitIcon" src="${AIRCRAFT_IMG_SRCS[0]}" alt="">`;
@@ -22135,6 +22804,7 @@ function showCardEnchantChoice(unit,item){
     }
     flashThen(ui.endTurnBtn,'primary',promptEndTurn);
   });
+  if(ui.inputShield) ui.inputShield.addEventListener('pointerdown', ()=>{ if(noahHangar && noahHangar.launch && !noahHangar.launch.done) noahLaunchSkip(); });   // v392：発進シークエンスはタップで飛ばせる
   ui.hand.forEach((btn,i)=>btn.addEventListener('click',()=>{ if(noahPendingEvent){ noahEventPendingHint(); return; } if(game.mode==='loadAmmo' && game.pendingHandIndex===i){ showToast('砲身を選んでください'); return; } const unit=curUnit(); const card=unit.hand[i]; if(!card) return; flashThen(btn, def(card.id).category, ()=>showHandPopup(i)); }));
   ui.cannon.forEach((btn,i)=>btn.addEventListener('click',()=>{ if(noahPendingEvent){ noahEventPendingHint(); return; } const unit=curUnit(); if(game.mode==='loadAmmo'){ const pending=unit.hand[game.pendingHandIndex]; const kind=pending ? def(pending.id).category : 'primary'; flashThen(btn, kind, ()=>tryLoadAmmo(i)); return; } const card=unit.cannons[i]; if(!card) return; flashThen(btn, def(card.id).category, ()=>showCannonPopup(i)); }));
   // v363：盤面を押して開いたポップアップに、同じタップの「あとから来るクリック」が届いて、もう一度押したことになるのを防ぐ
@@ -22506,7 +23176,12 @@ function showCardEnchantChoice(unit,item){
           noahAutosaveBlocked = false;
           if(kind === 'round') startRoundOpeningPhase();
           else if(kind === 'turn') startTurn();
-          else { render(); noahScheduleAutosave(); }
+          else {
+            const u = curUnit();
+            if(u && (u.state==='base' || u.state==='destroyed') && !game.gameOver) showBaseActions(u, noahHangarTitleOf(u));   // v392 格納庫
+            else render();
+            noahScheduleAutosave();
+          }
         }});
       });
     }, 380);
@@ -23213,6 +23888,27 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     // v385：押しているマスに、解析を開ける機体がいるか（いれば押している間そのマスに水色の枠）。列 0〜2・行 4〜6
     inspectUnitAt: (col, row)=>noahUnitHudTargetAtGrid(col, row),
     onFatal: err=>noah3dFail(err),
+    // v392 基地（格納庫）の画面：どちらを描くか・格納庫の中身（機体・状態・発進の進み具合）・アームの先の位置・機体を押した
+    boardView: ()=>noahBoardView(),
+    hangarInfo: ()=>{
+      const u = noahHangarUnit();
+      if(!u) return null;
+      const L = noahHangar && noahHangar.launch;
+      return { unit:noahHangar.unitIndex, type:aircraftImageIndex(u.aircraftId), name:String(u.name || '').replace(/号$/, ''), state:u.state,
+        launch: L && !L.done ? { t:L.t, times:NOAH_LAUNCH_T } : null };
+    },
+    hangarAnchors: a=>noahHangarSetAnchors(a),
+    hangarTap: (part, pt)=>{ if(part==='craft' && noahHangarActive() && !game.inputLocked && !noahPendingEvent) showUnitInfo(noahHangar.unitIndex, { from:'board', pt }); },
+    entryFrom: u=>{ if(!u || !u._noahLaunchAt) return false; const d = performance.now() - u._noahLaunchAt; return d >= 0 && d < 1500; },   // 発進した直後：戦場の下から飛んでくる
+    // テスト用（v392）
+    debugHangar: ()=>({ active:noahHangarActive(), view:noahBoardView(), peek:!!(noahHangar && noahHangar.peek), title:noahHangar ? noahHangar.title : '', unit:noahHangar ? noahHangar.unitIndex : -1,
+      launch: noahHangar && noahHangar.launch ? { t:Math.round(noahHangar.launch.t), done:noahHangar.launch.done, col:noahHangar.launch.col, row:noahHangar.launch.row } : null,
+      btn:ui.endTurnBtn.textContent, cap:ui.endTurnBtn.dataset.cap || '', hud:!!(noahHangarEl && noahHangarEl.classList.contains('show')),
+      plate:(document.querySelector('#boardWrap .bzKey') || {}).textContent + ' ' + (document.getElementById('boardStage') || {}).textContent,
+      anchors: noahHangarAnchors ? noahHangarAnchors.arms.length : 0, locked:!!game.inputLocked, mode:game.mode }),
+    debugBaseTurn: (i)=>{ const u = game.units[Number(i) || 0]; if(!u) return false; game.active = game.units.indexOf(u); if(u.state==='deployed'){ u.state='base'; u.row=null; u.col=null; } showBaseActions(u, noahHangarTitleOf(u)); return true; },
+    debugLaunchSkip: ()=>noahLaunchSkip(),
+    debugLaunchAt: (t)=>{ const L = noahHangar && noahHangar.launch; if(!L) return false; if(t == null){ L.frozen = false; return true; } L.t = Number(t) || 0; L.frozen = true; return true; },
   };
 
   // v359: 盤面左上の 3D⇄2D・視点のボタンは無くした（いつも3D。視点はフェイズで自動）
