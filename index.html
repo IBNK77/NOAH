@@ -376,6 +376,31 @@ SAVE / CONTINUE（v336〜）：
     画質が「最軽量」のときは回る動きを止める。端末の「視差効果を減らす」がオンなら動きなし。
   ・効果音（開く・切り替え・閉じる）はその場で合成した電子音（金属的な響きなし）。大きさはほかの画面を開く音に合わせた。
   ・テスト用：bridge.debugUnitHud(i, from) / debugUnitHudState()
+- v386〜：機体情報の見切れを直し、カードのポップアップと同じ形の「機体カード」を足した。
+  ・見切れ：機体解析HUD で「…」で切れていた文（役割・被弾予測の一言・能力値の一言・砲身のカード名と効果・追従ドローンの効果）を、折り返して全部見せる。
+    役割は「／」の所で折り返す。追従ドローンは名前の下に効果。幅 350px 以下では能力値の英字（DEF など）を隠す。
+    確かめ方：文字の1行ずつが、切り取る枠（overflow）の外へ出ていないかを、幅 320〜430px・状態いろいろ・字の幅を広げた場合で調べて 0 件。
+  ・機体カード（#modal.unitCardModal）：カードのポップアップ（hologramCard）と同じ枠・見出し・絵・効果の欄・下の段で機体を見せる。
+    絵の所＝上から見た機体（HP の輪・レーダー・追従ドローン）、左上に行動の順番、右上に位置、下の帯に HP と被弾予測。
+    効果の欄＝状態異常のまとめ（押すと「機体詳細」がカードの中いっぱいに開く。中身は機体解析HUD と同じ部品＝.uhKit で、
+    HP・状態異常・性能・戦況・装備と、いちばん下に「デッキ詳細」。デッキ詳細の「機体カードへ戻る」で戻る）。
+    下の段＝役割（1行に入らなければ字を小さくする）・「全画面」（機体解析HUD を開く）・診断（良好・注意・危険・大破・基地待機）。
+    ‹ ›・絵を左右にはらう・← → で機体を切り替え（「機体詳細」を開いたままでも切り替わる）。色は機体ごと（AA1 青・AA2 青緑・AA3 赤・AA4 空色・AA5 緑）。
+  ・設定：ポーズ画面の「表示」に「機体情報」（カード／全画面）。盤面の機体・下の「AA1号」・UNIT の一覧の機体を押したときに開く方。初めはカード。
+    UNIT の一覧から開いた機体カードは × で一覧に戻る。
+  ・機体解析HUD・機体カードの画像はつかんで動かせないようにした（はらう操作の邪魔をしないように）。
+  ・フェーズ表示（ROUND・TURN・PHASE）が消えて 0.45秒の間は、盤面の機体を押しても機体情報を開かない
+    （表示を飛ばすつもりのタップが、ちょうど表示が消えた後の盤面に届いて開いてしまわないように）。
+  ・テスト用：bridge.debugUnitCard(i, from) / debugUnitCardState() / debugUnitInfoMode('card'|'hud')
+- v387〜：v386 の「機体カード」（正方形の絵・「詳細」の小窓）をやめて、機体情報のポップアップ（#modal.unitPopModal）にした。
+  ・外枠だけカードのポップアップ（hologramCard：角を切った枠・N.O.A.H. と「AA1 · UNIT 01」の表示・ぼかした背景・開くときの光）と同じ。
+    枠の色は機体ごと（AA1 青・AA2 青緑・AA3 赤・AA4 空色・AA5 緑）。
+  ・中身は機体解析HUD と同じ並び（名前と ‹ ›・診断・状態の一言・上面図と HP・状態異常・性能・戦況・装備）を、全部まとめて縦にスクロール。
+    見出しは「UNIT ANALYSIS 機体解析」と「全画面」（機体解析HUD へ）と ×。下は「デッキ詳細」（「機体情報へ戻る」で戻る）と「閉じる」
+    （UNIT の一覧から開いたときは「一覧へ戻る」）。‹ ›・左右にはらう・← → で機体を切り替え、Esc で閉じる。
+  ・全画面より少し幅が狭いので、上面図を少し小さく（幅 350px 以下ではさらに小さく）、能力値の英字（DEF など）は隠す。
+  ・設定「機体情報」は ポップアップ／全画面（初めはポップアップ。v386 で「カード」を選んでいたらポップアップになる）。
+  ・テスト用：bridge.debugUnitPopup(i, from) / debugUnitPopupState() / debugUnitInfoMode('popup'|'hud')（v386 の debugUnitCard はなくなった）
 
 ===============================================================================
 -->
@@ -3696,6 +3721,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   -webkit-user-select:none; user-select:none;
 }
 #unitHud.on{ display:block; }
+.uhKit{ --ac-rgb:var(--noah-rgb); --hp-rgb:var(--ep-rgb); --tone-rgb:var(--ep-rgb); }   /* v386〜：機体情報のポップアップ（v387）も同じ部品（:is(#unitHud,.uhKit)）で描く */
 #unitHud[data-tone="warn"]{ --tone-rgb:var(--warn-rgb); }
 #unitHud[data-tone="bad"]{ --tone-rgb:var(--order-rgb); }
 #unitHud[data-tone="down"]{ --tone-rgb:var(--order-rgb); }
@@ -3706,20 +3732,20 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
 @keyframes uhFade{ from{ opacity:0; } to{ opacity:1; } }
 @keyframes uhFadeOut{ from{ opacity:1; } to{ opacity:0; } }
 @keyframes uhPop{ from{ opacity:0; transform:scale(.93); } to{ opacity:1; transform:none; } }
-#unitHud .uhBg{
+:is(#unitHud,.uhKit) .uhBg{
   position:absolute; inset:0; overflow:hidden;
   background:
     radial-gradient(90% 44% at 50% 27%, rgba(var(--ac-rgb),.14), transparent 70%),
     radial-gradient(circle at 1px 1px, rgba(150,190,255,.085) 1px, transparent 1.6px) 0 0 / 16px 16px,
     linear-gradient(180deg, rgba(3,8,16,.97), rgba(2,4,9,.985));
 }
-#unitHud .uhBg::after{
+:is(#unitHud,.uhKit) .uhBg::after{
   content:""; position:absolute; left:0; right:0; top:0; height:18%;
   background:linear-gradient(180deg, transparent, rgba(var(--ac-rgb),.03) 75%, rgba(var(--ac-rgb),.08) 98%, transparent);
   animation:uhScan 6s linear infinite;
 }
 @keyframes uhScan{ from{ transform:translateY(-100%); } to{ transform:translateY(560%); } }
-#unitHud .uhWrap{
+:is(#unitHud,.uhKit) .uhWrap{
   position:relative; z-index:1; height:100%;
   width:min(100vw, 460px); margin:0 auto;
   display:flex; flex-direction:column;
@@ -3728,57 +3754,59 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
 }
 #unitHud button{ box-shadow:none; }
 /* 見出し */
-#unitHud .uhHead{ flex:0 0 auto; position:relative; display:flex; align-items:center; gap:10px; min-height:44px; padding:0 2px 6px; border-bottom:1px solid rgba(168,190,226,.16); }
-#unitHud .uhHead::after{ content:""; position:absolute; left:0; bottom:-1px; width:72px; height:1px; background:var(--noah-hi); box-shadow:0 0 6px var(--noah-hi); }
-#unitHud .uhTitle{ min-width:0; }
-#unitHud .uhTitle .en{ display:flex; align-items:center; gap:6px; font-family:var(--f-hud); font-size:8.5px; font-weight:700; letter-spacing:.36em; color:var(--noah-hi); white-space:nowrap; }
-#unitHud .uhTitle .en i{ width:5px; height:5px; transform:rotate(45deg); background:var(--noah-hi); box-shadow:0 0 6px var(--noah-hi); }
-#unitHud .uhTitle .jp{ margin-top:2px; font-family:var(--f-disp); font-size:16px; font-weight:700; letter-spacing:.18em; color:#fff; white-space:nowrap; }
-#unitHud .uhCount{ margin-left:auto; font-family:var(--f-hud); font-size:9.5px; font-weight:700; letter-spacing:.16em; color:var(--text-2); font-variant-numeric:tabular-nums; white-space:nowrap; }
-#unitHud .uhCount b{ font-size:13px; color:var(--plat); }
-#unitHud .uhClose{ flex:0 0 auto; position:relative; width:38px; height:38px; padding:0; border-radius:50%; background:rgba(8,14,26,.72); border:1px solid rgba(168,190,226,.3); }
-#unitHud .uhClose::before,#unitHud .uhClose::after{ content:""; position:absolute; left:50%; top:50%; width:15px; height:1.5px; margin:-.75px 0 0 -7.5px; border-radius:1px; background:var(--plat); transform:rotate(45deg); }
-#unitHud .uhClose::after{ transform:rotate(-45deg); }
+:is(#unitHud,.uhKit) .uhHead{ flex:0 0 auto; position:relative; display:flex; align-items:center; gap:10px; min-height:44px; padding:0 2px 6px; border-bottom:1px solid rgba(168,190,226,.16); }
+:is(#unitHud,.uhKit) .uhHead::after{ content:""; position:absolute; left:0; bottom:-1px; width:72px; height:1px; background:var(--noah-hi); box-shadow:0 0 6px var(--noah-hi); }
+:is(#unitHud,.uhKit) .uhTitle{ min-width:0; }
+:is(#unitHud,.uhKit) .uhTitle .en{ display:flex; align-items:center; gap:6px; font-family:var(--f-hud); font-size:8.5px; font-weight:700; letter-spacing:.36em; color:var(--noah-hi); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhTitle .en i{ width:5px; height:5px; transform:rotate(45deg); background:var(--noah-hi); box-shadow:0 0 6px var(--noah-hi); }
+:is(#unitHud,.uhKit) .uhTitle .jp{ margin-top:2px; font-family:var(--f-disp); font-size:16px; font-weight:700; letter-spacing:.18em; color:#fff; white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhCount{ margin-left:auto; font-family:var(--f-hud); font-size:9.5px; font-weight:700; letter-spacing:.16em; color:var(--text-2); font-variant-numeric:tabular-nums; white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhCount b{ font-size:13px; color:var(--plat); }
+:is(#unitHud,.uhKit) .uhClose{ flex:0 0 auto; position:relative; width:38px; height:38px; padding:0; border-radius:50%; background:rgba(8,14,26,.72); border:1px solid rgba(168,190,226,.3); }
+:is(#unitHud,.uhKit) .uhClose::before,:is(#unitHud,.uhKit) .uhClose::after{ content:""; position:absolute; left:50%; top:50%; width:15px; height:1.5px; margin:-.75px 0 0 -7.5px; border-radius:1px; background:var(--plat); transform:rotate(45deg); }
+:is(#unitHud,.uhKit) .uhClose::after{ transform:rotate(-45deg); }
 /* 中身（縦にスクロール。左右にはらうと機体を切り替え） */
-#unitHud .uhBody{ flex:1 1 auto; min-height:0; overflow-x:hidden; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; touch-action:pan-y; padding:9px 2px 14px; }
-#unitHud .uhBody.swL{ animation:uhSwL .24s var(--ease) both; }
-#unitHud .uhBody.swR{ animation:uhSwR .24s var(--ease) both; }
+:is(#unitHud,.uhKit) .uhBody{ flex:1 1 auto; min-height:0; overflow-x:hidden; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; touch-action:pan-y; padding:9px 2px 14px; }
+:is(#unitHud,.uhKit) .uhBody.swL{ animation:uhSwL .24s var(--ease) both; }
+:is(#unitHud,.uhKit) .uhBody.swR{ animation:uhSwR .24s var(--ease) both; }
 @keyframes uhSwL{ from{ opacity:0; transform:translateX(28px); } to{ opacity:1; transform:none; } }
 @keyframes uhSwR{ from{ opacity:0; transform:translateX(-28px); } to{ opacity:1; transform:none; } }
 #unitHud.in .uhBody > *{ animation:uhRise .36s var(--ease) both; animation-delay:calc(60ms + var(--d,0) * 45ms); }
 @keyframes uhRise{ from{ opacity:0; transform:translateY(9px); } to{ opacity:1; transform:none; } }
 /* 機体の名前・切り替え・診断 */
-#unitHud .uhId{ display:flex; align-items:center; gap:7px; }
-#unitHud .uhNav{ flex:0 0 auto; width:30px; height:48px; padding:0; border-radius:5px; background:rgba(10,18,32,.6); border:1px solid rgba(168,190,226,.2); color:var(--noah-hi); font-family:var(--f-hud); font-size:19px; font-weight:700; line-height:1; }
-#unitHud .uhIdMain{ flex:1; min-width:0; display:flex; align-items:center; gap:8px; }
-#unitHud .uhOrder{ font-family:var(--f-hud); font-size:31px; font-weight:800; line-height:1; letter-spacing:.01em; color:rgb(var(--ac-rgb)); filter:brightness(1.25); text-shadow:0 0 14px rgba(var(--ac-rgb),.6); font-variant-numeric:tabular-nums; }
-#unitHud .uhName{ min-width:0; }
-#unitHud .uhName b{ display:block; font-family:var(--f-disp); font-size:20px; font-weight:800; line-height:1.15; letter-spacing:.06em; color:#fff; white-space:nowrap; }
-#unitHud .uhName small{ display:block; margin-top:2px; font-size:10px; font-weight:700; letter-spacing:.03em; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-#unitHud .uhDiag{ flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:1px; padding:4px 7px 4px 8px; border:1px solid rgba(var(--tone-rgb),.55); border-radius:3px; background:rgba(var(--tone-rgb),.1); }
-#unitHud .uhDiag .en{ display:flex; align-items:center; gap:5px; font-family:var(--f-hud); font-size:9.5px; font-weight:800; letter-spacing:.14em; color:rgb(var(--tone-rgb)); filter:brightness(1.15); white-space:nowrap; }
-#unitHud .uhDiag .en i{ width:5px; height:5px; border-radius:50%; background:rgb(var(--tone-rgb)); box-shadow:0 0 6px rgb(var(--tone-rgb)); animation:noahLamp 1.4s ease-in-out infinite; }
+:is(#unitHud,.uhKit) .uhId{ display:flex; align-items:center; gap:7px; }
+:is(#unitHud,.uhKit) .uhNav{ flex:0 0 auto; width:30px; height:48px; padding:0; border-radius:5px; background:rgba(10,18,32,.6); border:1px solid rgba(168,190,226,.2); color:var(--noah-hi); font-family:var(--f-hud); font-size:19px; font-weight:700; line-height:1; }
+:is(#unitHud,.uhKit) .uhIdMain{ flex:1; min-width:0; display:flex; align-items:center; gap:8px; }
+:is(#unitHud,.uhKit) .uhOrder{ font-family:var(--f-hud); font-size:31px; font-weight:800; line-height:1; letter-spacing:.01em; color:rgb(var(--ac-rgb)); filter:brightness(1.25); text-shadow:0 0 14px rgba(var(--ac-rgb),.6); font-variant-numeric:tabular-nums; }
+:is(#unitHud,.uhKit) .uhName{ min-width:0; }
+:is(#unitHud,.uhKit) .uhName b{ display:block; font-family:var(--f-disp); font-size:20px; font-weight:800; line-height:1.15; letter-spacing:.06em; color:#fff; white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhName small{ display:block; margin-top:2px; font-size:10px; font-weight:700; line-height:1.35; letter-spacing:.03em; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhName small span{ display:inline-block; }   /* v386：役割は「／」の所で折り返す（切らない） */
+:is(#unitHud,.uhKit) .uhName small i{ font-style:normal; margin:0 4px; opacity:.6; }
+:is(#unitHud,.uhKit) .uhDiag{ flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:1px; padding:4px 7px 4px 8px; border:1px solid rgba(var(--tone-rgb),.55); border-radius:3px; background:rgba(var(--tone-rgb),.1); }
+:is(#unitHud,.uhKit) .uhDiag .en{ display:flex; align-items:center; gap:5px; font-family:var(--f-hud); font-size:9.5px; font-weight:800; letter-spacing:.14em; color:rgb(var(--tone-rgb)); filter:brightness(1.15); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhDiag .en i{ width:5px; height:5px; border-radius:50%; background:rgb(var(--tone-rgb)); box-shadow:0 0 6px rgb(var(--tone-rgb)); animation:noahLamp 1.4s ease-in-out infinite; }
 #unitHud[data-tone="bad"] .uhDiag .en i{ animation-duration:.6s; }
-#unitHud .uhDiag .jp{ font-size:9px; font-weight:800; letter-spacing:.1em; color:rgba(var(--tone-rgb),.92); white-space:nowrap; }
-#unitHud .uhChips{ display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
-#unitHud .uhChip{ display:inline-flex; align-items:center; gap:4px; height:19px; padding:0 7px; border-radius:3px; border:1px solid var(--hair-2); background:rgba(8,14,26,.5); font-size:10px; font-weight:800; letter-spacing:.05em; color:var(--text-2); white-space:nowrap; }
-#unitHud .uhChip.st-deployed{ color:#bff7df; border-color:rgba(var(--ep-rgb),.5); background:rgba(var(--ep-rgb),.1); }
-#unitHud .uhChip.st-returning{ color:#ffe3a8; border-color:rgba(var(--warn-rgb),.5); background:rgba(var(--warn-rgb),.1); }
-#unitHud .uhChip.st-base{ color:#cfe0ff; border-color:rgba(var(--rp-rgb),.5); background:rgba(var(--rp-rgb),.1); }
-#unitHud .uhChip.st-destroyed{ color:#ffc2c9; border-color:rgba(var(--order-rgb),.55); background:rgba(var(--order-rgb),.12); }
-#unitHud .uhChip.act{ color:#0a1120; border-color:transparent; background:var(--chrome-soft); }
-#unitHud .uhNotes{ margin-top:7px; display:flex; flex-direction:column; gap:3px; }
-#unitHud .uhNote{ position:relative; padding-left:11px; font-size:10.5px; line-height:1.5; color:var(--text-2); }
-#unitHud .uhNote::before{ content:""; position:absolute; left:1px; top:.62em; width:5px; height:5px; transform:rotate(45deg); background:currentColor; opacity:.8; }
-#unitHud .uhNote b{ color:var(--plat); }
-#unitHud .uhNote.warn{ color:#ffd98f; }
-#unitHud .uhNote.bad{ color:#ff9aa6; }
-#unitHud .uhNote.info{ color:#b9d0f5; }
+:is(#unitHud,.uhKit) .uhDiag .jp{ font-size:9px; font-weight:800; letter-spacing:.1em; color:rgba(var(--tone-rgb),.92); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhChips{ display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+:is(#unitHud,.uhKit) .uhChip{ display:inline-flex; align-items:center; gap:4px; height:19px; padding:0 7px; border-radius:3px; border:1px solid var(--hair-2); background:rgba(8,14,26,.5); font-size:10px; font-weight:800; letter-spacing:.05em; color:var(--text-2); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhChip.st-deployed{ color:#bff7df; border-color:rgba(var(--ep-rgb),.5); background:rgba(var(--ep-rgb),.1); }
+:is(#unitHud,.uhKit) .uhChip.st-returning{ color:#ffe3a8; border-color:rgba(var(--warn-rgb),.5); background:rgba(var(--warn-rgb),.1); }
+:is(#unitHud,.uhKit) .uhChip.st-base{ color:#cfe0ff; border-color:rgba(var(--rp-rgb),.5); background:rgba(var(--rp-rgb),.1); }
+:is(#unitHud,.uhKit) .uhChip.st-destroyed{ color:#ffc2c9; border-color:rgba(var(--order-rgb),.55); background:rgba(var(--order-rgb),.12); }
+:is(#unitHud,.uhKit) .uhChip.act{ color:#0a1120; border-color:transparent; background:var(--chrome-soft); }
+:is(#unitHud,.uhKit) .uhNotes{ margin-top:7px; display:flex; flex-direction:column; gap:3px; }
+:is(#unitHud,.uhKit) .uhNote{ position:relative; padding-left:11px; font-size:10.5px; line-height:1.5; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhNote::before{ content:""; position:absolute; left:1px; top:.62em; width:5px; height:5px; transform:rotate(45deg); background:currentColor; opacity:.8; }
+:is(#unitHud,.uhKit) .uhNote b{ color:var(--plat); }
+:is(#unitHud,.uhKit) .uhNote.warn{ color:#ffd98f; }
+:is(#unitHud,.uhKit) .uhNote.bad{ color:#ff9aa6; }
+:is(#unitHud,.uhKit) .uhNote.info{ color:#b9d0f5; }
 /* 上面図と HP */
-#unitHud .uhMain{ display:flex; align-items:center; gap:10px; margin-top:10px; }
-#unitHud .uhScope{ position:relative; flex:0 0 auto; width:var(--sc); height:var(--sc); }
-#unitHud .uhGrid,#unitHud .uhSweep{ position:absolute; inset:9%; border-radius:50%; }
-#unitHud .uhGrid{
+:is(#unitHud,.uhKit) .uhMain{ display:flex; align-items:center; gap:10px; margin-top:10px; }
+:is(#unitHud,.uhKit) .uhScope{ position:relative; flex:0 0 auto; width:var(--sc); height:var(--sc); }
+:is(#unitHud,.uhKit) .uhGrid,:is(#unitHud,.uhKit) .uhSweep{ position:absolute; inset:9%; border-radius:50%; }
+:is(#unitHud,.uhKit) .uhGrid{
   background:
     radial-gradient(circle closest-side, rgba(var(--ac-rgb),.13), transparent 70%),
     radial-gradient(circle closest-side, transparent 0 32.4%, rgba(166,196,255,.17) 32.8% 33.6%, transparent 34% 65.6%, rgba(166,196,255,.15) 66% 66.8%, transparent 67.2%),
@@ -3787,192 +3815,193 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
     rgba(4,10,20,.6);
   box-shadow:inset 0 0 24px rgba(0,0,0,.65), 0 0 0 1px rgba(166,196,255,.14);
 }
-#unitHud .uhSweep{
+:is(#unitHud,.uhKit) .uhSweep{
   background:conic-gradient(from 0deg, rgba(var(--ac-rgb),0) 0deg 285deg, rgba(var(--ac-rgb),.06) 300deg, rgba(var(--ac-rgb),.34) 359deg, rgba(var(--ac-rgb),0) 360deg);
   animation:uhSpin 3.8s linear infinite;
 }
 @keyframes uhSpin{ to{ transform:rotate(360deg); } }
-#unitHud .uhCraft{ position:absolute; left:19%; top:19%; width:62%; height:62%; }
-#unitHud .uhCraft img{ position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
-#unitHud .uhCraft .sh{ opacity:.5; filter:brightness(0) blur(2.5px); transform:translate(7%,10%) scale(.92); }
-#unitHud .uhCraft .mn{ filter:drop-shadow(0 0 7px rgba(var(--ac-rgb),.5)); animation:uhHover 3.4s ease-in-out infinite; }
+:is(#unitHud,.uhKit) .uhCraft{ position:absolute; left:19%; top:19%; width:62%; height:62%; pointer-events:none; }
+:is(#unitHud,.uhKit) img{ -webkit-user-drag:none; }   /* v386：画像をつかんで動かさない（左右にはらう操作の邪魔にしない） */
+:is(#unitHud,.uhKit) .uhCraft img{ position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+:is(#unitHud,.uhKit) .uhCraft .sh{ opacity:.5; filter:brightness(0) blur(2.5px); transform:translate(7%,10%) scale(.92); }
+:is(#unitHud,.uhKit) .uhCraft .mn{ filter:drop-shadow(0 0 7px rgba(var(--ac-rgb),.5)); animation:uhHover 3.4s ease-in-out infinite; }
 @keyframes uhHover{ 0%,100%{ transform:translate(0,0); } 50%{ transform:translate(0,-3%); } }
-#unitHud .uhOrbit{ position:absolute; inset:0; pointer-events:none; animation:uhSpin 16s linear infinite; }
-#unitHud .uhOrbit i{
+:is(#unitHud,.uhKit) .uhOrbit{ position:absolute; inset:0; pointer-events:none; animation:uhSpin 16s linear infinite; }
+:is(#unitHud,.uhKit) .uhOrbit i{
   position:absolute; left:50%; top:50%; width:22px; height:22px; margin:-11px 0 0 -11px;
   background:url("./img/aircraft/drone.webp") center / contain no-repeat;
   transform:rotate(var(--a)) translateY(calc(var(--sc) * -.38));
   filter:drop-shadow(0 0 4px rgba(var(--ac-rgb),.75));
 }
-#unitHud .uhRing{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
-#unitHud .uhRing .trk{ fill:none; stroke:rgba(214,226,246,.1); stroke-width:5; }
-#unitHud .uhRing .hpg{ fill:none; stroke:rgb(var(--hp-rgb)); stroke-width:10; opacity:.2; }
-#unitHud .uhRing .hp{ fill:none; stroke:rgb(var(--hp-rgb)); stroke-width:5; }
-#unitHud .uhRing .fc{ fill:none; stroke:var(--order); stroke-width:6; animation:uhBlink .8s steps(2,end) infinite; }
-#unitHud .uhRing .tk{ stroke:rgba(214,226,246,.38); stroke-width:1; }
-#unitHud .uhRing .tk.m{ stroke:rgba(236,244,255,.85); stroke-width:1.5; }
+:is(#unitHud,.uhKit) .uhRing{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+:is(#unitHud,.uhKit) .uhRing .trk{ fill:none; stroke:rgba(214,226,246,.1); stroke-width:5; }
+:is(#unitHud,.uhKit) .uhRing .hpg{ fill:none; stroke:rgb(var(--hp-rgb)); stroke-width:10; opacity:.2; }
+:is(#unitHud,.uhKit) .uhRing .hp{ fill:none; stroke:rgb(var(--hp-rgb)); stroke-width:5; }
+:is(#unitHud,.uhKit) .uhRing .fc{ fill:none; stroke:var(--order); stroke-width:6; animation:uhBlink .8s steps(2,end) infinite; }
+:is(#unitHud,.uhKit) .uhRing .tk{ stroke:rgba(214,226,246,.38); stroke-width:1; }
+:is(#unitHud,.uhKit) .uhRing .tk.m{ stroke:rgba(236,244,255,.85); stroke-width:1.5; }
 /* 回る輪は SVG ごと回す（中の図形を CSS で回すと、ブラウザによって回る中心がずれるため） */
-#unitHud .uhSpinA{ animation:uhSpin 24s linear infinite; }
-#unitHud .uhSpinB{ animation:uhSpin 36s linear infinite reverse; }
-#unitHud .uhRing .dash{ fill:none; stroke:rgba(166,196,255,.38); stroke-width:1.2; stroke-dasharray:2 5; }
-#unitHud .uhRing .arc{ fill:none; stroke:rgba(236,244,255,.7); stroke-width:1.6; stroke-linecap:round; }
-#unitHud .uhRing .arc2{ fill:none; stroke:rgba(214,230,255,.8); stroke-width:2.4; }
-#unitHud .uhScope .lb{ position:absolute; font-family:var(--f-hud); font-size:7px; font-weight:700; letter-spacing:.2em; color:rgba(196,216,240,.62); white-space:nowrap; pointer-events:none; }
-#unitHud .uhScope .lb.tl{ left:0; top:0; }
-#unitHud .uhScope .lb.br{ right:0; bottom:0; }
-#unitHud .uhScope::after{
+:is(#unitHud,.uhKit) .uhSpinA{ animation:uhSpin 24s linear infinite; }
+:is(#unitHud,.uhKit) .uhSpinB{ animation:uhSpin 36s linear infinite reverse; }
+:is(#unitHud,.uhKit) .uhRing .dash{ fill:none; stroke:rgba(166,196,255,.38); stroke-width:1.2; stroke-dasharray:2 5; }
+:is(#unitHud,.uhKit) .uhRing .arc{ fill:none; stroke:rgba(236,244,255,.7); stroke-width:1.6; stroke-linecap:round; }
+:is(#unitHud,.uhKit) .uhRing .arc2{ fill:none; stroke:rgba(214,230,255,.8); stroke-width:2.4; }
+:is(#unitHud,.uhKit) .uhScope .lb{ position:absolute; font-family:var(--f-hud); font-size:7px; font-weight:700; letter-spacing:.2em; color:rgba(196,216,240,.62); white-space:nowrap; pointer-events:none; }
+:is(#unitHud,.uhKit) .uhScope .lb.tl{ left:0; top:0; }
+:is(#unitHud,.uhKit) .uhScope .lb.br{ right:0; bottom:0; }
+:is(#unitHud,.uhKit) .uhScope::after{
   content:""; position:absolute; left:12%; right:12%; top:9%; height:2px; opacity:0; pointer-events:none;
   background:linear-gradient(90deg, transparent, rgba(var(--ac-rgb),1) 30%, #fff 50%, rgba(var(--ac-rgb),1) 70%, transparent);
   box-shadow:0 0 12px rgba(var(--ac-rgb),.9);
 }
-#unitHud .uhScope.scan::after{ animation:uhScanOnce .8s .12s ease-in-out both; }
+:is(#unitHud,.uhKit) .uhScope.scan::after{ animation:uhScanOnce .8s .12s ease-in-out both; }
 @keyframes uhScanOnce{ 0%{ opacity:0; transform:translateY(0); } 12%{ opacity:1; } 86%{ opacity:1; } 100%{ opacity:0; transform:translateY(calc(var(--sc) * .8)); } }
-#unitHud .uhStamp{
+:is(#unitHud,.uhKit) .uhStamp{
   position:absolute; left:50%; top:50%; z-index:2; transform:translate(-50%,-50%) rotate(-12deg);
   padding:3px 9px 2px; border:2px solid currentColor; background:rgba(4,8,16,.62);
   font-family:var(--f-hud); font-size:15px; font-weight:800; letter-spacing:.2em; text-indent:.2em; white-space:nowrap;
   box-shadow:inset 0 0 12px currentColor, 0 0 10px rgba(0,0,0,.6); text-shadow:0 0 8px currentColor;
 }
-#unitHud .uhScope.down .uhStamp{ color:#ff5a6e; }
-#unitHud .uhScope.base .uhStamp{ color:#9cc4ff; font-size:13px; }
-#unitHud .uhScope.rtb .uhStamp{ color:var(--warn); font-size:12px; transform:translate(-50%,-50%) translateY(calc(var(--sc) * .27)) rotate(-8deg); background:rgba(4,8,16,.5); }
-#unitHud .uhScope.down .uhCraft .mn{ filter:grayscale(1) brightness(.48) contrast(1.1); animation:none; }
-#unitHud .uhScope.down .uhSweep,#unitHud .uhScope.down .uhOrbit{ display:none; }
-#unitHud .uhScope.down .uhGrid{ background-color:rgba(36,4,12,.6); }
-#unitHud .uhScope.down .uhGrid::after{ content:""; position:absolute; inset:0; border-radius:50%; background:repeating-linear-gradient(0deg, rgba(255,70,90,.09) 0 2px, transparent 2px 5px); }
-#unitHud .uhScope.base .uhCraft .mn{ filter:brightness(.66) saturate(.8); animation:none; }
-#unitHud .uhScope.base .uhCraft .sh{ transform:translate(2%,3%) scale(.98); opacity:.62; }   /* 基地に降りている：影が近い */
-#unitHud .uhScope.base .uhSweep{ display:none; }
-#unitHud .uhVit{ flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
-#unitHud .uhHpK{ display:flex; align-items:center; justify-content:space-between; gap:6px; font-family:var(--f-hud); font-size:8.5px; font-weight:700; letter-spacing:.24em; color:var(--text-2); white-space:nowrap; }
-#unitHud .uhHpK em{ font-style:normal; letter-spacing:.06em; color:rgb(var(--hp-rgb)); filter:brightness(1.15); }
-#unitHud .uhHpN{ display:flex; align-items:baseline; gap:4px; font-family:var(--f-hud); font-variant-numeric:tabular-nums; white-space:nowrap; }
-#unitHud .uhHpN b{ font-size:37px; font-weight:800; line-height:.95; color:#fff; text-shadow:0 0 16px rgba(var(--hp-rgb),.5); }
-#unitHud .uhHpN span{ font-size:14px; font-weight:700; color:var(--text-2); }
-#unitHud .uhHpN sup{ font-size:9px; font-weight:800; color:rgb(var(--ac-rgb)); filter:brightness(1.35); }
-#unitHud .uhHpBar{ position:relative; height:10px; overflow:hidden; background:rgba(214,226,246,.07); clip-path:polygon(0 0,100% 0,calc(100% - 6px) 100%,0 100%); }
-#unitHud .uhHpBar i{ position:absolute; left:0; top:0; bottom:0; width:var(--w); background:linear-gradient(90deg, rgba(var(--hp-rgb),.45), rgb(var(--hp-rgb))); transform-origin:0 50%; animation:uhFill .7s .1s var(--ease) both; }
-#unitHud .uhHpBar em{ position:absolute; top:0; bottom:0; left:var(--l); width:var(--fw); background:var(--order); animation:uhBlink .8s steps(2,end) infinite; }
-#unitHud .uhHpBar::after{ content:""; position:absolute; inset:0; background:repeating-linear-gradient(90deg, transparent 0 calc(100% / var(--n) - 1.5px), rgba(3,7,14,.92) calc(100% / var(--n) - 1.5px) calc(100% / var(--n))); }
+:is(#unitHud,.uhKit) .uhScope.down .uhStamp{ color:#ff5a6e; }
+:is(#unitHud,.uhKit) .uhScope.base .uhStamp{ color:#9cc4ff; font-size:13px; }
+:is(#unitHud,.uhKit) .uhScope.rtb .uhStamp{ color:var(--warn); font-size:12px; transform:translate(-50%,-50%) translateY(calc(var(--sc) * .27)) rotate(-8deg); background:rgba(4,8,16,.5); }
+:is(#unitHud,.uhKit) .uhScope.down .uhCraft .mn{ filter:grayscale(1) brightness(.48) contrast(1.1); animation:none; }
+:is(#unitHud,.uhKit) .uhScope.down .uhSweep,:is(#unitHud,.uhKit) .uhScope.down .uhOrbit{ display:none; }
+:is(#unitHud,.uhKit) .uhScope.down .uhGrid{ background-color:rgba(36,4,12,.6); }
+:is(#unitHud,.uhKit) .uhScope.down .uhGrid::after{ content:""; position:absolute; inset:0; border-radius:50%; background:repeating-linear-gradient(0deg, rgba(255,70,90,.09) 0 2px, transparent 2px 5px); }
+:is(#unitHud,.uhKit) .uhScope.base .uhCraft .mn{ filter:brightness(.66) saturate(.8); animation:none; }
+:is(#unitHud,.uhKit) .uhScope.base .uhCraft .sh{ transform:translate(2%,3%) scale(.98); opacity:.62; }   /* 基地に降りている：影が近い */
+:is(#unitHud,.uhKit) .uhScope.base .uhSweep{ display:none; }
+:is(#unitHud,.uhKit) .uhVit{ flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+:is(#unitHud,.uhKit) .uhHpK{ display:flex; align-items:center; justify-content:space-between; gap:6px; font-family:var(--f-hud); font-size:8.5px; font-weight:700; letter-spacing:.24em; color:var(--text-2); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhHpK em{ font-style:normal; letter-spacing:.06em; color:rgb(var(--hp-rgb)); filter:brightness(1.15); }
+:is(#unitHud,.uhKit) .uhHpN{ display:flex; align-items:baseline; gap:4px; font-family:var(--f-hud); font-variant-numeric:tabular-nums; white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhHpN b{ font-size:37px; font-weight:800; line-height:.95; color:#fff; text-shadow:0 0 16px rgba(var(--hp-rgb),.5); }
+:is(#unitHud,.uhKit) .uhHpN span{ font-size:14px; font-weight:700; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhHpN sup{ font-size:9px; font-weight:800; color:rgb(var(--ac-rgb)); filter:brightness(1.35); }
+:is(#unitHud,.uhKit) .uhHpBar{ position:relative; height:10px; overflow:hidden; background:rgba(214,226,246,.07); clip-path:polygon(0 0,100% 0,calc(100% - 6px) 100%,0 100%); }
+:is(#unitHud,.uhKit) .uhHpBar i{ position:absolute; left:0; top:0; bottom:0; width:var(--w); background:linear-gradient(90deg, rgba(var(--hp-rgb),.45), rgb(var(--hp-rgb))); transform-origin:0 50%; animation:uhFill .7s .1s var(--ease) both; }
+:is(#unitHud,.uhKit) .uhHpBar em{ position:absolute; top:0; bottom:0; left:var(--l); width:var(--fw); background:var(--order); animation:uhBlink .8s steps(2,end) infinite; }
+:is(#unitHud,.uhKit) .uhHpBar::after{ content:""; position:absolute; inset:0; background:repeating-linear-gradient(90deg, transparent 0 calc(100% / var(--n) - 1.5px), rgba(3,7,14,.92) calc(100% / var(--n) - 1.5px) calc(100% / var(--n))); }
 @keyframes uhFill{ from{ transform:scaleX(0); } to{ transform:scaleX(1); } }
 @keyframes uhBlink{ 0%{ opacity:1; } 50%{ opacity:.2; } 100%{ opacity:1; } }
-#unitHud .uhNext{ --nx-rgb:var(--ep-rgb); min-width:0; padding:4px 7px 5px; border-left:2px solid rgb(var(--nx-rgb)); background:linear-gradient(90deg, rgba(var(--nx-rgb),.17), rgba(var(--nx-rgb),.03)); white-space:nowrap; }
-#unitHud .uhNext .r1{ display:flex; align-items:center; justify-content:space-between; gap:6px; }
-#unitHud .uhNext .k{ font-size:9px; font-weight:800; letter-spacing:.08em; color:var(--text-2); }
-#unitHud .uhNext .r1 em{ font-style:normal; font-size:9px; font-weight:800; letter-spacing:.04em; color:rgb(var(--nx-rgb)); filter:brightness(1.2); }
-#unitHud .uhNext .r2{ display:flex; align-items:baseline; gap:6px; margin-top:1px; min-width:0; }
-#unitHud .uhNext b{ font-family:var(--f-hud); font-size:19px; font-weight:800; line-height:1.05; color:rgb(var(--nx-rgb)); filter:brightness(1.12); }
-#unitHud .uhNext .r2 span{ min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:10.5px; font-weight:800; color:var(--text-2); }
-#unitHud .uhNext[data-tone="warn"]{ --nx-rgb:var(--warn-rgb); }
-#unitHud .uhNext[data-tone="bad"]{ --nx-rgb:var(--order-rgb); animation:uhAlarm .9s ease-in-out infinite; }
-#unitHud .uhNext[data-tone="bad"] .r2 span{ color:#ffb3bc; }
-#unitHud .uhNext[data-tone="off"]{ --nx-rgb:136,148,168; }
+:is(#unitHud,.uhKit) .uhNext{ --nx-rgb:var(--ep-rgb); min-width:0; padding:4px 7px 5px; border-left:2px solid rgb(var(--nx-rgb)); background:linear-gradient(90deg, rgba(var(--nx-rgb),.17), rgba(var(--nx-rgb),.03)); }
+:is(#unitHud,.uhKit) .uhNext .r1{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0 6px; }
+:is(#unitHud,.uhKit) .uhNext .k{ font-size:9px; font-weight:800; letter-spacing:.08em; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhNext .r1 em{ font-style:normal; font-size:9px; font-weight:800; letter-spacing:.04em; color:rgb(var(--nx-rgb)); filter:brightness(1.2); }
+:is(#unitHud,.uhKit) .uhNext .r2{ display:flex; flex-wrap:wrap; align-items:baseline; gap:0 6px; margin-top:1px; min-width:0; }
+:is(#unitHud,.uhKit) .uhNext b{ font-family:var(--f-hud); font-size:19px; font-weight:800; line-height:1.05; color:rgb(var(--nx-rgb)); filter:brightness(1.12); }
+:is(#unitHud,.uhKit) .uhNext .r2 span{ min-width:0; font-size:10.5px; font-weight:800; line-height:1.35; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhNext[data-tone="warn"]{ --nx-rgb:var(--warn-rgb); }
+:is(#unitHud,.uhKit) .uhNext[data-tone="bad"]{ --nx-rgb:var(--order-rgb); animation:uhAlarm .9s ease-in-out infinite; }
+:is(#unitHud,.uhKit) .uhNext[data-tone="bad"] .r2 span{ color:#ffb3bc; }
+:is(#unitHud,.uhKit) .uhNext[data-tone="off"]{ --nx-rgb:136,148,168; }
 @keyframes uhAlarm{ 0%,100%{ box-shadow:inset 0 0 0 rgba(var(--order-rgb),0); } 50%{ box-shadow:inset 0 0 14px rgba(var(--order-rgb),.55); } }
-#unitHud .uhKv{ display:grid; grid-template-columns:1fr 1fr; gap:3px 9px; }
-#unitHud .uhKv div{ display:flex; align-items:baseline; justify-content:space-between; gap:4px; padding-bottom:2px; border-bottom:1px dashed rgba(168,190,226,.15); min-width:0; }
-#unitHud .uhKv span{ font-size:9.5px; font-weight:700; color:var(--text-2); white-space:nowrap; }
-#unitHud .uhKv b{ font-family:var(--f-hud); font-size:13px; font-weight:800; color:var(--plat); font-variant-numeric:tabular-nums; white-space:nowrap; }
-#unitHud .uhKv b.up{ color:#9ff3d2; }
-#unitHud .uhKv b.dn{ color:#ff9aa6; }
+:is(#unitHud,.uhKit) .uhKv{ display:grid; grid-template-columns:1fr 1fr; gap:3px 9px; }
+:is(#unitHud,.uhKit) .uhKv div{ display:flex; align-items:baseline; justify-content:space-between; gap:4px; padding-bottom:2px; border-bottom:1px dashed rgba(168,190,226,.15); min-width:0; }
+:is(#unitHud,.uhKit) .uhKv span{ font-size:9.5px; font-weight:700; color:var(--text-2); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhKv b{ font-family:var(--f-hud); font-size:13px; font-weight:800; color:var(--plat); font-variant-numeric:tabular-nums; white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhKv b.up{ color:#9ff3d2; }
+:is(#unitHud,.uhKit) .uhKv b.dn{ color:#ff9aa6; }
 /* 区切りの見出し */
-#unitHud .uhSecT{ display:flex; align-items:center; gap:7px; margin:15px 0 6px; font-family:var(--f-hud); font-size:8.5px; font-weight:700; letter-spacing:.32em; color:var(--noah-hi); white-space:nowrap; }
-#unitHud .uhSecT b{ font-family:var(--f-ui); font-size:10.5px; font-weight:800; letter-spacing:.14em; color:var(--plat); }
-#unitHud .uhSecT::after{ content:""; order:1; flex:1; height:1px; background:linear-gradient(90deg, rgba(166,196,255,.4), transparent); }
-#unitHud .uhSecT em{ order:2; font-style:normal; font-family:var(--f-ui); font-size:9.5px; font-weight:700; letter-spacing:.04em; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhSecT{ display:flex; align-items:center; gap:7px; margin:15px 0 6px; font-family:var(--f-hud); font-size:8.5px; font-weight:700; letter-spacing:.32em; color:var(--noah-hi); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhSecT b{ font-family:var(--f-ui); font-size:10.5px; font-weight:800; letter-spacing:.14em; color:var(--plat); }
+:is(#unitHud,.uhKit) .uhSecT::after{ content:""; order:1; flex:1; height:1px; background:linear-gradient(90deg, rgba(166,196,255,.4), transparent); }
+:is(#unitHud,.uhKit) .uhSecT em{ order:2; font-style:normal; font-family:var(--f-ui); font-size:9.5px; font-weight:700; letter-spacing:.04em; color:var(--text-2); }
 /* 状態異常・ラウンドの効果 */
-#unitHud .uhAils{ display:flex; flex-direction:column; gap:4px; }
-#unitHud .uhAil{ --st-rgb:255,138,61; display:flex; align-items:flex-start; gap:8px; padding:6px 8px; border-left:2px solid rgb(var(--st-rgb)); background:linear-gradient(90deg, rgba(var(--st-rgb),.17), rgba(var(--st-rgb),.02) 72%); }
-#unitHud .uhAil .ic{ flex:0 0 auto; width:25px; height:25px; display:flex; align-items:center; justify-content:center; border-radius:4px; border:1px solid rgba(var(--st-rgb),.55); background:rgba(var(--st-rgb),.13); font-size:14px; line-height:1; }
-#unitHud .uhAil .tx{ min-width:0; }
-#unitHud .uhAil .tx b{ display:flex; align-items:baseline; gap:6px; font-size:12px; font-weight:800; color:#fff; }
-#unitHud .uhAil .tx b em{ font-style:normal; font-family:var(--f-hud); font-size:14px; color:rgb(var(--st-rgb)); filter:brightness(1.15); }
-#unitHud .uhAil .tx p{ margin:1px 0 0; font-size:10px; line-height:1.45; color:rgba(214,226,246,.82); }
-#unitHud .uhAil.crit{ animation:uhAlarm 1s ease-in-out infinite; }
-#unitHud .uhAllGreen{ display:flex; align-items:center; gap:7px; padding:7px 9px; border-left:2px solid var(--ep); background:linear-gradient(90deg, rgba(var(--ep-rgb),.13), transparent 72%); font-size:11px; font-weight:800; color:#bff7df; }
-#unitHud .uhAllGreen i{ width:6px; height:6px; border-radius:50%; background:var(--ep); box-shadow:0 0 6px var(--ep); animation:noahLamp 1.6s ease-in-out infinite; }
-#unitHud .uhAllGreen span{ margin-left:auto; font-family:var(--f-hud); font-size:9px; letter-spacing:.24em; color:rgba(var(--ep-rgb),.85); }
-#unitHud .uhBuffs{ display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
-#unitHud .uhBuff{ display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:3px; border:1px solid; font-size:10px; font-weight:800; white-space:nowrap; }
-#unitHud .uhBuff.up{ color:#bff7df; border-color:rgba(var(--ep-rgb),.45); background:rgba(var(--ep-rgb),.1); }
-#unitHud .uhBuff.dn{ color:#ffc2c9; border-color:rgba(var(--order-rgb),.45); background:rgba(var(--order-rgb),.1); }
-#unitHud .uhFine{ margin-top:5px; font-size:9.5px; line-height:1.5; color:var(--text-3); }
+:is(#unitHud,.uhKit) .uhAils{ display:flex; flex-direction:column; gap:4px; }
+:is(#unitHud,.uhKit) .uhAil{ --st-rgb:255,138,61; display:flex; align-items:flex-start; gap:8px; padding:6px 8px; border-left:2px solid rgb(var(--st-rgb)); background:linear-gradient(90deg, rgba(var(--st-rgb),.17), rgba(var(--st-rgb),.02) 72%); }
+:is(#unitHud,.uhKit) .uhAil .ic{ flex:0 0 auto; width:25px; height:25px; display:flex; align-items:center; justify-content:center; border-radius:4px; border:1px solid rgba(var(--st-rgb),.55); background:rgba(var(--st-rgb),.13); font-size:14px; line-height:1; }
+:is(#unitHud,.uhKit) .uhAil .tx{ min-width:0; }
+:is(#unitHud,.uhKit) .uhAil .tx b{ display:flex; align-items:baseline; gap:6px; font-size:12px; font-weight:800; color:#fff; }
+:is(#unitHud,.uhKit) .uhAil .tx b em{ font-style:normal; font-family:var(--f-hud); font-size:14px; color:rgb(var(--st-rgb)); filter:brightness(1.15); }
+:is(#unitHud,.uhKit) .uhAil .tx p{ margin:1px 0 0; font-size:10px; line-height:1.45; color:rgba(214,226,246,.82); }
+:is(#unitHud,.uhKit) .uhAil.crit{ animation:uhAlarm 1s ease-in-out infinite; }
+:is(#unitHud,.uhKit) .uhAllGreen{ display:flex; align-items:center; gap:7px; padding:7px 9px; border-left:2px solid var(--ep); background:linear-gradient(90deg, rgba(var(--ep-rgb),.13), transparent 72%); font-size:11px; font-weight:800; color:#bff7df; }
+:is(#unitHud,.uhKit) .uhAllGreen i{ width:6px; height:6px; border-radius:50%; background:var(--ep); box-shadow:0 0 6px var(--ep); animation:noahLamp 1.6s ease-in-out infinite; }
+:is(#unitHud,.uhKit) .uhAllGreen span{ margin-left:auto; font-family:var(--f-hud); font-size:9px; letter-spacing:.24em; color:rgba(var(--ep-rgb),.85); }
+:is(#unitHud,.uhKit) .uhBuffs{ display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+:is(#unitHud,.uhKit) .uhBuff{ display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:3px; border:1px solid; font-size:10px; font-weight:800; white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhBuff.up{ color:#bff7df; border-color:rgba(var(--ep-rgb),.45); background:rgba(var(--ep-rgb),.1); }
+:is(#unitHud,.uhKit) .uhBuff.dn{ color:#ffc2c9; border-color:rgba(var(--order-rgb),.45); background:rgba(var(--order-rgb),.1); }
+:is(#unitHud,.uhKit) .uhFine{ margin-top:5px; font-size:9.5px; line-height:1.5; color:var(--text-3); }
 /* 能力値 */
-#unitHud .uhSpec{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:5px; }
-#unitHud .uhStat{ position:relative; min-width:0; padding:5px 6px 6px; background:linear-gradient(180deg, rgba(12,20,36,.8), rgba(7,12,22,.6)); border-top:1px solid rgba(214,226,246,.26); }
-#unitHud .uhStat .hd{ display:flex; align-items:baseline; justify-content:space-between; gap:3px; }
-#unitHud .uhStat .hd span{ font-size:10px; font-weight:800; color:var(--plat-2); white-space:nowrap; }
-#unitHud .uhStat .hd small{ font-family:var(--f-hud); font-size:7px; font-weight:700; letter-spacing:.12em; color:var(--text-3); }
-#unitHud .uhStat .vl{ display:flex; align-items:baseline; gap:3px; margin-top:1px; }
-#unitHud .uhStat .vl b{ font-family:var(--f-hud); font-size:20px; font-weight:800; line-height:1.05; color:#fff; font-variant-numeric:tabular-nums; }
-#unitHud .uhStat .vl sup{ font-family:var(--f-hud); font-size:8.5px; font-weight:800; color:rgb(var(--ac-rgb)); filter:brightness(1.35); }
-#unitHud .uhStat .pp{ display:flex; gap:2px; margin-top:3px; }
-#unitHud .uhStat .pp i{ flex:1; height:3px; background:rgba(214,226,246,.12); }
-#unitHud .uhStat .pp i.on{ background:var(--noah-hi); box-shadow:0 0 4px rgba(166,196,255,.8); animation:uhPip .3s both; animation-delay:calc(180ms + var(--i,0) * 32ms); }
+:is(#unitHud,.uhKit) .uhSpec{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:5px; }
+:is(#unitHud,.uhKit) .uhStat{ position:relative; min-width:0; padding:5px 6px 6px; background:linear-gradient(180deg, rgba(12,20,36,.8), rgba(7,12,22,.6)); border-top:1px solid rgba(214,226,246,.26); }
+:is(#unitHud,.uhKit) .uhStat .hd{ display:flex; align-items:baseline; justify-content:space-between; gap:3px; }
+:is(#unitHud,.uhKit) .uhStat .hd span{ font-size:10px; font-weight:800; color:var(--plat-2); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhStat .hd small{ font-family:var(--f-hud); font-size:7px; font-weight:700; letter-spacing:.12em; color:var(--text-3); }
+:is(#unitHud,.uhKit) .uhStat .vl{ display:flex; align-items:baseline; gap:3px; margin-top:1px; }
+:is(#unitHud,.uhKit) .uhStat .vl b{ font-family:var(--f-hud); font-size:20px; font-weight:800; line-height:1.05; color:#fff; font-variant-numeric:tabular-nums; }
+:is(#unitHud,.uhKit) .uhStat .vl sup{ font-family:var(--f-hud); font-size:8.5px; font-weight:800; color:rgb(var(--ac-rgb)); filter:brightness(1.35); }
+:is(#unitHud,.uhKit) .uhStat .pp{ display:flex; gap:2px; margin-top:3px; }
+:is(#unitHud,.uhKit) .uhStat .pp i{ flex:1; height:3px; background:rgba(214,226,246,.12); }
+:is(#unitHud,.uhKit) .uhStat .pp i.on{ background:var(--noah-hi); box-shadow:0 0 4px rgba(166,196,255,.8); animation:uhPip .3s both; animation-delay:calc(180ms + var(--i,0) * 32ms); }
 @keyframes uhPip{ from{ opacity:0; transform:scaleY(.2); } to{ opacity:1; transform:none; } }
-#unitHud .uhStat .nt{ margin-top:3px; font-size:8.5px; font-weight:700; line-height:1.3; color:var(--text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-#unitHud .uhStat.up .vl b{ color:#9ff3d2; }
-#unitHud .uhStat.up .nt{ color:#7fdcb5; }
-#unitHud .uhStat.dn .vl b{ color:#ff8d9a; }
-#unitHud .uhStat.dn .nt{ color:#ff8d9a; }
+:is(#unitHud,.uhKit) .uhStat .nt{ margin-top:3px; font-size:8.5px; font-weight:700; line-height:1.3; color:var(--text-3); overflow-wrap:anywhere; }
+:is(#unitHud,.uhKit) .uhStat.up .vl b{ color:#9ff3d2; }
+:is(#unitHud,.uhKit) .uhStat.up .nt{ color:#7fdcb5; }
+:is(#unitHud,.uhKit) .uhStat.dn .vl b{ color:#ff8d9a; }
+:is(#unitHud,.uhKit) .uhStat.dn .nt{ color:#ff8d9a; }
 /* 戦況（ミニマップ・被弾予測・位置の補正） */
-#unitHud .uhTac{ display:flex; align-items:flex-start; gap:10px; }
-#unitHud .uhMap{ flex:0 0 auto; width:118px; }
-#unitHud .uhMap .kj{ display:flex; align-items:center; justify-content:center; gap:4px; height:16px; margin:0 0 4px 16px; border-bottom:1px solid rgba(var(--order-rgb),.45); background:linear-gradient(180deg, transparent, rgba(var(--order-rgb),.14)); font-family:var(--f-hud); font-size:7.5px; font-weight:700; letter-spacing:.24em; color:#ff9aa6; white-space:nowrap; }
-#unitHud .uhMap .gw{ display:flex; gap:4px; }
-#unitHud .uhMap .rl{ flex:0 0 12px; display:grid; grid-template-rows:repeat(3,27px); row-gap:3px; align-items:center; font-size:8.5px; font-weight:800; color:var(--text-3); text-align:center; }
-#unitHud .uhMap .gr{ flex:1; display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,27px); gap:3px; }
-#unitHud .uhMap .c{ position:relative; display:flex; align-items:center; justify-content:center; border:1px solid rgba(168,190,226,.18); background:rgba(10,18,32,.6); }
-#unitHud .uhMap .c.dg{ border-color:rgba(var(--order-rgb),.65); background:rgba(var(--order-rgb),.17); }
-#unitHud .uhMap .c.dg.cand{ border-style:dashed; }
-#unitHud .uhMap .c img{ width:82%; height:82%; object-fit:contain; }
-#unitHud .uhMap .c.me{ border-color:rgb(var(--ac-rgb)); box-shadow:0 0 0 1px rgba(var(--ac-rgb),.6), 0 0 10px rgba(var(--ac-rgb),.5); }
-#unitHud .uhMap .c .n{ position:absolute; left:2px; top:1px; font-family:var(--f-hud); font-size:7.5px; font-weight:800; line-height:1; color:var(--text-2); }
-#unitHud .uhMap .c .d{ position:absolute; right:-3px; bottom:-4px; padding:0 3px; border-radius:2px; background:var(--order); font-family:var(--f-hud); font-size:8.5px; font-weight:800; line-height:12px; color:#fff; }
-#unitHud .uhMap .c .d.br{ animation:uhBlink .7s steps(2,end) infinite; }
-#unitHud .uhTacInfo{ flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
-#unitHud .uhTacInfo .k{ font-size:9px; font-weight:800; letter-spacing:.08em; color:var(--text-3); }
-#unitHud .uhTacInfo .act{ font-size:13px; font-weight:800; line-height:1.25; color:#ffd9a0; }
-#unitHud .uhTacInfo .ln{ font-size:10px; line-height:1.45; color:var(--text-2); }
-#unitHud .uhTacInfo .ln b{ color:var(--plat); }
-#unitHud .uhTacInfo .ln.bad{ color:#ff9aa6; }
-#unitHud .uhTacInfo .ln.bad b{ color:#ffc2c9; }
-#unitHud .uhTacInfo .ln.ok{ color:#9fe9c8; }
-#unitHud .uhOut{ display:flex; flex-wrap:wrap; gap:3px; }
-#unitHud .uhOut span{ display:inline-flex; align-items:baseline; gap:3px; padding:2px 5px; border-radius:3px; border:1px solid rgba(168,190,226,.16); background:rgba(12,20,36,.72); font-size:9px; font-weight:800; color:var(--text-2); white-space:nowrap; }
-#unitHud .uhOut span b{ font-family:var(--f-hud); font-size:11px; color:var(--plat); }
-#unitHud .uhOut span.dn b{ color:#ff9aa6; }
-#unitHud .uhTrait{ margin-top:2px; padding:4px 6px; border-left:2px solid rgba(var(--order-rgb),.7); background:rgba(var(--order-rgb),.08); font-size:9.5px; line-height:1.45; color:#ffc2c9; }
+:is(#unitHud,.uhKit) .uhTac{ display:flex; align-items:flex-start; gap:10px; }
+:is(#unitHud,.uhKit) .uhMap{ flex:0 0 auto; width:118px; }
+:is(#unitHud,.uhKit) .uhMap .kj{ display:flex; align-items:center; justify-content:center; gap:4px; height:16px; margin:0 0 4px 16px; border-bottom:1px solid rgba(var(--order-rgb),.45); background:linear-gradient(180deg, transparent, rgba(var(--order-rgb),.14)); font-family:var(--f-hud); font-size:7.5px; font-weight:700; letter-spacing:.24em; color:#ff9aa6; white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhMap .gw{ display:flex; gap:4px; }
+:is(#unitHud,.uhKit) .uhMap .rl{ flex:0 0 12px; display:grid; grid-template-rows:repeat(3,27px); row-gap:3px; align-items:center; font-size:8.5px; font-weight:800; color:var(--text-3); text-align:center; }
+:is(#unitHud,.uhKit) .uhMap .gr{ flex:1; display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,27px); gap:3px; }
+:is(#unitHud,.uhKit) .uhMap .c{ position:relative; display:flex; align-items:center; justify-content:center; border:1px solid rgba(168,190,226,.18); background:rgba(10,18,32,.6); }
+:is(#unitHud,.uhKit) .uhMap .c.dg{ border-color:rgba(var(--order-rgb),.65); background:rgba(var(--order-rgb),.17); }
+:is(#unitHud,.uhKit) .uhMap .c.dg.cand{ border-style:dashed; }
+:is(#unitHud,.uhKit) .uhMap .c img{ width:82%; height:82%; object-fit:contain; }
+:is(#unitHud,.uhKit) .uhMap .c.me{ border-color:rgb(var(--ac-rgb)); box-shadow:0 0 0 1px rgba(var(--ac-rgb),.6), 0 0 10px rgba(var(--ac-rgb),.5); }
+:is(#unitHud,.uhKit) .uhMap .c .n{ position:absolute; left:2px; top:1px; font-family:var(--f-hud); font-size:7.5px; font-weight:800; line-height:1; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhMap .c .d{ position:absolute; right:-3px; bottom:-4px; padding:0 3px; border-radius:2px; background:var(--order); font-family:var(--f-hud); font-size:8.5px; font-weight:800; line-height:12px; color:#fff; }
+:is(#unitHud,.uhKit) .uhMap .c .d.br{ animation:uhBlink .7s steps(2,end) infinite; }
+:is(#unitHud,.uhKit) .uhTacInfo{ flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+:is(#unitHud,.uhKit) .uhTacInfo .k{ font-size:9px; font-weight:800; letter-spacing:.08em; color:var(--text-3); }
+:is(#unitHud,.uhKit) .uhTacInfo .act{ font-size:13px; font-weight:800; line-height:1.25; color:#ffd9a0; }
+:is(#unitHud,.uhKit) .uhTacInfo .ln{ font-size:10px; line-height:1.45; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhTacInfo .ln b{ color:var(--plat); }
+:is(#unitHud,.uhKit) .uhTacInfo .ln.bad{ color:#ff9aa6; }
+:is(#unitHud,.uhKit) .uhTacInfo .ln.bad b{ color:#ffc2c9; }
+:is(#unitHud,.uhKit) .uhTacInfo .ln.ok{ color:#9fe9c8; }
+:is(#unitHud,.uhKit) .uhOut{ display:flex; flex-wrap:wrap; gap:3px; }
+:is(#unitHud,.uhKit) .uhOut span{ display:inline-flex; align-items:baseline; gap:3px; padding:2px 5px; border-radius:3px; border:1px solid rgba(168,190,226,.16); background:rgba(12,20,36,.72); font-size:9px; font-weight:800; color:var(--text-2); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhOut span b{ font-family:var(--f-hud); font-size:11px; color:var(--plat); }
+:is(#unitHud,.uhKit) .uhOut span.dn b{ color:#ff9aa6; }
+:is(#unitHud,.uhKit) .uhTrait{ margin-top:2px; padding:4px 6px; border-left:2px solid rgba(var(--order-rgb),.7); background:rgba(var(--order-rgb),.08); font-size:9.5px; line-height:1.45; color:#ffc2c9; }
 /* 装備（砲身・追従ドローン）とカード */
-#unitHud .uhCan{ display:grid; grid-template-columns:1fr 1fr; gap:4px; }
-#unitHud .uhCn{ --cat-rgb:136,148,168; position:relative; min-width:0; min-height:38px; padding:4px 6px 4px 23px; border:1px solid rgba(var(--cat-rgb),.5); background:linear-gradient(90deg, rgba(var(--cat-rgb),.17), rgba(var(--cat-rgb),.03)); }
-#unitHud .uhCn .no{ position:absolute; left:5px; top:5px; font-family:var(--f-hud); font-size:8px; font-weight:800; color:rgb(var(--cat-rgb)); filter:brightness(1.2); }
-#unitHud .uhCn b{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; font-weight:800; color:#fff; }
-#unitHud .uhCn p{ margin:1px 0 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9px; line-height:1.35; color:var(--text-2); }
-#unitHud .uhCn.empty{ border-style:dashed; border-color:rgba(168,190,226,.26); background:transparent; }
-#unitHud .uhCn.lock{ border-color:rgba(168,190,226,.1); background:repeating-linear-gradient(135deg, rgba(168,190,226,.06) 0 5px, transparent 5px 10px); }
-#unitHud .uhCn.empty b,#unitHud .uhCn.lock b{ font-family:var(--f-hud); font-size:10px; letter-spacing:.2em; color:var(--text-3); }
-#unitHud .uhCn.empty .no,#unitHud .uhCn.lock .no{ color:var(--text-3); filter:none; }
-#unitHud .uhDrH{ display:flex; align-items:baseline; gap:6px; margin-top:8px; font-size:10px; font-weight:800; color:var(--text-2); }
-#unitHud .uhDrH b{ font-family:var(--f-hud); font-size:12px; color:var(--plat); }
-#unitHud .uhDrH span{ margin-left:auto; font-size:9.5px; color:var(--text-3); }
-#unitHud .uhDrs{ display:flex; flex-direction:column; gap:3px; margin-top:4px; }
-#unitHud .uhDrI{ --cat-rgb:136,148,168; display:flex; align-items:center; gap:7px; min-width:0; padding:3px 6px; border-left:2px solid rgba(var(--cat-rgb),.85); background:rgba(10,18,32,.62); }
-#unitHud .uhDrI i{ flex:0 0 auto; width:18px; height:18px; background:url("./img/aircraft/drone.webp") center / contain no-repeat; }
-#unitHud .uhDrI b{ flex:0 0 auto; font-size:10.5px; font-weight:800; color:#fff; white-space:nowrap; }
-#unitHud .uhDrI span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9px; color:var(--text-2); }
-#unitHud .uhDrNone{ font-size:10px; color:var(--text-3); }
-#unitHud .uhCards{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:4px; margin-top:8px; }
-#unitHud .uhCards div{ padding:4px 4px 5px; text-align:center; background:rgba(10,18,32,.62); border-top:1px solid rgba(214,226,246,.2); }
-#unitHud .uhCards span{ display:block; font-size:9px; font-weight:800; color:var(--text-3); white-space:nowrap; }
-#unitHud .uhCards b{ font-family:var(--f-hud); font-size:17px; font-weight:800; color:var(--plat); font-variant-numeric:tabular-nums; }
-#unitHud .uhCards b small{ font-size:10px; color:var(--text-3); }
-#unitHud .uhCards div.warn{ border-top-color:rgba(var(--warn-rgb),.7); }
-#unitHud .uhCards div.warn b{ color:var(--warn); }
-#unitHud .uhCards b small.over{ color:var(--warn); }
+:is(#unitHud,.uhKit) .uhCan{ display:grid; grid-template-columns:1fr 1fr; gap:4px; }
+:is(#unitHud,.uhKit) .uhCn{ --cat-rgb:136,148,168; position:relative; min-width:0; min-height:38px; padding:4px 6px 4px 23px; border:1px solid rgba(var(--cat-rgb),.5); background:linear-gradient(90deg, rgba(var(--cat-rgb),.17), rgba(var(--cat-rgb),.03)); }
+:is(#unitHud,.uhKit) .uhCn .no{ position:absolute; left:5px; top:5px; font-family:var(--f-hud); font-size:8px; font-weight:800; color:rgb(var(--cat-rgb)); filter:brightness(1.2); }
+:is(#unitHud,.uhKit) .uhCn b{ display:block; overflow-wrap:anywhere; font-size:11px; font-weight:800; line-height:1.3; color:#fff; }
+:is(#unitHud,.uhKit) .uhCn p{ margin:1px 0 0; overflow-wrap:anywhere; font-size:9px; line-height:1.35; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhCn.empty{ border-style:dashed; border-color:rgba(168,190,226,.26); background:transparent; }
+:is(#unitHud,.uhKit) .uhCn.lock{ border-color:rgba(168,190,226,.1); background:repeating-linear-gradient(135deg, rgba(168,190,226,.06) 0 5px, transparent 5px 10px); }
+:is(#unitHud,.uhKit) .uhCn.empty b,:is(#unitHud,.uhKit) .uhCn.lock b{ font-family:var(--f-hud); font-size:10px; letter-spacing:.2em; color:var(--text-3); }
+:is(#unitHud,.uhKit) .uhCn.empty .no,:is(#unitHud,.uhKit) .uhCn.lock .no{ color:var(--text-3); filter:none; }
+:is(#unitHud,.uhKit) .uhDrH{ display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 6px; margin-top:8px; font-size:10px; font-weight:800; color:var(--text-2); }
+:is(#unitHud,.uhKit) .uhDrH b{ font-family:var(--f-hud); font-size:12px; color:var(--plat); }
+:is(#unitHud,.uhKit) .uhDrH span{ margin-left:auto; font-size:9.5px; color:var(--text-3); }
+:is(#unitHud,.uhKit) .uhDrs{ display:flex; flex-direction:column; gap:3px; margin-top:4px; }
+:is(#unitHud,.uhKit) .uhDrI{ --cat-rgb:136,148,168; display:grid; grid-template-columns:18px minmax(0,1fr); align-items:center; column-gap:7px; min-width:0; padding:3px 6px; border-left:2px solid rgba(var(--cat-rgb),.85); background:rgba(10,18,32,.62); }
+:is(#unitHud,.uhKit) .uhDrI i{ grid-row:1 / span 2; width:18px; height:18px; background:url("./img/aircraft/drone.webp") center / contain no-repeat; }
+:is(#unitHud,.uhKit) .uhDrI b{ grid-column:2; font-size:10.5px; font-weight:800; line-height:1.3; color:#fff; overflow-wrap:anywhere; }
+:is(#unitHud,.uhKit) .uhDrI span{ grid-column:2; min-width:0; font-size:9px; line-height:1.35; color:var(--text-2); overflow-wrap:anywhere; }
+:is(#unitHud,.uhKit) .uhDrNone{ font-size:10px; color:var(--text-3); }
+:is(#unitHud,.uhKit) .uhCards{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:4px; margin-top:8px; }
+:is(#unitHud,.uhKit) .uhCards div{ padding:4px 4px 5px; text-align:center; background:rgba(10,18,32,.62); border-top:1px solid rgba(214,226,246,.2); }
+:is(#unitHud,.uhKit) .uhCards span{ display:block; font-size:9px; font-weight:800; color:var(--text-3); white-space:nowrap; }
+:is(#unitHud,.uhKit) .uhCards b{ font-family:var(--f-hud); font-size:17px; font-weight:800; color:var(--plat); font-variant-numeric:tabular-nums; }
+:is(#unitHud,.uhKit) .uhCards b small{ font-size:10px; color:var(--text-3); }
+:is(#unitHud,.uhKit) .uhCards div.warn{ border-top-color:rgba(var(--warn-rgb),.7); }
+:is(#unitHud,.uhKit) .uhCards div.warn b{ color:var(--warn); }
+:is(#unitHud,.uhKit) .uhCards b small.over{ color:var(--warn); }
 /* 下のボタン */
-#unitHud .uhFoot{ flex:0 0 auto; display:grid; grid-template-columns:1fr 1fr; gap:8px; padding-top:8px; border-top:1px solid rgba(168,190,226,.14); }
-#unitHud .uhFoot button{ min-height:42px; font-size:13px; }
-#unitHud .uhFoot .btnPrimary{ box-shadow:inset 0 -2px 0 rgba(58,70,92,.32), inset 0 1px 0 #fff, 0 0 0 1px rgba(0,0,0,.55); }
+:is(#unitHud,.uhKit) .uhFoot{ flex:0 0 auto; display:grid; grid-template-columns:1fr 1fr; gap:8px; padding-top:8px; border-top:1px solid rgba(168,190,226,.14); }
+:is(#unitHud,.uhKit) .uhFoot button{ min-height:42px; font-size:13px; }
+:is(#unitHud,.uhKit) .uhFoot .btnPrimary{ box-shadow:inset 0 -2px 0 rgba(58,70,92,.32), inset 0 1px 0 #fff, 0 0 0 1px rgba(0,0,0,.55); }
 /* 画質が「最軽量」まで下がっているとき：止まっていてよい動き（走査線・回る輪・浮遊）は止める */
 #unitHud.lite .uhBg::after,#unitHud.lite .uhSweep,#unitHud.lite .uhSpinA,#unitHud.lite .uhSpinB,#unitHud.lite .uhOrbit,#unitHud.lite .uhCraft .mn{ animation:none; }
 /* 解析の上にポップアップ（デッキ情報）が開いている間：後ろの動きを止め、ぼかさず少し暗くするだけにする（ぼかしを毎回描き直さないように） */
@@ -3981,10 +4010,69 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
 /* 下の「AA1号」も押せる（いま行動中の機体の解析を開く） */
 #infoLeft{ cursor:pointer; -webkit-tap-highlight-color:transparent; }
 #infoLeft:active{ opacity:.7; }
-@media (max-width:350px){ #unitHud{ --sc:146px; } #unitHud .uhHpN b{ font-size:32px; } }
+@media (max-width:350px){ #unitHud{ --sc:146px; } :is(#unitHud,.uhKit) .uhHpN b{ font-size:32px; } :is(#unitHud,.uhKit) .uhStat .hd small{ display:none; } }
 @media (min-width:420px) and (min-height:760px){ #unitHud{ --sc:186px; } }
 @media (prefers-reduced-motion:reduce){
   #unitHud *,#unitHud *::before,#unitHud *::after{ animation:none !important; }
+}
+
+/* 13d ─────────────────────────────────────────── v387 機体情報のポップアップ（#modal.unitPopModal） */
+/* 外枠だけカードのポップアップ（hologramCard）と同じ。中身は機体解析HUD と同じ並び（.uhKit の部品）で、全部まとめて縦にスクロール */
+#modal.unitTheme-aa1{ --cat:rgb(96,132,255);  --cat-rgb:96,132,255; }
+#modal.unitTheme-aa2{ --cat:rgb(64,214,196);  --cat-rgb:64,214,196; }
+#modal.unitTheme-aa3{ --cat:rgb(255,96,100);  --cat-rgb:255,96,100; }
+#modal.unitTheme-aa4{ --cat:rgb(116,180,255); --cat-rgb:116,180,255; }
+#modal.unitTheme-aa5{ --cat:rgb(88,214,132);  --cat-rgb:88,214,132; }
+#modal.cardDetailModal.hologramCard.unitPopModal{
+  width:min(92vw,370px);
+  height:min(88svh,700px);
+  max-height:min(88svh,700px);
+  padding:27px 12px 12px;
+}
+#modal.unitPopModal #modalBody{ height:100%; overflow:hidden; padding:0; }
+#modal.unitPopModal .uhPop{
+  --sc:150px;
+  position:relative; z-index:1; height:100%; min-height:0;
+  display:grid; grid-template-rows:auto minmax(0,1fr) auto;
+}
+#modal.unitPopModal .uhPopHead{ display:flex; align-items:center; gap:8px; min-height:40px; padding:0 2px 6px; border-bottom:1px solid rgba(var(--cat-rgb),.26); }
+#modal.unitPopModal .uhPopHead .uhTitle{ flex:1 1 auto; min-width:0; }
+#modal.unitPopModal .uhPopHead .uhTitle .jp{ font-size:15px; }
+#modal.unitPopModal .uhPopFull{
+  flex:0 0 auto; height:28px; min-height:0; padding:0 10px; border-radius:0; box-shadow:none;
+  font-size:10.5px; font-weight:800; letter-spacing:.1em; color:#dbe9ff;
+  border:1px solid rgba(var(--cat-rgb),.5); background:linear-gradient(120deg, rgba(var(--cat-rgb),.18), rgba(var(--cat-rgb),.05));
+  clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
+}
+#modal.unitPopModal .uhPopHead .cardInlineClose{ flex:0 0 auto; }
+#modal.unitPopModal .uhPopBody{ min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; padding:9px 1px 12px; }
+#modal.unitPopModal .uhPopBody.swL{ animation:uhSwL .24s var(--ease) both; }
+#modal.unitPopModal .uhPopBody.swR{ animation:uhSwR .24s var(--ease) both; }
+#modal.unitPopModal .uhPop.in .uhPopBody > section{ animation:uhRise .36s var(--ease) both; animation-delay:calc(90ms + var(--d,0) * 45ms); }
+#modal.unitPopModal .uhPopFoot{ display:grid; grid-template-columns:1fr 1fr; gap:8px; padding-top:9px; border-top:1px solid rgba(var(--cat-rgb),.22); }
+#modal.unitPopModal .uhPopFoot button{
+  height:40px; min-height:40px; padding:0 8px; border-radius:0; font-size:13px; font-weight:800; letter-spacing:.1em;
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+}
+#modal.unitPopModal .uhPopFoot .upDeck{ color:#dbe9ff; border:1px solid rgba(var(--cat-rgb),.42); background:rgba(var(--cat-rgb),.07); box-shadow:none; }
+#modal.unitPopModal .uhPopFoot .upDone{
+  color:#e9f6ff; text-shadow:0 0 8px rgba(var(--cat-rgb),.25);
+  border:1px solid rgba(var(--cat-rgb),.65); background:linear-gradient(120deg, rgba(var(--cat-rgb),.26), rgba(var(--cat-rgb),.08));
+  box-shadow:inset 0 1px 0 rgba(225,245,255,.22), 0 0 14px rgba(var(--cat-rgb),.08);
+}
+/* 中身の細かい合わせ（全画面より少し幅が狭いので） */
+#modal.unitPopModal .uhNav{ width:28px; border-radius:0; box-shadow:none; }
+#modal.unitPopModal .uhStat .hd small{ display:none; }   /* 能力値の英字（DEF など）は隠す：入りきらないことがあるため */
+#modal.unitPopModal .uhPop[data-tone="bad"] .uhDiag .en i{ animation-duration:.6s; }
+@media (max-width:350px){
+  #modal.unitPopModal .uhPop{ --sc:128px; }
+  #modal.unitPopModal .uhHpN b{ font-size:30px; }
+  #modal.unitPopModal .uhOrder{ font-size:26px; }
+}
+/* 画質「最軽量」：回る動きを止める */
+#modal.unitPopModal.upLite .uhSweep,#modal.unitPopModal.upLite .uhSpinA,#modal.unitPopModal.upLite .uhSpinB,#modal.unitPopModal.upLite .uhOrbit,#modal.unitPopModal.upLite .uhCraft .mn{ animation:none; }
+@media (prefers-reduced-motion:reduce){
+  #modal.unitPopModal .uhPop *,#modal.unitPopModal .uhPop *::before,#modal.unitPopModal .uhPop *::after{ animation:none !important; }
 }
 
 /* 14 ──────────────────────────────────────────────────────── Phase overlay */
@@ -5779,7 +5867,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v385',
+    currentPrototypeVersion:'v387',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -7335,11 +7423,13 @@ function noahDrawKaijuGroundShadow(cell) {
   //   v381：quality … 3Dの画質 'auto'（おまかせ：重いとき・本体が熱い状態が続いたときに自動で軽くする）/ 'light'（軽め＝1段目に固定）/ 'lightest'（最軽量＝2段目に固定）
   //         maint   … メンテナンスモード（盤面の左上に診断表示を出す）
   //   v383：rdFx    … 研究開発の演出 'full'（フル：ガチャの演出）/ 'short'（短め：選択画面のカードがめくれるだけ）。#178「必ず飛ばせるように」
+  //   v387：unitInfo … 盤面の機体をタップしたときの機体情報 'popup'（ポップアップ：外枠はカードのポップアップ、中身は機体解析HUD と同じ）/ 'hud'（全画面：機体解析HUD）。
+  //         v386 の 'card' は 'popup' として読む
   const DISPLAY_SETTINGS_KEY = 'noah_display_settings_v1';
   const NOAH_SHAKE_LEVELS = { normal:1, weak:0.45, off:0 };
   const NOAH_QUALITY_PREFS = { auto:null, light:1, lightest:2 };
   const displaySettings = (()=>{
-    const d = { phaseAuto:true, shake:'normal', quality:'auto', maint:false, rdFx:'full' };
+    const d = { phaseAuto:true, shake:'normal', quality:'auto', maint:false, rdFx:'full', unitInfo:'popup' };
     try{
       const saved = JSON.parse(localStorage.getItem(DISPLAY_SETTINGS_KEY) || '{}');
       return {
@@ -7348,6 +7438,7 @@ function noahDrawKaijuGroundShadow(cell) {
         quality: Object.prototype.hasOwnProperty.call(NOAH_QUALITY_PREFS, saved.quality) ? saved.quality : d.quality,
         maint: typeof saved.maint === 'boolean' ? saved.maint : d.maint,
         rdFx: saved.rdFx === 'short' || saved.rdFx === 'full' ? saved.rdFx : d.rdFx,
+        unitInfo: saved.unitInfo === 'hud' ? 'hud' : d.unitInfo,   // 'popup'・v386 の 'card'・なし → ポップアップ
       };
     }catch(e){ return d; }
   })();
@@ -7361,6 +7452,11 @@ function noahDrawKaijuGroundShadow(cell) {
   let noahUnitHudHideTimer = 0, noahUnitHudInTimer = 0;
   let noahLastBoardTapPt = null;
   let uhSwipe = null;
+  // v387：機体情報のポップアップ（外枠はカードのポップアップ、中身は機体解析HUD と同じ）。開いている間 { index, from }
+  let noahUnitPop = null;
+  let noahUnitPopInTimer = 0;
+  // v386：フェーズ表示（ROUND・TURN・PHASE）が消えた時刻。消えた直後のタップ（表示を飛ばすつもりのタップ）では機体情報を開かない
+  let noahOverlayClosedAt = 0;
   // v381：最後に画面へ触った時刻（3Dは、しばらく触っていないとき描く回数をさらに減らす）
   let noahLastInputAt = performance.now();
   ['pointerdown', 'touchstart', 'keydown', 'wheel'].forEach(type=>document.addEventListener(type, ()=>{ noahLastInputAt = performance.now(); }, { capture:true, passive:true }));
@@ -12479,6 +12575,7 @@ function getRandomExplosionCell(){
     ui.phaseText.innerHTML = '';
   }
   function closePhaseOverlay(afterTap){
+    noahOverlayClosedAt = performance.now();   // v386
     stopLoopSe('sirenLoop');
     stopLoopSe('kaijuAppear');
     ui.phaseOverlay.onclick = null;
@@ -13375,7 +13472,8 @@ function getRandomExplosionCell(){
       <div class="settingSegRow"><span>画面の揺れ</span>${seg('shake', [['normal', '通常'], ['weak', '弱め'], ['off', 'なし']])}</div>
       <div class="settingSegRow"><span>画質</span>${seg('quality', [['auto', 'おまかせ'], ['light', '軽め'], ['lightest', '最軽量']])}</div>
       <div class="settingSegRow wide"><span>研究開発の演出</span>${seg('rdFx', [['full', 'フル'], ['short', '短め']])}</div>
-      <div class="muted" style="font-size:12px;line-height:1.45;">「自動で進む」は ROUND・TURN・PHASE の表示を少し見せて先へ進めます（押せばすぐ進みます）。怪獣の出現と作戦の結果は押すまで止まります。<br>「軽め」「最軽量」にすると、本体が熱くなりにくくなります（見た目は少しやわらかくなります）。「おまかせ」は、重いときや、本体が熱い状態が続いたときに自動で軽くします。<br>「研究開発の演出」の「短め」は、候補のカードがめくれるだけの短い演出です（「フル」でも、画面をタップすると先へ進み、SKIP ですぐ選択画面へ行けます）。</div>
+      <div class="settingSegRow wide"><span>機体情報</span>${seg('unitInfo', [['popup', 'ポップアップ'], ['hud', '全画面']])}</div>
+      <div class="muted" style="font-size:12px;line-height:1.45;">「自動で進む」は ROUND・TURN・PHASE の表示を少し見せて先へ進めます（押せばすぐ進みます）。怪獣の出現と作戦の結果は押すまで止まります。<br>「軽め」「最軽量」にすると、本体が熱くなりにくくなります（見た目は少しやわらかくなります）。「おまかせ」は、重いときや、本体が熱い状態が続いたときに自動で軽くします。<br>「研究開発の演出」の「短め」は、候補のカードがめくれるだけの短い演出です（「フル」でも、画面をタップすると先へ進み、SKIP ですぐ選択画面へ行けます）。<br>「機体情報」は、盤面の機体をタップしたときに開く画面です（ポップアップ：カードと同じ枠のポップアップ／全画面：機体解析HUD。中身は同じです）。ポップアップの「全画面」からも機体解析HUD を開けます。</div>
     </div>
     <div class="audioSettingsBox displaySettingsBox maintSettingsBox"><h4>メンテナンス</h4>
       <div class="settingSegRow wide"><span>メンテナンスモード</span>${seg('maint', [[false, 'オフ'], [true, 'オン']])}</div>
@@ -15861,7 +15959,7 @@ function checkGameEnd(){
     const content = list.length===0 ? '<span class="muted">なし</span>' : list.map(item=>`<div class="inlineTag">${escapeHtml(item.name)} ×${item.count}</div>`).join('');
     return `<div class="statusBlock"><h4>${title}：${clean.length}枚</h4><div>${content}</div></div>`;
   }
-  function showUnitDeckInfo(unitIndex, opt={}){   // v385：opt.backText（機体解析から開いたとき「解析へ戻る」。閉じると下に開いたままの解析が見える）
+  function showUnitDeckInfo(unitIndex, opt={}){   // v385：opt.backText（機体解析から開いたとき「解析へ戻る」。閉じると下に開いたままの解析が見える）。v386〜：opt.onBack（ポップアップから開いたとき「機体情報へ戻る」で戻る）
     const unit = game.units[unitIndex];
     if(!unit) return;
     playTapSound();
@@ -15875,7 +15973,7 @@ function checkGameEnd(){
     body += cardZoneSummaryHtml('砲身', cannonCards);
     body += cardZoneSummaryHtml('追従ドローン', followDrones);
     body += cardZoneSummaryHtml('基地内', unit.discard);
-    openModal(`${unit.name} デッキ情報`, body, [opt.backText ? {text:opt.backText, onClick(){}} : {text:'ステータスへ戻る', onClick(){ showStatusPopup(); }}]);
+    openModal(`${unit.name} デッキ情報`, body, [opt.backText ? {text:opt.backText, onClick(){ if(opt.onBack) opt.onBack(); }} : {text:'ステータスへ戻る', onClick(){ showStatusPopup(); }}]);
   }
   
   // -----------------------------------------------------------------------------
@@ -19329,6 +19427,8 @@ function showHandPopup(index){ if(game.inputLocked) return;
     const overHud = !!(h && open);
     ui.modalBg.classList.toggle('overHud', overHud);
     if(h) h.el.classList.toggle('held', overHud);
+    // v387：機体情報のポップアップが閉じた・別のポップアップに替わったら、その状態を消す
+    if(noahUnitPop && !(open && ui.modal.classList.contains('unitPopModal'))) noahUnitPop = null;
   }
   function noahRdTap(e){
     const g = noahGacha;
@@ -19560,6 +19660,8 @@ function showHandPopup(index){ if(game.inputLocked) return;
   const UH_CAT_VAR = { fire:'--c-fire-rgb', support:'--c-support-rgb', research:'--c-research-rgb', operation:'--c-operation-rgb', damage:'--c-damage-rgb' };
   const UH_PHASE_LABEL = { attack:'ATTACK', move:'MOVE', main:'MAIN' };
   const UH_RING_R = 93, UH_RING_C = 2 * Math.PI * UH_RING_R;
+  function uhAcRgb(u){ return UH_AC_RGB[u.aircraftId] || '76,132,255'; }
+  function uhHpRgb(u){ const r = u.maxHp > 0 ? u.hp / u.maxHp : 0; return u.state === 'destroyed' ? '136,148,168' : r > .5 ? '63,224,163' : r > .25 ? '255,192,74' : '255,75,92'; }
   function uhCatStyle(id){ const d = def(id) || {}; const v = UH_CAT_VAR[d.category]; return v ? ` style="--cat-rgb:var(${v})"` : ''; }
   // 状態異常の効果（数字はいまのカウントで）
   function uhStatusText(k, n){
@@ -19647,13 +19749,14 @@ function showHandPopup(index){ if(game.inputLocked) return;
     const p = a=>{ const t = a * Math.PI / 180; return `${(Math.sin(t) * r).toFixed(2)} ${(-Math.cos(t) * r).toFixed(2)}`; };
     return `M${p(a1)} A${r} ${r} 0 0 1 ${p(a2)}`;
   }
-  function uhScopeHtml(u, th){
+  // 上面図のまわりの HP の輪と、回る輪（機体解析HUD とポップアップで同じ）
+  function uhRingSvgs(u, th){
     const hpR = u.maxHp > 0 ? Math.max(0, Math.min(1, u.hp / u.maxHp)) : 0;
     const loss = th.inRange && u.state !== 'destroyed' ? Math.min(u.hp, th.total) : 0;
     const afterR = u.maxHp > 0 ? Math.max(0, (u.hp - loss) / u.maxHp) : 0;
     const L = n=>(UH_RING_C * n).toFixed(2);
     const fc = loss > 0 ? `<circle class="fc" r="${UH_RING_R}" stroke-dasharray="${L(hpR - afterR)} ${L(1)}" stroke-dashoffset="${L(-afterR)}" transform="rotate(-90)"/>` : '';
-    const ring = `<svg class="uhRing" viewBox="-100 -100 200 200" aria-hidden="true">
+    return `<svg class="uhRing" viewBox="-100 -100 200 200" aria-hidden="true">
         <circle class="trk" r="${UH_RING_R}"/>
         <circle class="hpg" r="${UH_RING_R}" stroke-dasharray="${L(hpR)} ${L(1)}" transform="rotate(-90)"/>
         <circle class="hp" r="${UH_RING_R}" stroke-dasharray="${L(hpR)} ${L(1)}" transform="rotate(-90)"/>${fc}
@@ -19661,28 +19764,28 @@ function showHandPopup(index){ if(game.inputLocked) return;
       </svg>
       <svg class="uhRing uhSpinA" viewBox="-100 -100 200 200" aria-hidden="true"><circle class="dash" r="72"/><path class="arc2" d="${uhArc(72, -14, 14)}"/><path class="arc2" d="${uhArc(72, 166, 194)}"/></svg>
       <svg class="uhRing uhSpinB" viewBox="-100 -100 200 200" aria-hidden="true"><path class="arc" d="${uhArc(99, 30, 60)}"/><path class="arc" d="${uhArc(99, 120, 150)}"/><path class="arc" d="${uhArc(99, 210, 240)}"/><path class="arc" d="${uhArc(99, 300, 330)}"/></svg>`;
+  }
+  function uhStampHtml(u){
+    return u.state === 'destroyed' ? '<div class="uhStamp">DESTROYED</div>' : u.state === 'base' ? '<div class="uhStamp">DOCKED</div>' : u.state === 'returning' ? '<div class="uhStamp">RTB</div>' : '';
+  }
+  function uhScopeHtml(u, th){
+    const ring = uhRingSvgs(u, th);
     const drones = ensureFollowDrones(u);
     const orbit = drones.length && u.state !== 'destroyed' ? `<div class="uhOrbit">${drones.map((c, k)=>`<i style="--a:${Math.round(k * 360 / drones.length)}deg"></i>`).join('')}</div>` : '';
     const cls = u.state === 'destroyed' ? ' down' : u.state === 'base' ? ' base' : u.state === 'returning' ? ' rtb' : '';
-    const stamp = u.state === 'destroyed' ? '<div class="uhStamp">DESTROYED</div>' : u.state === 'base' ? '<div class="uhStamp">DOCKED</div>' : u.state === 'returning' ? '<div class="uhStamp">RTB</div>' : '';
+    const stamp = uhStampHtml(u);
     const src = noahAircraftImgSrc(u.aircraftId);
     return `<div class="uhScope scan${cls}">
         <div class="uhGrid"></div><div class="uhSweep"></div>
-        <div class="uhCraft"><img class="sh" src="${src}" alt=""><img class="mn" src="${src}" alt=""></div>
+        <div class="uhCraft"><img class="sh" src="${src}" alt="" draggable="false"><img class="mn" src="${src}" alt="" draggable="false"></div>
         ${orbit}${ring}${stamp}
         <span class="lb tl">TOP VIEW</span><span class="lb br">${escapeHtml(String(u.aircraftId || '').toUpperCase())}</span>
       </div>`;
   }
-  function uhVitalsHtml(u, th){
-    const hpR = u.maxHp > 0 ? Math.max(0, Math.min(1, u.hp / u.maxHp)) : 0;
-    const onBoard = unitOccupiesBoard(u);
-    const loss = th.inRange && onBoard ? Math.min(u.hp, th.total) : 0;
-    const afterR = u.maxHp > 0 ? Math.max(0, (u.hp - loss) / u.maxHp) : 0;
-    const ups = u.statUpgrades || {};
-    const pct = v=>`${Math.round(v * 1000) / 10}%`;
-    const bar = `<div class="uhHpBar" style="--w:${pct(hpR)};--n:${Math.max(1, Math.min(60, u.maxHp | 0))};${loss > 0 ? `--l:${pct(afterR)};--fw:${pct(hpR - afterR)}` : ''}"><i></i>${loss > 0 ? '<em></em>' : ''}</div>`;
+  // 被弾予測の数字と一言（機体解析HUD とポップアップで同じ）
+  function uhForecast(u, th){
     let tone = 'off', big = '—', sub = '', tag = '';
-    if(!onBoard) sub = u.state === 'base' ? '基地待機中は攻撃されません' : u.state === 'destroyed' ? '大破中（盤面外）' : '盤面外';
+    if(!unitOccupiesBoard(u)) sub = u.state === 'base' ? '基地待機中は攻撃されません' : u.state === 'destroyed' ? '大破中（盤面外）' : '盤面外';
     else if(!th.action) sub = '予測なし';
     else if(!th.inRange){ tone = 'ok'; big = '0'; sub = '攻撃範囲の外'; tag = 'SAFE'; }
     else if(th.barrier){ tone = 'ok'; big = '0'; sub = `バリアで無効（−${th.damage + th.extra}）`; tag = 'BARRIER'; }
@@ -19693,6 +19796,17 @@ function showHandPopup(index){ if(game.inputLocked) return;
       sub = (th.breakRisk ? '→ 大破' : `→ HP ${u.hp - th.total}`) + (th.extra ? '（特性+1）' : '');
       tag = th.breakRisk ? (th.candidate ? '大破の危険・候補' : '大破の危険') : (th.candidate ? '対象候補' : '');
     }
+    return { tone, big, sub, tag };
+  }
+  function uhVitalsHtml(u, th){
+    const hpR = u.maxHp > 0 ? Math.max(0, Math.min(1, u.hp / u.maxHp)) : 0;
+    const onBoard = unitOccupiesBoard(u);
+    const loss = th.inRange && onBoard ? Math.min(u.hp, th.total) : 0;
+    const afterR = u.maxHp > 0 ? Math.max(0, (u.hp - loss) / u.maxHp) : 0;
+    const ups = u.statUpgrades || {};
+    const pct = v=>`${Math.round(v * 1000) / 10}%`;
+    const bar = `<div class="uhHpBar" style="--w:${pct(hpR)};--n:${Math.max(1, Math.min(60, u.maxHp | 0))};${loss > 0 ? `--l:${pct(afterR)};--fw:${pct(hpR - afterR)}` : ''}"><i></i>${loss > 0 ? '<em></em>' : ''}</div>`;
+    const { tone, big, sub, tag } = uhForecast(u, th);
     const eva = evasionPercentFromMobility(effectiveMobility(u));
     const defEff = effectiveDefense(u), defCls = statusCount(u, 'corrosion') > 0 ? 'dn' : (defEff > (Number(u.defense) || 0) ? 'up' : '');
     const rb = onBoard ? rowTacticalBonus(u.row) : 0;
@@ -19788,7 +19902,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
         if(occ && occ === u) cls.push('me');
         let inner = '';
         if(occ){
-          inner = `<img src="${noahAircraftImgSrc(occ.aircraftId)}" alt=""><span class="n">${game.units.indexOf(occ) + 1}</span>`;
+          inner = `<img src="${noahAircraftImgSrc(occ.aircraftId)}" alt="" draggable="false"><span class="n">${game.units.indexOf(occ) + 1}</span>`;
           if(tc && tc.danger && tc.damage != null) inner += `<span class="d${tc.breakRisk ? ' br' : ''}">${tc.damage > 0 ? '−' + tc.damage : '0'}</span>`;
         }
         cells.push(`<div class="${cls.join(' ')}">${inner}</div>`);
@@ -19845,24 +19959,30 @@ function showHandPopup(index){ if(game.inputLocked) return;
         <div><span>総数</span><b>${total}</b></div>
       </div>`;
   }
-  function uhBodyHtml(u, i, th, dg){
-    const ad = aircraftDef(u.aircraftId) || {};
-    const cur = curUnit() === u && !game.gameOver;
+  function uhRoleHtml(role){ return String(role || '').split(/\s*\/\s*/).filter(Boolean).map(p=>`<span>${escapeHtml(p)}</span>`).join(' <i>/</i> '); }
+  function uhChipsHtml(u, i){
     const chips = [`<span class="uhChip st-${u.state}">${escapeHtml(stateLabels[u.state] || u.state)}</span>`];
-    if(cur) chips.push(`<span class="uhChip act">行動中 · ${UH_PHASE_LABEL[game.phase] || 'TURN'}</span>`);
+    if(curUnit() === u && !game.gameOver) chips.push(`<span class="uhChip act">行動中 · ${UH_PHASE_LABEL[game.phase] || 'TURN'}</span>`);
     chips.push(`<span class="uhChip">第${i + 1}行動機</span>`);
     if(unitOccupiesBoard(u)) chips.push(`<span class="uhChip">${escapeHtml(positionLabel(u))}</span>`);
+    return `<div class="uhChips">${chips.join('')}</div>`;
+  }
+  function uhNotesHtml(u, i){
     const notes = uhNotes(u, i);
+    return notes.length ? `<div class="uhNotes">${notes.map(o=>`<div class="uhNote ${o.tone}">${o.text}</div>`).join('')}</div>` : '';
+  }
+  function uhBodyHtml(u, i, th, dg){
+    const ad = aircraftDef(u.aircraftId) || {};
     const n = game.units.length;
     const nav = d=>n > 1 ? `<button type="button" class="uhNav" data-dir="${d}" aria-label="${d < 0 ? '前の機体' : '次の機体'}">${d < 0 ? '‹' : '›'}</button>` : '';
     return `
       <section class="uhIdBlock" style="--d:0">
         <div class="uhId">${nav(-1)}
-          <div class="uhIdMain"><div class="uhOrder">${String(i + 1).padStart(2, '0')}</div><div class="uhName"><b>${escapeHtml(u.name)}</b><small>${escapeHtml(ad.role || '')}</small></div></div>
+          <div class="uhIdMain"><div class="uhOrder">${String(i + 1).padStart(2, '0')}</div><div class="uhName"><b>${escapeHtml(u.name)}</b><small>${uhRoleHtml(ad.role)}</small></div></div>
           <div class="uhDiag"><span class="en"><i></i>${dg.en}</span><span class="jp">${dg.jp}</span></div>${nav(1)}
         </div>
-        <div class="uhChips">${chips.join('')}</div>
-        ${notes.length ? `<div class="uhNotes">${notes.map(o=>`<div class="uhNote ${o.tone}">${o.text}</div>`).join('')}</div>` : ''}
+        ${uhChipsHtml(u, i)}
+        ${uhNotesHtml(u, i)}
       </section>
       <section class="uhMain" style="--d:1">${uhScopeHtml(u, th)}${uhVitalsHtml(u, th)}</section>
       <section style="--d:2"><div class="uhSecT">STATUS<b>状態異常・効果</b></div>${uhStatusHtml(u, i)}</section>
@@ -19920,9 +20040,8 @@ function showHandPopup(index){ if(game.inputLocked) return;
     const el = h.el;
     el.dataset.tone = dg.tone;
     el.dataset.unit = String(i);
-    el.style.setProperty('--ac-rgb', UH_AC_RGB[u.aircraftId] || '76,132,255');
-    const hpR = u.maxHp > 0 ? u.hp / u.maxHp : 0;
-    el.style.setProperty('--hp-rgb', u.state === 'destroyed' ? '136,148,168' : hpR > .5 ? '63,224,163' : hpR > .25 ? '255,192,74' : '255,75,92');
+    el.style.setProperty('--ac-rgb', uhAcRgb(u));
+    el.style.setProperty('--hp-rgb', uhHpRgb(u));
     el.querySelector('.uhCount').innerHTML = `UNIT <b>${String(i + 1).padStart(2, '0')}</b> / ${String(game.units.length).padStart(2, '0')}`;
     el.querySelector('.uhDone').textContent = h.from === 'status' ? '一覧へ戻る' : '閉じる';
     const body = el.querySelector('.uhBody');
@@ -19937,6 +20056,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
   function noahUnitHudTargetAtGrid(col, row){
     if(!gameStarted || !game || game.gameOver || game.introHideUnits || game.inputLocked || noahPendingEvent || noahGacha) return -1;
     if(game.mode === 'sortie' || game.mode === 'move') return -1;
+    if(performance.now() - noahOverlayClosedAt < 450) return -1;   // v386：表示を飛ばそうとしたタップが、消えた後の盤面に届いたとき
     if(!(col >= 0 && col <= 2) || ![4, 5, 6].includes(row)) return -1;
     const u = unitAtGrid(col, row);
     if(!u) return -1;
@@ -20034,9 +20154,148 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(noahPendingEvent){ noahEventPendingHint(); return; }
     if(!gameStarted || !game || game.inputLocked || game.gameOver || noahGacha) return;
     if(ui.modalBg && ui.modalBg.style.display === 'flex') return;
-    showUnitHud(game.active, { from:'info' });
+    showUnitInfo(game.active, { from:'info' });
   }
-  function showStatusPopup(){ if(game.inputLocked) return; playTapSound(); normalizeArtifactState(); let unitBody=''; game.units.forEach((u,i)=>{ ensureStatus(u); const cannonCards=u.cannons.slice(0,activeCannons(u)).filter(Boolean).length; const barrierBonus=followBarrierDefenseBonus(u); const shieldBonus=shieldDefenseBonus(u); const defenseParts=[]; if(shieldBonus) defenseParts.push(`シールド${shieldBonus}`); if(barrierBonus) defenseParts.push(`バリア${barrierBonus}`); const normalDefense=Math.max(0,(Number(u.defense)||0)+shieldBonus+barrierBonus); const defenseText=statusCount(u,'corrosion')>0 ? `0（通常${normalDefense}）` : `${effectiveDefense(u)}${defenseParts.length ? `（本体${u.defense}+${defenseParts.join('+')}）` : ''}`; const mobilityText=statusCount(u,'freeze')>0 ? `0（通常${u.mobility}）` : `${u.mobility}`; unitBody += `<button type="button" class="statusBlock unitStatusButton" data-unit-status="${i}"><h4>第${i+1}行動機：${u.name}</h4>${statusBadgesHtml(u)}<div class="statusGrid"><div>状態：${stateLabels[u.state]}</div><div>HP：${u.hp} / ${u.maxHp}</div><div>防御力：${defenseText}</div><div>攻撃力：${u.attack}</div><div>精密性：${u.precision}</div><div>機動性：${mobilityText}</div><div>観測性能：${u.observation}</div><div>整備性：${u.maintenance}</div><div>ドローン性能：${dronePowerValue(u)}</div><div>ドローン制御：${droneControlLimit(u)}</div><div>追従ドローン：${ensureFollowDrones(u).length} / ${droneControlLimit(u)}</div><div>修理量：${repairValue(u)}</div><div>砲身：${activeCannons(u)} / 4</div><div>位置：${unitOccupiesBoard(u) ? positionLabel(u) : '-'}</div><div>山札：${u.deck.length} / 手札：${u.hand.length} / 上限：${maxHandSize(u)}</div><div>砲身内：${cannonCards}</div><div>基地内：${u.discard.length}</div></div><div class="unitStatusHint">タップで機体解析</div></button>`; }); const owned=(game.artifacts||[]).map(id=>artifactDef(id)).filter(Boolean); const artifactBody = owned.length ? `<div class="artifactOwnedGrid">` + owned.map(d=>`<button type="button" class="artifactTile" data-owned-artifact="${d.id}">${artifactArtHtml(d.id, d.name)}</button>`).join('') + `</div>` : `<div class="statusBlock"><h4>取得済みアーティファクト</h4><div class="muted">まだ取得していません。</div></div>`; const body = `<div class="statusTabs"><button type="button" class="statusTabBtn active" data-status-tab="units">機体情報</button><button type="button" class="statusTabBtn" data-status-tab="artifacts">アーティファクト</button></div><div class="statusTabPanel active" data-status-panel="units">${unitBody}</div><div class="statusTabPanel" data-status-panel="artifacts">${artifactBody}</div>`; openModal('ステータス', body, [{text:'閉じる',onClick(){}}]); ui.modalBody.querySelectorAll('[data-unit-status]').forEach(btn=>{ btn.addEventListener('click',()=>showUnitHud(Number(btn.getAttribute('data-unit-status')), { from:'status' })); }); ui.modalBody.querySelectorAll('[data-status-tab]').forEach(btn=>{ btn.addEventListener('click',()=>{ const tab=btn.getAttribute('data-status-tab'); ui.modalBody.querySelectorAll('[data-status-tab]').forEach(b=>b.classList.toggle('active', b===btn)); ui.modalBody.querySelectorAll('[data-status-panel]').forEach(panel=>panel.classList.toggle('active', panel.getAttribute('data-status-panel')===tab)); }); }); ui.modalBody.querySelectorAll('[data-owned-artifact]').forEach(btn=>{ btn.addEventListener('click',()=>{ const id=btn.getAttribute('data-owned-artifact'); const item={ id, cost:0, sale:false, sold:true, kind:'artifact' }; openArtifactDetailModal(item, { hideFooter:true, onCloseX(){ showStatusPopup(); } }); }); }); }
+  // ===========================================================================
+  // v387 機体情報のポップアップ（#modal.unitPopModal）
+  //   外枠だけカードのポップアップ（hologramCard：角を切った枠・N.O.A.H. の表示・ぼかした背景）と同じにして、
+  //   中身は機体解析HUD と同じ並び（uhBodyHtml。.uhKit の部品）を、全部まとめて縦にスクロールで見せる。
+  //   ‹ ›・左右にはらう・← → で機体を切り替え。「デッキ詳細」（「機体情報へ戻る」で戻る）・「全画面」（機体解析HUD へ）。
+  //   盤面の機体などを押したときに ポップアップ / 全画面 のどちらを開くかは、ポーズ画面の「表示」→「機体情報」。
+  // ===========================================================================
+  function showUnitInfo(index, opt = {}){
+    if(displaySettings.unitInfo === 'hud') showUnitHud(index, opt);
+    else showUnitPopup(index, opt);
+  }
+  function upModalClass(u){
+    return `cardDetailModal hologramCard unitPopModal unitTheme-${u.aircraftId || 'aa1'}${noahRdQuality() >= 2 ? ' upLite' : ''}`;
+  }
+  const UH_TONE_RGB = { ok:'var(--ep-rgb)', warn:'var(--warn-rgb)', bad:'var(--order-rgb)', down:'var(--order-rgb)', base:'var(--rp-rgb)' };
+  function upVars(u, dg){ return `--ac-rgb:${uhAcRgb(u)};--hp-rgb:${uhHpRgb(u)};--tone-rgb:${UH_TONE_RGB[dg.tone] || 'var(--ep-rgb)'}`; }
+  function upIdent(u, i){ return `${String(u.aircraftId || '').toUpperCase()} · UNIT ${String(i + 1).padStart(2, '0')}`; }
+  function upHtml(u, i, from){
+    const th = uhThreat(u), dg = uhDiag(u, th);
+    return `
+      <svg class="holoPerimeter" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <path class="holoOuter" d="M5 .3H95L99.7 3.5V96.5L95 99.7H5L.3 96.5V3.5Z" fill="none" stroke="currentColor" vector-effect="non-scaling-stroke"/>
+        <path class="holoInner" d="M6 1.4H94L98.5 4.4V95.6L94 98.6H6L1.5 95.6V4.4Z" fill="none" stroke="currentColor" vector-effect="non-scaling-stroke"/>
+        <path class="holoAccent" d="M8 1.4H25M75 98.6H92M1.5 8V18M98.5 82V92" fill="none" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="holoIdentity" aria-hidden="true"><span>N.O.A.H.</span><span class="upIdent">${escapeHtml(upIdent(u, i))}</span></div>
+      <div class="uhPop uhKit in" data-tone="${dg.tone}" style="${upVars(u, dg)}">
+        <header class="uhPopHead">
+          <div class="uhTitle"><div class="en"><i></i>UNIT ANALYSIS</div><div class="jp">機体解析</div></div>
+          <button type="button" class="uhPopFull" data-up-full="1">全画面</button>
+          <button type="button" class="cardInlineClose" data-inline-close="1" aria-label="閉じる">×</button>
+        </header>
+        <div class="uhPopBody">${uhBodyHtml(u, i, th, dg)}</div>
+        <footer class="uhPopFoot">
+          <button type="button" class="upDeck" data-up-deck="1">デッキ詳細</button>
+          <button type="button" class="upDone" data-up-done="1">${from === 'status' ? '一覧へ戻る' : '閉じる'}</button>
+        </footer>
+      </div>`;
+  }
+  function showUnitPopup(index, opt = {}){
+    if(!gameStarted || !game || !Array.isArray(game.units) || !game.units[index] || noahGacha) return;
+    closeUnitHud({ instant:true });
+    const u = game.units[index];
+    const from = opt.from || 'board';
+    noahUnitPop = { index, from };
+    try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}
+    openModal(u.name, upHtml(u, index, from), [], { modalClass:upModalClass(u) });
+    upBind();
+    upAfterRender(0);
+  }
+  // 機体の切り替え：枠の色・右上の表示・中身だけ入れ替える（見出しと下のボタンはそのまま）
+  function upRender(i, dir){
+    const p = noahUnitPop;
+    const u = p && game.units[i];
+    const pop = ui.modalBody.querySelector('.uhPop');
+    if(!u || !pop) return;
+    p.index = i;
+    const th = uhThreat(u), dg = uhDiag(u, th);
+    ui.modal.className = '';
+    upModalClass(u).split(/\s+/).filter(Boolean).forEach(cls=>ui.modal.classList.add(cls));
+    ui.modalTitle.textContent = u.name;
+    pop.setAttribute('style', upVars(u, dg));
+    pop.dataset.tone = dg.tone;
+    const ident = ui.modalBody.querySelector('.upIdent');
+    if(ident) ident.textContent = upIdent(u, i);
+    const body = pop.querySelector('.uhPopBody');
+    body.innerHTML = uhBodyHtml(u, i, th, dg);
+    body.scrollTop = 0;
+    upAfterRender(dir);
+    noahRdSyncModal();
+  }
+  function upAfterRender(dir){
+    const pop = ui.modalBody.querySelector('.uhPop');
+    const p = noahUnitPop;
+    if(!pop || !p) return;
+    const body = pop.querySelector('.uhPopBody');
+    clearTimeout(noahUnitPopInTimer);
+    if(dir){
+      pop.classList.remove('in');
+      body.classList.remove('swL', 'swR');
+      void body.offsetWidth;
+      body.classList.add(dir > 0 ? 'swL' : 'swR');
+    }else{
+      noahUnitPopInTimer = setTimeout(()=>{ if(pop.isConnected) pop.classList.remove('in'); }, 760);
+    }
+    uhCountUp(body.querySelector('.uhHpN b'), Math.max(0, Number(game.units[p.index].hp) || 0));
+  }
+  function upSwitch(dir){
+    const p = noahUnitPop;
+    if(!p || !game || game.units.length < 2) return;
+    if(!ui.modal.classList.contains('unitPopModal') || ui.modalBg.style.display !== 'flex') return;
+    const n = game.units.length;
+    rdSfx.hudSwitch(dir);
+    upRender((p.index + dir + n) % n, dir);
+  }
+  function upBind(){
+    const pop = ui.modalBody.querySelector('.uhPop');
+    if(!pop) return;
+    pop.addEventListener('click', async e=>{
+      const t = e.target && e.target.closest ? e.target.closest('button') : null;
+      const p = noahUnitPop;
+      if(!t || !p) return;
+      if(t.matches('[data-inline-close]')){ await flashThen(t, 'danger', ()=>{ playModalCancelSound(); closeModal(); }); return; }
+      if(t.matches('[data-up-done]')){
+        const back = p.from === 'status';
+        await flashThen(t, 'primary', ()=>{ playModalCancelSound(); closeModal(); if(back) showStatusPopup(); });
+        return;
+      }
+      if(t.matches('[data-up-deck]')){
+        const keep = { index:p.index, from:p.from };
+        await flashThen(t, 'primary', ()=>{ showUnitDeckInfo(keep.index, { backText:'機体情報へ戻る', onBack(){ showUnitPopup(keep.index, { from:keep.from }); } }); });
+        return;
+      }
+      if(t.matches('[data-up-full]')){
+        const keep = { index:p.index, from:p.from };
+        await flashThen(t, 'primary', ()=>{ closeModal(); showUnitHud(keep.index, { from:keep.from }); });
+        return;
+      }
+      if(t.classList.contains('uhNav')) upSwitch(Number(t.dataset.dir) < 0 ? -1 : 1);
+    });
+    // 中身を左右にはらうと機体を切り替え（縦のスクロールはそのまま）
+    const body = pop.querySelector('.uhPopBody');
+    let sw = null;
+    body.addEventListener('pointerdown', e=>{ sw = e.isPrimary ? { x:e.clientX, y:e.clientY, t:performance.now() } : null; }, { passive:true });
+    body.addEventListener('pointercancel', ()=>{ sw = null; }, { passive:true });
+    body.addEventListener('pointerup', e=>{
+      const st = sw; sw = null;
+      if(!st) return;
+      const dx = e.clientX - st.x, dy = e.clientY - st.y;
+      if(Math.abs(dx) >= 56 && Math.abs(dy) < Math.abs(dx) * .6 && performance.now() - st.t < 800) upSwitch(dx < 0 ? 1 : -1);
+    }, { passive:true });
+  }
+  // キーボード：← → で機体を切り替え、Esc で閉じる（機体情報のポップアップが開いているときだけ）
+  document.addEventListener('keydown', e=>{
+    if(!noahUnitPop || noahUnitHud || !ui.modal || !ui.modal.classList.contains('unitPopModal') || ui.modalBg.style.display !== 'flex') return;
+    if(e.key === 'ArrowLeft'){ e.preventDefault(); upSwitch(-1); }
+    else if(e.key === 'ArrowRight'){ e.preventDefault(); upSwitch(1); }
+    else if(e.key === 'Escape'){ e.preventDefault(); playModalCancelSound(); closeModal(); }
+  });
+  function showStatusPopup(){ if(game.inputLocked) return; playTapSound(); normalizeArtifactState(); let unitBody=''; game.units.forEach((u,i)=>{ ensureStatus(u); const cannonCards=u.cannons.slice(0,activeCannons(u)).filter(Boolean).length; const barrierBonus=followBarrierDefenseBonus(u); const shieldBonus=shieldDefenseBonus(u); const defenseParts=[]; if(shieldBonus) defenseParts.push(`シールド${shieldBonus}`); if(barrierBonus) defenseParts.push(`バリア${barrierBonus}`); const normalDefense=Math.max(0,(Number(u.defense)||0)+shieldBonus+barrierBonus); const defenseText=statusCount(u,'corrosion')>0 ? `0（通常${normalDefense}）` : `${effectiveDefense(u)}${defenseParts.length ? `（本体${u.defense}+${defenseParts.join('+')}）` : ''}`; const mobilityText=statusCount(u,'freeze')>0 ? `0（通常${u.mobility}）` : `${u.mobility}`; unitBody += `<button type="button" class="statusBlock unitStatusButton" data-unit-status="${i}"><h4>第${i+1}行動機：${u.name}</h4>${statusBadgesHtml(u)}<div class="statusGrid"><div>状態：${stateLabels[u.state]}</div><div>HP：${u.hp} / ${u.maxHp}</div><div>防御力：${defenseText}</div><div>攻撃力：${u.attack}</div><div>精密性：${u.precision}</div><div>機動性：${mobilityText}</div><div>観測性能：${u.observation}</div><div>整備性：${u.maintenance}</div><div>ドローン性能：${dronePowerValue(u)}</div><div>ドローン制御：${droneControlLimit(u)}</div><div>追従ドローン：${ensureFollowDrones(u).length} / ${droneControlLimit(u)}</div><div>修理量：${repairValue(u)}</div><div>砲身：${activeCannons(u)} / 4</div><div>位置：${unitOccupiesBoard(u) ? positionLabel(u) : '-'}</div><div>山札：${u.deck.length} / 手札：${u.hand.length} / 上限：${maxHandSize(u)}</div><div>砲身内：${cannonCards}</div><div>基地内：${u.discard.length}</div></div><div class="unitStatusHint">タップで機体情報</div></button>`; }); const owned=(game.artifacts||[]).map(id=>artifactDef(id)).filter(Boolean); const artifactBody = owned.length ? `<div class="artifactOwnedGrid">` + owned.map(d=>`<button type="button" class="artifactTile" data-owned-artifact="${d.id}">${artifactArtHtml(d.id, d.name)}</button>`).join('') + `</div>` : `<div class="statusBlock"><h4>取得済みアーティファクト</h4><div class="muted">まだ取得していません。</div></div>`; const body = `<div class="statusTabs"><button type="button" class="statusTabBtn active" data-status-tab="units">機体情報</button><button type="button" class="statusTabBtn" data-status-tab="artifacts">アーティファクト</button></div><div class="statusTabPanel active" data-status-panel="units">${unitBody}</div><div class="statusTabPanel" data-status-panel="artifacts">${artifactBody}</div>`; openModal('ステータス', body, [{text:'閉じる',onClick(){}}]); ui.modalBody.querySelectorAll('[data-unit-status]').forEach(btn=>{ btn.addEventListener('click',()=>showUnitInfo(Number(btn.getAttribute('data-unit-status')), { from:'status' })); }); ui.modalBody.querySelectorAll('[data-status-tab]').forEach(btn=>{ btn.addEventListener('click',()=>{ const tab=btn.getAttribute('data-status-tab'); ui.modalBody.querySelectorAll('[data-status-tab]').forEach(b=>b.classList.toggle('active', b===btn)); ui.modalBody.querySelectorAll('[data-status-panel]').forEach(panel=>panel.classList.toggle('active', panel.getAttribute('data-status-panel')===tab)); }); }); ui.modalBody.querySelectorAll('[data-owned-artifact]').forEach(btn=>{ btn.addEventListener('click',()=>{ const id=btn.getAttribute('data-owned-artifact'); const item={ id, cost:0, sale:false, sold:true, kind:'artifact' }; openArtifactDetailModal(item, { hideFooter:true, onCloseX(){ showStatusPopup(); } }); }); }); }
   // v363：3D表示では、最接近攻撃・前中列薙ぎ払いの三日月弾を出さず、怪獣の腕の動きで見せる（noah3d.js の motionOffsets）。
   //       必殺技は三日月弾・エネルギー波を今まで通り出しつつ、怪獣も動く（両腕を広げて反り、交差させて振り下ろす）。衝撃波は今まで通り。
   //   duration … 動きの長さ、hitMs … 当たる瞬間（腕を振り切る所。薙ぎ払いは左右1回ずつ）、releaseMs … 必殺技の演出を出す瞬間
@@ -20210,7 +20469,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(cell.x>=2 && cell.x<=4 && cell.y>=0 && cell.y<=2){ showKaijuPlanPopup(); return; }
     // v385：機体のマス → 機体解析HUD（押したところから広がる）
     const inspect=noahUnitHudTargetAt(cell);
-    if(inspect>=0){ showUnitHud(inspect, { from:'board', pt:noahLastBoardTapPt }); return; }
+    if(inspect>=0){ showUnitInfo(inspect, { from:'board', pt:noahLastBoardTapPt }); return; }   // v386：設定で カード / 全画面
   }
   function promptEndTurn(){ if(noahPendingEvent){ noahResumeEvent(); return; } if(game.inputLocked) return; if(hasPendingDiscard()){ showToast('手札破棄を完了してください'); return; } const unit=curUnit(); if(game.gameOver){ reopenMissionResult(); return; } if(game.pendingProgress){ showProgressPrompt(); return; } if(unit.state==='deployed' && game.phase==='attack'){ ensureArtifactFlags(unit).attackDistanceBonus = 0; if(game.returnToMainAfterAttack){ game.returnToMainAfterAttack=false; game.phase='main'; game.mode=null; game.pendingHandIndex=null; render(); showQuickTitle('MAIN PHASE'); return; } game.phase='move'; game.mode='move'; game.pendingHandIndex=null; render(); showQuickTitle('MOVE PHASE'); return; } if(unit.state==='deployed' && game.phase==='move'){ game.phase='main'; game.mode=null; game.pendingHandIndex=null; render(); showQuickTitle('MAIN PHASE'); return; } if(unit.state==='deployed' && game.phase==='main'){ openModal('ターン終了', `${unit.name} のターンを終了します。`, [{text:'終了',onClick(){ confirmFinishDeployedTurn(false); }},{text:'帰還',onClick(){ confirmFinishDeployedTurn(true); }},{text:'×',onClick(){}}]); return; } if(unit.state==='base'){ showBaseActions(unit,'基地'); return; } if(unit.state==='destroyed'){ showBaseActions(unit,'大破'); return; } showToast('この状態では自動進行です'); }
   function confirmFinishDeployedTurn(doReturn){
@@ -22067,6 +22326,10 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     // v385 テスト用：機体解析HUD を開く・いまの状態
     debugUnitHud: (i, from)=>{ showUnitHud(Number(i) || 0, { from:from || 'board' }); return !!noahUnitHud; },
     debugUnitHudState: ()=>noahUnitHud ? { index:noahUnitHud.index, from:noahUnitHud.from, cls:noahUnitHud.el.className, tone:noahUnitHud.el.dataset.tone } : null,
+    // v387 テスト用：機体情報のポップアップ
+    debugUnitPopup: (i, from)=>{ showUnitPopup(Number(i) || 0, { from:from || 'board' }); return !!noahUnitPop; },
+    debugUnitPopupState: ()=>noahUnitPop ? { index:noahUnitPop.index, from:noahUnitPop.from, cls:ui.modal.className, scroll:(ui.modalBody.querySelector('.uhPopBody') || {}).scrollTop || 0 } : null,
+    debugUnitInfoMode: (m)=>{ if(m === 'popup' || m === 'card') displaySettings.unitInfo = 'popup'; else if(m === 'hud') displaySettings.unitInfo = 'hud'; return displaySettings.unitInfo; },
     debugRdState: ()=>noahGacha ? { phase:noahGacha.phase, tier:noahGacha.tier, lv:noahGacha.lv, premium:noahGacha.premium, skip:noahGacha.skipPhase, ids:noahGacha.ids.slice(), duck:noahBgmDuckLevel,
       flipped:noahGacha.cardEls.map(e=>e.classList.contains('flip')), cls:noahGacha.el.className, particles:noahGacha.fx ? noahGacha.fx.ps.length : 0 } : null,
     debugRdSfx: (name, arg, secs, raw)=>rdSfx.debugMeasure(name, arg, secs, raw),
