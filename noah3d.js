@@ -38,6 +38,7 @@
 //   画面に6秒触っていないときは、動きのないときの描く回数を毎秒20回ほどに（bridge.lastInputAt）。stats() に診断表示用の数を足した。
 // v382〜：画質1・2では戦術パネルの絵を小さくする（768×384 / 512×256。GPU へ写す量と2Dで描く手間を減らす）。
 // v385〜：機体のマスを押している間は水色の枠（離すと index.html の機体解析HUD が開く。bridge.inspectUnitAt）。
+// v389〜：怪獣の写真 kaijuShots（怪獣情報のポップアップの「メイン・正面・真横」のモニター。怪獣だけを決まったカメラで撮って 2D の canvas へ写す）。
 // =============================================================================
 (function () {
 'use strict';
@@ -3525,6 +3526,169 @@ function start(bridge) {
       temps.forEach(t => { if (t.obj) scene.remove(t.obj); try { t.dispose(); } catch (e) {} });
     }
   }
+  // ---------------------------------------------------------------------------
+  // v389：怪獣の写真（index.html の怪獣情報のポップアップの「メイン・正面・真横」の3つのモニター）
+  //   怪獣だけを見せて（ほかの物は一時的に隠す。光は数を変えない＝シェーダーを作り直さない）、決まったカメラで盤面の canvas の
+  //   左下の一角に並べて描き、描いた直後に1回だけ読んで、渡された 2D の canvas へ切り分けて写す（同じ処理の中なので読める）。
+  //   霧は遠くへやって効かなくし、背景はモニターの色（SHOT_BG）。光・影・まぶた・胸の光などは盤面と同じ（いまの姿勢のまま撮る）。
+  //   写す範囲は、骨で動かした後の体の頂点（SHOT_SAMPLE 個ほど）で決める（体の箱だと尾の分だけ空きが大きくなるため）。
+  //   終わったら全部戻して、いつもの盤面をすぐ描き直す（盤面の見た目は変わらない。v380 の snapshot と同じやり方）。
+  //   main  … 斜め前（左前 SHOT_MAIN.az°）から、少し見上げる（pitch°。遠近あり）。体がちょうど収まる距離・真ん中に合わせる
+  //   front … 正面、side … 真横（左から撮るので顔が右）。どちらも正射影で、足の裏が下から padB の所
+  //   返す値：{ ok, views:[{ view, y0, yH, x0, box }] } … y0・yH は足の裏と体のいちばん上が、写真の上から何割の所か（x0 は足元の左右の位置）。
+  //           box（main だけ）は写った体の範囲 [左, 上, 右, 下]（写真の左上から何割）
+  // ---------------------------------------------------------------------------
+  const SHOT_BG = new THREE.Color(0x07111d);
+  const SHOT_MAIN = { az: -42, pitch: 16, fov: 30, margin: 0.92 };
+  const SHOT_ORTHO = { padB: 0.1, padT: 0.17, padX: 0.07 };   // 上は左上の「CAM-02」などの文字と目盛りの「80m」が重ならないだけ空ける
+  const SHOT_SAMPLE = 1600;
+  const shotPersp = new THREE.PerspectiveCamera(SHOT_MAIN.fov, 1, 0.1, 400);
+  const shotOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
+  const shotV = new THREE.Vector3();
+  let shotPts = null, shotIdx = null;
+  // 体の頂点を間引いて、いまの姿勢の場所（world）を返す（使う頂点の番号は1回だけ決める）
+  function shotPoints() {
+    const meshes = kaiju.skinned || [];
+    if (!shotIdx || shotIdx.length !== meshes.length) {
+      const total = meshes.reduce((n, m) => n + ((m.geometry.attributes.position || { count: 0 }).count), 0);
+      const step = Math.max(1, Math.floor(total / SHOT_SAMPLE));
+      shotIdx = meshes.map(m => { const n = (m.geometry.attributes.position || { count: 0 }).count, a = []; for (let i = 0; i < n; i += step) a.push(i); return a; });
+      shotPts = [];
+      shotIdx.forEach(a => a.forEach(() => shotPts.push(new THREE.Vector3())));
+    }
+    let k = 0;
+    meshes.forEach((m, mi) => { for (const i of shotIdx[mi]) { const v = shotPts[k++]; m.getVertexPosition(i, v); v.applyMatrix4(m.matrixWorld); } });
+    return shotPts;
+  }
+  function kaijuShots(list) {
+    if (!running || contextLost || !kaiju || !kaiju.real || !Array.isArray(list) || !list.length) return null;
+    const src = renderer.domElement;
+    if (!src.width || !src.height) return null;
+    const items = list.filter(it => it && it.canvas && it.canvas.width > 1 && it.canvas.height > 1);
+    if (!items.length) return null;
+    // 盤面の canvas の左下から、行ごとに並べる（GL の座標：下から上）。入らなければ全部を同じ割合で小さく描いて、写すときに広げる
+    let x = 0, y = 0, rowH = 0, tw = 0;
+    const maxW = Math.max(src.width, ...items.map(it => it.canvas.width));
+    items.forEach(it => {
+      if (x > 0 && x + it.canvas.width > maxW) { x = 0; y += rowH; rowH = 0; }
+      it._x = x; it._y = y; x += it.canvas.width; rowH = Math.max(rowH, it.canvas.height); tw = Math.max(tw, x);
+    });
+    const th = y + rowH;
+    const k = Math.min(1, src.width / tw, src.height / th);
+    const pr = renderer.getPixelRatio();
+    const hidden = [];
+    const hide = parent => {
+      for (const o of parent.children) {
+        if (o === kaiju.root || o.isLight || !o.visible) continue;
+        let light = false;
+        o.traverse(c => { if (c.isLight) light = true; });
+        if (light) hide(o); else { o.visible = false; hidden.push(o); }
+      }
+    };
+    const fog = scene.fog, fogN = fog ? fog.near : 0, fogF = fog ? fog.far : 0, bg = scene.background;
+    const out = [];
+    let drawn = 0;
+    try {
+      hide(scene);
+      if (fog) { fog.near = 1e6; fog.far = 2e6; }
+      scene.background = SHOT_BG;
+      kaiju.root.updateMatrixWorld(true);
+      const pts = shotPoints();
+      const box = new THREE.Box3().setFromPoints(pts);
+      const base = new THREE.Vector3().setFromMatrixPosition(kaiju.root.matrixWorld);
+      const floor = base.y, top = Math.max(box.max.y, floor + 1e-3);
+      renderer.setScissorTest(true);
+      for (const it of items) {
+        const w = Math.max(2, Math.floor(it.canvas.width * k)), h = Math.max(2, Math.floor(it.canvas.height * k));
+        const aspect = w / h;
+        const info = { view: it.view };
+        let cam;
+        if (it.view === 'front' || it.view === 'side') {
+          const O = SHOT_ORTHO, front = it.view === 'front';
+          const lo = front ? box.min.x : box.min.z, hi = front ? box.max.x : box.max.z, mid = (lo + hi) / 2;
+          const vh = Math.max((top - floor) / (1 - O.padB - O.padT), (hi - lo) / (1 - O.padX * 2) / aspect);
+          const t = vh * (1 - O.padB);   // 足の裏から写真の上までの高さ
+          Object.assign(shotOrtho, { left: -vh * aspect / 2, right: vh * aspect / 2, top: t, bottom: t - vh, near: 0.1, far: 400 });
+          shotOrtho.updateProjectionMatrix();
+          if (front) { shotOrtho.position.set(mid, floor, box.max.z + 40); shotOrtho.lookAt(mid, floor, box.min.z); }
+          else { shotOrtho.position.set(box.min.x - 40, floor, mid); shotOrtho.lookAt(box.max.x, floor, mid); }
+          shotOrtho.updateMatrixWorld();
+          info.y0 = t / vh; info.yH = (t - (top - floor)) / vh;
+          info.x0 = 0.5 + ((front ? base.x : base.z) - mid) / (vh * aspect);   // 正面は右が +X、真横（左から）は右が +Z
+          cam = shotOrtho;
+        } else {
+          const A = THREE.MathUtils.degToRad(SHOT_MAIN.az), P = THREE.MathUtils.degToRad(SHOT_MAIN.pitch);
+          const back = new THREE.Vector3(Math.sin(A) * Math.cos(P), -Math.sin(P), Math.cos(A) * Math.cos(P));   // 体からカメラへの向き
+          const tgt = box.getCenter(new THREE.Vector3());
+          shotPersp.fov = SHOT_MAIN.fov; shotPersp.aspect = aspect; shotPersp.near = 0.1; shotPersp.far = 400; shotPersp.updateProjectionMatrix();
+          const place = d => { shotPersp.position.copy(tgt).addScaledVector(back, d); shotPersp.up.set(0, 1, 0); shotPersp.lookAt(tgt); shotPersp.updateMatrixWorld(); shotPersp.matrixWorldInverse.copy(shotPersp.matrixWorld).invert(); };
+          const extent = () => {
+            let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+            for (const p of pts) { shotV.copy(p).project(shotPersp); if (shotV.x < x0) x0 = shotV.x; if (shotV.x > x1) x1 = shotV.x; if (shotV.y < y0) y0 = shotV.y; if (shotV.y > y1) y1 = shotV.y; }
+            return { x0, x1, y0, y1 };
+          };
+          const R = new THREE.Vector3(), U = new THREE.Vector3();
+          let d = (top - floor) * 3;
+          for (let pass = 0; pass < 3; pass++) {
+            let lo = (top - floor) * 0.3, hi = (top - floor) * 30;
+            for (let i = 0; i < 22; i++) {
+              const m = (lo + hi) / 2; place(m);
+              const e = extent();
+              if (Math.max(-e.x0, e.x1, -e.y0, e.y1) <= SHOT_MAIN.margin) hi = m; else lo = m;
+            }
+            d = hi; place(d);
+            // 写った体の真ん中が写真の真ん中に来るように、狙う所を横・縦にずらす
+            const e = extent();
+            const tanH = Math.tan(THREE.MathUtils.degToRad(SHOT_MAIN.fov) / 2);
+            R.setFromMatrixColumn(shotPersp.matrixWorld, 0); U.setFromMatrixColumn(shotPersp.matrixWorld, 1);
+            tgt.addScaledVector(R, (e.x0 + e.x1) / 2 * d * tanH * aspect).addScaledVector(U, (e.y0 + e.y1) / 2 * d * tanH);
+          }
+          place(d);
+          const e = extent();
+          info.box = [(e.x0 + 1) / 2, (1 - e.y1) / 2, (e.x1 + 1) / 2, (1 - e.y0) / 2];   // 写った体の範囲 [左, 上, 右, 下]（写真の左上から何割）
+          shotV.copy(base).project(shotPersp);
+          info.y0 = 0.5 - shotV.y / 2; info.x0 = 0.5 + shotV.x / 2;
+          cam = shotPersp;
+        }
+        renderer.setViewport(it._x * k / pr, it._y * k / pr, w / pr, h / pr);
+        renderer.setScissor(it._x * k / pr, it._y * k / pr, w / pr, h / pr);
+        renderer.render(scene, cam);
+        it._w = w; it._h = h;
+        out.push(info);
+        drawn++;
+      }
+      // 1回だけ読む（並べて描いた範囲）→ それぞれの 2D の canvas へ切り分ける
+      if (drawn) {
+        const rw = Math.min(src.width, Math.ceil(tw * k)), rh = Math.min(src.height, Math.ceil(th * k));
+        const tmp = document.createElement('canvas');
+        tmp.width = rw; tmp.height = rh;
+        const tc = tmp.getContext('2d');
+        tc.drawImage(src, 0, src.height - rh, rw, rh, 0, 0, rw, rh);
+        for (const it of items) {
+          if (!it._w) continue;
+          const ctx = it.canvas.getContext('2d');
+          if (!ctx) continue;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(tmp, Math.round(it._x * k), rh - Math.round(it._y * k) - it._h, it._w, it._h, 0, 0, it.canvas.width, it.canvas.height);
+        }
+        tmp.width = tmp.height = 1;
+      }
+    } catch (err) {
+      console.warn('[N.O.A.H. 3D] 怪獣の写真を撮れませんでした', err);
+      out.length = 0;
+    } finally {
+      hidden.forEach(o => { o.visible = true; });
+      if (fog) { fog.near = fogN; fog.far = fogF; }
+      scene.background = bg;
+      renderer.setScissorTest(false);
+      renderer.setViewport(0, 0, W, H);
+      renderer.setScissor(0, 0, W, H);
+      items.forEach(it => { delete it._x; delete it._y; delete it._w; delete it._h; });
+    }
+    try { const g = bridge.game; if (g) renderFrame(g, performance.now(), 0); } catch (e) {}
+    return { ok: out.length > 0, views: out };
+  }
+
   // v380：ソフトリフレッシュで作り直すときは、盤面に前の絵をかぶせている間（bridge.boardCovered）なら、盤面が出ていても下ごしらえする
   let warmState = 'pending';   // pending → running → done / skipped（ready() はこれが終わるのを待つ）
   async function warmUp() {
@@ -3839,6 +4003,9 @@ function start(bridge) {
     stop,
     // v363：本番の怪獣のモデルが出ているか（仮モデルの間は攻撃の動きができないので、index.html は今まで通り三日月弾を出す）
     kaijuReal() { return !!kaiju.real; },
+    // v389：怪獣の写真（メイン・正面・真横）。list … [{ view:'main'|'front'|'side', canvas }]。写せなければ null
+    kaijuShots(list) { return kaijuShots(list); },
+    debugShotMain(o) { if (o) Object.assign(SHOT_MAIN, o); return Object.assign({}, SHOT_MAIN); },   // テスト用（v389）：メインの写真の角度
     // v380 ソフトリフレッシュ（3Dの作り直し）用。
     //   snapshot：いまの盤面を1枚描いて2Dのキャンバスに写し、3Dの絵のすぐ上にかぶせて返す（作り直す間はこの絵を見せておく。
     //             片付けるのは呼んだ側。止めても消えない）。描けなければ null
@@ -3964,5 +4131,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v385' };
+window.NOAH3D = { start, version: 'v389' };
 })();

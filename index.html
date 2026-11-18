@@ -401,6 +401,40 @@ SAVE / CONTINUE（v336〜）：
   ・全画面より少し幅が狭いので、上面図を少し小さく（幅 350px 以下ではさらに小さく）、能力値の英字（DEF など）は隠す。
   ・設定「機体情報」は ポップアップ／全画面（初めはポップアップ。v386 で「カード」を選んでいたらポップアップになる）。
   ・テスト用：bridge.debugUnitPopup(i, from) / debugUnitPopupState() / debugUnitInfoMode('popup'|'hud')（v386 の debugUnitCard はなくなった）
+- v388〜：盤面の怪獣を押したときのポップアップを、機体情報のポップアップ（v387）と同じ形の「怪獣情報のポップアップ」（#modal.kaijuPopModal）にした。
+  ・外枠はカードのポップアップ（hologramCard：角を切った枠・N.O.A.H. と「OBS-xx · ROUND xx」の表示・ぼかした背景）で、枠は怪獣の赤。
+    見出しは「KAIJU ANALYSIS 怪獣解析」と ×、下は「閉じる」。中身は機体解析HUD と同じ部品（.uhKit）で、全部まとめて縦にスクロール。
+    前の怪獣カード（正方形の絵・押すと開く「特性」「行動予測」の小窓）は使わない（showKaijuDetailPopup は残してあるが、もう呼ばれない）。
+  ・中身（上から）：
+    名前と危険度（大きな数字。危険度で色が変わる）・怪獣の様子（興奮状態・興奮やや低下・鎮静に近い・必殺技準備・必殺技・生命危機・防衛線間近・音響誘導）・
+    観測の一言（予備動作・力を溜めている・VSP や DDP が残りわずか）・地帯・ラウンド・防衛ラインの警戒（エンドレスなら何体目か）。
+    上から見た姿（img/kaiju/selevarn.webp。照準・レーダー・ゆっくり呼吸。必殺技の前は赤く脈打つ）と、まわりの三重の輪（外から EP・VSP・DDP。上の数値と同じ色）。
+    EP（開くと上限から今の値へ数が下がる。0 で保護成功）・VSP（防衛軍の攻撃で減る分）・DDP（次の進撃で減る分と、最終防衛線までの距離。1DDP≒250m）。
+    次で減る分は輪と棒の白い点滅（薔薇色・琥珀色と赤は見分けにくいので白）、防衛軍の刺激で増える EP は黄色の点滅。
+    次の行動：名前・兆候・3×3 の範囲と機体・対象・威力（前・中・後の数。危険度・効果の補正込み）・命中時の状態異常・進撃（基本・危険度・効果・変動±1）、
+    各機の被弾予測（機体情報の被弾予測と同じ数字：特性「深海の圧壊」とバリアも入れる。大破の危険・対象候補・回避率）、効いている効果（攻撃ダメージ−3・進撃−3・音響誘導）。
+    必殺技：封印中（危険度の目盛りと、あと幾つで解放）→ 解放済み → 次のラウンドに発動 → このラウンドに発動（音響誘導で回避）。威力と命中時。
+    怪獣特性：名前・効果と、いま当てはまる機体（裂傷のある機体など）。
+    防衛軍の予定：このラウンドの防衛軍フェイズ（怪獣フェイズの後）の行動と VSP・EP・DDP への影響、新兵器テスト・防衛ライン強攻撃の予定、攻撃中止要請。
+    推移とペース（2ラウンド目から）：開始からいままでの EP・VSP・DDP の線（それぞれの上限に対する割合）と、直近3ラウンドの1ラウンドあたりの減り方・
+    そのままなら 0 まで約何ラウンドか・どれが先に 0 になりそうか（見込み）。終わったラウンドの記録（metricHistory の round-end）から計算する。
+    行動パターン：観測されている行動（基本の威力・状態異常・進撃。次の行動に NEXT、必殺技は危険度5〜）。個体情報：観測No.・推定全高・出現域・上限値・説明。
+  ・見るだけの画面で、ゲームの状態は変えない（防衛軍の予定は、ラウンドの初めに決まったものを読むだけ）。× ・「閉じる」・Esc で閉じる。
+    画質「最軽量」では回る・脈打つ動きを止める。端末の「視差効果を減らす」がオンなら動きなし。
+  ・機体情報のポップアップの CSS（13d）のうち、枠の大きさ・見出し・中身のスクロール・下のボタンは怪獣情報のポップアップと共通にした（:is(.unitPopModal,.kaijuPopModal)）。
+  ・テスト用：bridge.debugKaijuPopup() / debugKaijuPopupState()
+- v389〜：怪獣情報のポップアップの怪獣の絵を、2Dの絵（上から見た姿と三重の輪）から、3Dのモデルの写真にした。
+  ・特撮・SF の資料によくある「メイン＋サブ」の3つのモニター：CAM-01 MAIN（左前の低い所から見上げる。遠近あり）・
+    CAM-02 FRONT（正面）・CAM-03 SIDE（真横。顔が右）。正面・真横は正射影で、左に全高の目盛り（推定全高 80m・10m ごと。足の裏が 0）と地面の線。
+    メインは写った体のまわりに照準の枠、右上に LIVE（必殺技の前・発動のラウンドは ALERT で、枠が赤く脈打つ）。走査線・細い網目・走る光を重ねる。
+  ・写真は noah3d.js の kaijuShots で、開いた直後に1回だけ撮る：怪獣だけを見せて（ほかの物は一時的に隠す。光の数は変えない＝シェーダーを作り直さない）、
+    霧を遠くへやり、背景をモニターの色（#07111d）にして、盤面の canvas の一角に3枚並べて描き、1回だけ読んで切り分けて写す。
+    終わったら元に戻して、いつもの盤面をすぐ描き直す（v380 の snapshot と同じやり方。盤面の見た目は変わらない）。
+    いまの姿勢・ステージの光のまま写る（森林・海底で色が変わる。必殺技の溜めの姿勢なども）。写す範囲は、骨で動かした後の体の頂点（約1600個）で決める。
+  ・撮れないとき（3Dを使えない端末の2D表示・モデルの読み込み中）は、メインに上から見た2Dの絵を1枚（TOP VIEW · 2D。サブは出さない）。
+  ・EP・VSP・DDP は、写真の下に3つの札（数・棒・次の予測）。次で減る分は白、防衛軍の刺激で増える EP は黄色で点滅。DDP は最終防衛線までの距離も。
+  ・noah3d.js も v389（sw.js の noah3d.js の大きさの目安も直した）。
+  ・テスト用：noah3d の handle.kaijuShots(list) / debugShotMain({ az, pitch, fov, margin })
 
 ===============================================================================
 -->
@@ -4017,45 +4051,46 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
 }
 
 /* 13d ─────────────────────────────────────────── v387 機体情報のポップアップ（#modal.unitPopModal） */
-/* 外枠だけカードのポップアップ（hologramCard）と同じ。中身は機体解析HUD と同じ並び（.uhKit の部品）で、全部まとめて縦にスクロール */
+/* 外枠だけカードのポップアップ（hologramCard）と同じ。中身は機体解析HUD と同じ並び（.uhKit の部品）で、全部まとめて縦にスクロール
+   v388〜：枠・見出し・中身のスクロール・下のボタンは、怪獣情報のポップアップ（#modal.kaijuPopModal・13e）も同じ */
 #modal.unitTheme-aa1{ --cat:rgb(96,132,255);  --cat-rgb:96,132,255; }
 #modal.unitTheme-aa2{ --cat:rgb(64,214,196);  --cat-rgb:64,214,196; }
 #modal.unitTheme-aa3{ --cat:rgb(255,96,100);  --cat-rgb:255,96,100; }
 #modal.unitTheme-aa4{ --cat:rgb(116,180,255); --cat-rgb:116,180,255; }
 #modal.unitTheme-aa5{ --cat:rgb(88,214,132);  --cat-rgb:88,214,132; }
-#modal.cardDetailModal.hologramCard.unitPopModal{
+#modal.cardDetailModal.hologramCard:is(.unitPopModal,.kaijuPopModal){
   width:min(92vw,370px);
   height:min(88svh,700px);
   max-height:min(88svh,700px);
   padding:27px 12px 12px;
 }
-#modal.unitPopModal #modalBody{ height:100%; overflow:hidden; padding:0; }
-#modal.unitPopModal .uhPop{
+#modal:is(.unitPopModal,.kaijuPopModal) #modalBody{ height:100%; overflow:hidden; padding:0; }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPop{
   --sc:150px;
   position:relative; z-index:1; height:100%; min-height:0;
   display:grid; grid-template-rows:auto minmax(0,1fr) auto;
 }
-#modal.unitPopModal .uhPopHead{ display:flex; align-items:center; gap:8px; min-height:40px; padding:0 2px 6px; border-bottom:1px solid rgba(var(--cat-rgb),.26); }
-#modal.unitPopModal .uhPopHead .uhTitle{ flex:1 1 auto; min-width:0; }
-#modal.unitPopModal .uhPopHead .uhTitle .jp{ font-size:15px; }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPopHead{ display:flex; align-items:center; gap:8px; min-height:40px; padding:0 2px 6px; border-bottom:1px solid rgba(var(--cat-rgb),.26); }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPopHead .uhTitle{ flex:1 1 auto; min-width:0; }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPopHead .uhTitle .jp{ font-size:15px; }
 #modal.unitPopModal .uhPopFull{
   flex:0 0 auto; height:28px; min-height:0; padding:0 10px; border-radius:0; box-shadow:none;
   font-size:10.5px; font-weight:800; letter-spacing:.1em; color:#dbe9ff;
   border:1px solid rgba(var(--cat-rgb),.5); background:linear-gradient(120deg, rgba(var(--cat-rgb),.18), rgba(var(--cat-rgb),.05));
   clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
 }
-#modal.unitPopModal .uhPopHead .cardInlineClose{ flex:0 0 auto; }
-#modal.unitPopModal .uhPopBody{ min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; padding:9px 1px 12px; }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPopHead .cardInlineClose{ flex:0 0 auto; }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPopBody{ min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; padding:9px 1px 12px; }
 #modal.unitPopModal .uhPopBody.swL{ animation:uhSwL .24s var(--ease) both; }
 #modal.unitPopModal .uhPopBody.swR{ animation:uhSwR .24s var(--ease) both; }
-#modal.unitPopModal .uhPop.in .uhPopBody > section{ animation:uhRise .36s var(--ease) both; animation-delay:calc(90ms + var(--d,0) * 45ms); }
-#modal.unitPopModal .uhPopFoot{ display:grid; grid-template-columns:1fr 1fr; gap:8px; padding-top:9px; border-top:1px solid rgba(var(--cat-rgb),.22); }
-#modal.unitPopModal .uhPopFoot button{
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPop.in .uhPopBody > section{ animation:uhRise .36s var(--ease) both; animation-delay:calc(90ms + var(--d,0) * 45ms); }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPopFoot{ display:grid; grid-template-columns:1fr 1fr; gap:8px; padding-top:9px; border-top:1px solid rgba(var(--cat-rgb),.22); }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPopFoot button{
   height:40px; min-height:40px; padding:0 8px; border-radius:0; font-size:13px; font-weight:800; letter-spacing:.1em;
   clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
 }
 #modal.unitPopModal .uhPopFoot .upDeck{ color:#dbe9ff; border:1px solid rgba(var(--cat-rgb),.42); background:rgba(var(--cat-rgb),.07); box-shadow:none; }
-#modal.unitPopModal .uhPopFoot .upDone{
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPopFoot .upDone{
   color:#e9f6ff; text-shadow:0 0 8px rgba(var(--cat-rgb),.25);
   border:1px solid rgba(var(--cat-rgb),.65); background:linear-gradient(120deg, rgba(var(--cat-rgb),.26), rgba(var(--cat-rgb),.08));
   box-shadow:inset 0 1px 0 rgba(225,245,255,.22), 0 0 14px rgba(var(--cat-rgb),.08);
@@ -4063,7 +4098,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
 /* 中身の細かい合わせ（全画面より少し幅が狭いので） */
 #modal.unitPopModal .uhNav{ width:28px; border-radius:0; box-shadow:none; }
 #modal.unitPopModal .uhStat .hd small{ display:none; }   /* 能力値の英字（DEF など）は隠す：入りきらないことがあるため */
-#modal.unitPopModal .uhPop[data-tone="bad"] .uhDiag .en i{ animation-duration:.6s; }
+#modal:is(.unitPopModal,.kaijuPopModal) .uhPop[data-tone="bad"] .uhDiag .en i{ animation-duration:.6s; }
 @media (max-width:350px){
   #modal.unitPopModal .uhPop{ --sc:128px; }
   #modal.unitPopModal .uhHpN b{ font-size:30px; }
@@ -4073,6 +4108,228 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
 #modal.unitPopModal.upLite .uhSweep,#modal.unitPopModal.upLite .uhSpinA,#modal.unitPopModal.upLite .uhSpinB,#modal.unitPopModal.upLite .uhOrbit,#modal.unitPopModal.upLite .uhCraft .mn{ animation:none; }
 @media (prefers-reduced-motion:reduce){
   #modal.unitPopModal .uhPop *,#modal.unitPopModal .uhPop *::before,#modal.unitPopModal .uhPop *::after{ animation:none !important; }
+}
+
+/* 13e ─────────────────────────────────────────── v388 怪獣情報のポップアップ（#modal.kaijuPopModal） */
+/* 盤面の怪獣を押すと開く。外枠・見出し・下のボタン・中身の部品（.uhKit）は機体情報のポップアップ（13d）と同じ。枠は怪獣の赤 */
+#modal.kaijuPopModal{ --cat:rgb(255,92,112); --cat-rgb:255,92,112; }
+#modal.kaijuPopModal .uhPopFoot{ grid-template-columns:1fr; }
+/* 名前と危険度 */
+#modal.kaijuPopModal .kpDl{ --dl-rgb:178,198,228; flex:0 0 auto; display:flex; flex-direction:column; align-items:center; min-width:40px; line-height:1; }
+#modal.kaijuPopModal .kpDl small{ font-family:var(--f-hud); font-size:7px; font-weight:700; letter-spacing:.2em; text-indent:.2em; color:rgba(var(--dl-rgb),.85); }
+#modal.kaijuPopModal .kpDl b{ margin-top:2px; font-family:var(--f-hud); font-size:31px; font-weight:800; line-height:.95; color:rgb(var(--dl-rgb)); filter:brightness(1.15); text-shadow:0 0 14px rgba(var(--dl-rgb),.6); font-variant-numeric:tabular-nums; }
+#modal.kaijuPopModal .kpName b{ font-family:var(--f-min); font-size:21px; font-weight:700; letter-spacing:.1em; white-space:normal; overflow-wrap:anywhere; text-shadow:0 0 16px rgba(var(--ac-rgb),.35); }
+#modal.kaijuPopModal .uhChip.kpStage{ color:#ffd0d6; border-color:rgba(var(--ac-rgb),.45); background:rgba(var(--ac-rgb),.1); }
+#modal.kaijuPopModal .uhChip.kpAlert[data-lv="1"]{ color:#ffe3a8; border-color:rgba(var(--warn-rgb),.5); background:rgba(var(--warn-rgb),.1); }
+#modal.kaijuPopModal .uhChip.kpAlert[data-lv="2"]{ color:#ffc2c9; border-color:rgba(var(--order-rgb),.6); background:rgba(var(--order-rgb),.14); }
+/* v389：メイン・正面・真横のモニター（3D のモデルの写真。背景の色は noah3d.js の SHOT_BG と同じ #07111d） */
+#modal.kaijuPopModal .kpMain{ margin-top:10px; }
+#modal.kaijuPopModal .kpViews{ display:flex; flex-direction:column; gap:5px; }
+#modal.kaijuPopModal .kpSubs{ display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+#modal.kaijuPopModal .kpCam{
+  --y0:90%; --x0:50%;
+  position:relative; overflow:hidden; background:#07111d;
+  box-shadow:inset 0 0 0 1px rgba(var(--ac-rgb),.3);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+}
+#modal.kaijuPopModal .kpCam.main{ aspect-ratio:16 / 10; }
+#modal.kaijuPopModal .kpCam.sub{ aspect-ratio:4 / 3; }
+#modal.kaijuPopModal .kpShot{ position:absolute; inset:0; width:100%; height:100%; display:block; opacity:0; }
+#modal.kaijuPopModal .kpViews.kpLive .kpShot{ opacity:1; animation:kpOn .5s ease-out both; }
+#modal.kaijuPopModal .kpViews.kpLive .kpCam.sub:nth-child(1) .kpShot{ animation-delay:.08s; }
+#modal.kaijuPopModal .kpViews.kpLive .kpCam.sub:nth-child(2) .kpShot{ animation-delay:.16s; }
+@keyframes kpOn{ 0%{ opacity:0; transform:scaleY(.03); filter:brightness(2.4); } 35%{ opacity:1; transform:scaleY(1); filter:brightness(1.6); } 100%{ opacity:1; transform:none; filter:none; } }
+/* 映るまで・映らないときの砂嵐 */
+#modal.kaijuPopModal .kpCam::before{
+  content:""; position:absolute; inset:-20%; pointer-events:none; opacity:.2;
+  background:repeating-linear-gradient(0deg, rgba(196,216,240,.5) 0 1px, transparent 1px 2px), repeating-linear-gradient(90deg, rgba(196,216,240,.3) 0 1px, transparent 1px 3px);
+  animation:kpNoise .24s steps(3) infinite;
+}
+@keyframes kpNoise{ 0%{ transform:translate(0,0); } 33%{ transform:translate(-3%,2%); } 66%{ transform:translate(2%,-3%); } 100%{ transform:translate(0,0); } }
+#modal.kaijuPopModal .kpViews.kpLive .kpCam::before,#modal.kaijuPopModal .kpViews.kpNoCam .kpCam::before{ display:none; }
+/* ゆっくり上から下へ走る光 */
+#modal.kaijuPopModal .kpCam::after{
+  content:""; position:absolute; left:0; right:0; top:0; height:26%; pointer-events:none;
+  background:linear-gradient(180deg, transparent, rgba(140,205,255,.035) 75%, rgba(140,205,255,.09) 98%, transparent);
+  animation:uhScan 5.5s linear infinite;
+}
+/* 走査線・細い網目・文字 */
+#modal.kaijuPopModal .kpCamUi{
+  position:absolute; inset:0; pointer-events:none;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0 1px, transparent 1px 3px),
+    linear-gradient(rgba(150,200,255,.055) 1px, transparent 1px) 0 0 / 100% 20%,
+    linear-gradient(90deg, rgba(150,200,255,.055) 1px, transparent 1px) 0 0 / 12.5% 100%;
+}
+#modal.kaijuPopModal .kpCamUi span{ position:absolute; font-family:var(--f-hud); font-weight:700; white-space:nowrap; text-shadow:0 0 4px rgba(0,0,0,.95); }
+#modal.kaijuPopModal .kpCamUi .tag{ left:9px; top:6px; font-size:7.5px; letter-spacing:.2em; color:rgba(214,230,255,.8); }
+#modal.kaijuPopModal .kpCamUi .live{ right:9px; top:6px; display:flex; align-items:center; gap:4px; font-size:7.5px; font-weight:800; letter-spacing:.2em; color:#ff8796; }
+#modal.kaijuPopModal .kpCamUi .live i{ width:5px; height:5px; border-radius:50%; background:#ff4b5c; box-shadow:0 0 6px #ff4b5c; animation:noahLamp 1.2s ease-in-out infinite; }
+#modal.kaijuPopModal .kpCamUi .ft{ right:9px; bottom:5px; font-size:6.5px; letter-spacing:.22em; color:rgba(196,216,240,.5); }
+/* 足元：正面・真横は地面の線、メインは足元の光 */
+#modal.kaijuPopModal .kpFloor{ position:absolute; left:0; right:0; top:var(--y0); height:1px; pointer-events:none; display:none; background:linear-gradient(90deg, transparent, rgba(150,210,255,.35) 18%, rgba(150,210,255,.35) 82%, transparent); }
+#modal.kaijuPopModal .kpViews.kpLive .kpFloor{ display:block; }
+#modal.kaijuPopModal .kpCam.main .kpFloor{ left:calc(var(--x0) - 30%); right:auto; width:60%; height:14%; margin-top:-7%; background:radial-gradient(closest-side, rgba(120,200,255,.16), transparent); }
+/* メイン：写った体のまわりの照準の枠 */
+#modal.kaijuPopModal .kpLockBox{ position:absolute; display:none; pointer-events:none; }
+#modal.kaijuPopModal .kpViews.kpLive .kpLockBox{ display:block; animation:kpLockIn .6s .2s var(--ease) both; }
+#modal.kaijuPopModal .kpLockBox i{ position:absolute; width:12px; height:12px; border:0 solid rgba(var(--ac-rgb),.8); filter:drop-shadow(0 0 3px rgba(var(--ac-rgb),.8)); }
+#modal.kaijuPopModal .kpLockBox i:nth-child(1){ left:0; top:0; border-left-width:1.5px; border-top-width:1.5px; }
+#modal.kaijuPopModal .kpLockBox i:nth-child(2){ right:0; top:0; border-right-width:1.5px; border-top-width:1.5px; }
+#modal.kaijuPopModal .kpLockBox i:nth-child(3){ left:0; bottom:0; border-left-width:1.5px; border-bottom-width:1.5px; }
+#modal.kaijuPopModal .kpLockBox i:nth-child(4){ right:0; bottom:0; border-right-width:1.5px; border-bottom-width:1.5px; }
+@keyframes kpLockIn{ 0%{ opacity:0; transform:scale(1.3); } 55%{ opacity:1; transform:scale(.98); } 72%{ opacity:.35; } 100%{ opacity:1; transform:none; } }
+/* 正面・真横：左に全高の目盛り（足の裏が 0） */
+#modal.kaijuPopModal .kpRuler{ position:absolute; left:8px; width:30px; display:none; pointer-events:none; border-left:1px solid rgba(150,210,255,.5); }
+#modal.kaijuPopModal .kpViews.kpLive .kpRuler{ display:block; }
+#modal.kaijuPopModal .kpRuler i{ position:absolute; left:0; width:3px; height:1px; background:rgba(150,210,255,.55); }
+#modal.kaijuPopModal .kpRuler i.mj{ width:6px; background:rgba(190,228,255,.9); }
+#modal.kaijuPopModal .kpRuler b{ position:absolute; left:8px; top:0; transform:translateY(-50%); font-family:var(--f-hud); font-size:7.5px; font-weight:800; letter-spacing:.06em; color:rgba(200,232,255,.9); text-shadow:0 0 4px rgba(0,0,0,.95); white-space:nowrap; }
+/* 必殺技の前：メインの枠が赤く脈打つ */
+#modal.kaijuPopModal .kpCam.main.chg{ box-shadow:inset 0 0 0 1px rgba(var(--order-rgb),.85); animation:kpCamAlarm 1s ease-in-out infinite; }
+#modal.kaijuPopModal .kpCam.main.chg .kpLockBox i{ border-color:rgba(var(--order-rgb),.95); filter:drop-shadow(0 0 4px rgba(var(--order-rgb),.95)); }
+@keyframes kpCamAlarm{ 0%,100%{ box-shadow:inset 0 0 0 1px rgba(var(--order-rgb),.85); } 50%{ box-shadow:inset 0 0 0 1px rgba(var(--order-rgb),1), inset 0 0 26px rgba(var(--order-rgb),.5); } }
+/* 撮れないとき（2D表示・モデルを読み込み中）：上から見た絵を1枚（サブは出さない） */
+#modal.kaijuPopModal .kpFallback{ position:absolute; inset:8% 14%; width:72%; height:84%; object-fit:contain; display:none; pointer-events:none; filter:drop-shadow(0 0 8px rgba(var(--ac-rgb),.35)); }
+#modal.kaijuPopModal .kpViews.kpNoCam .kpFallback{ display:block; }
+#modal.kaijuPopModal .kpViews.kpNoCam .kpSubs{ display:none; }
+/* v389：EP・VSP・DDP の3つの札 */
+#modal.kaijuPopModal .kpTiles{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:5px; margin-top:8px; }
+#modal.kaijuPopModal .kpTile{ --m-rgb:var(--ep-rgb); min-width:0; padding:5px 6px 6px; background:linear-gradient(180deg, rgba(12,20,36,.82), rgba(7,12,22,.6)); border-top:1px solid rgba(var(--m-rgb),.75); }
+#modal.kaijuPopModal .kpTile .hd{ display:flex; flex-wrap:wrap; align-items:baseline; gap:0 4px; }
+#modal.kaijuPopModal .kpTile .lb{ font-family:var(--f-hud); font-size:10px; font-weight:800; letter-spacing:.08em; color:rgb(var(--m-rgb)); filter:brightness(1.12); }
+#modal.kaijuPopModal .kpTile .jp{ font-size:8.5px; font-weight:700; color:var(--text-3); }
+#modal.kaijuPopModal .kpTile .vl{ display:flex; flex-wrap:wrap; align-items:baseline; gap:0 2px; margin-top:1px; }
+#modal.kaijuPopModal .kpTile .vl b{ font-family:var(--f-hud); font-size:21px; font-weight:800; line-height:1.05; color:#fff; font-variant-numeric:tabular-nums; text-shadow:0 0 12px rgba(var(--m-rgb),.45); }
+#modal.kaijuPopModal .kpTile .vl small{ font-family:var(--f-hud); font-size:9.5px; font-weight:700; color:var(--text-3); }
+#modal.kaijuPopModal .kpMini{ position:relative; height:5px; margin-top:4px; overflow:hidden; background:rgba(214,226,246,.08); }
+#modal.kaijuPopModal .kpMini i{ position:absolute; left:0; top:0; bottom:0; width:var(--w); background:linear-gradient(90deg, rgba(var(--m-rgb),.45), rgb(var(--m-rgb))); transform-origin:0 50%; animation:uhFill .7s .15s var(--ease) both; }
+#modal.kaijuPopModal .kpMini em{ position:absolute; top:0; bottom:0; left:var(--l); width:var(--fw); background:#fff; box-shadow:0 0 4px rgba(var(--order-rgb),.9); animation:uhBlink .8s steps(2,end) infinite; }
+#modal.kaijuPopModal .kpMini u{ position:absolute; top:0; bottom:0; left:var(--w); width:var(--gw); background:var(--warn); animation:uhBlink .8s steps(2,end) infinite; }
+#modal.kaijuPopModal .kpTile .r2{ margin-top:4px; font-size:9px; font-weight:700; line-height:1.4; color:var(--text-2); overflow-wrap:anywhere; }
+#modal.kaijuPopModal .kpTile .r2 b{ color:#ff9aa6; }
+#modal.kaijuPopModal .kpTile[data-k="ep"] .r2 b{ color:var(--warn); }
+/* 次の行動 */
+#modal.kaijuPopModal .kpAct{ --nx-rgb:var(--warn-rgb); padding:6px 9px 7px; border-left:2px solid rgb(var(--nx-rgb)); background:linear-gradient(90deg, rgba(var(--nx-rgb),.16), rgba(var(--nx-rgb),.02) 82%); }
+#modal.kaijuPopModal .kpAct[data-tone="bad"]{ --nx-rgb:var(--order-rgb); animation:uhAlarm .9s ease-in-out infinite; }
+#modal.kaijuPopModal .kpAct[data-tone="ok"]{ --nx-rgb:var(--ep-rgb); }
+#modal.kaijuPopModal .kpAct .r1{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:0 6px; }
+#modal.kaijuPopModal .kpAct .k{ font-size:9px; font-weight:800; letter-spacing:.06em; color:var(--text-2); }
+#modal.kaijuPopModal .kpAct .r1 em{ font-style:normal; font-size:9.5px; font-weight:800; color:rgb(var(--nx-rgb)); filter:brightness(1.2); }
+#modal.kaijuPopModal .kpAct .nm{ margin-top:2px; font-size:17px; font-weight:800; line-height:1.25; color:#fff; text-shadow:0 0 12px rgba(var(--nx-rgb),.4); overflow-wrap:anywhere; }
+#modal.kaijuPopModal .kpAct .nm s{ margin-right:6px; font-size:12px; font-weight:700; color:var(--text-3); text-decoration-thickness:1.5px; text-shadow:none; }
+#modal.kaijuPopModal .kpAct .sm{ margin-top:2px; font-size:10px; line-height:1.45; color:var(--text-2); }
+#modal.kaijuPopModal .kpTac{ margin-top:9px; }
+#modal.kaijuPopModal .kpTac .uhTacInfo{ gap:1px; }
+#modal.kaijuPopModal .kpTac .uhTacInfo .k{ margin-top:3px; }
+#modal.kaijuPopModal .kpTac .uhTacInfo .k:first-child{ margin-top:0; }
+#modal.kaijuPopModal .kpTac .uhTacInfo .ln b{ color:#ffd9a0; }
+#modal.kaijuPopModal .kpNone{ font-size:11px; color:var(--text-3); }
+/* 各機の被弾予測 */
+#modal.kaijuPopModal .kpHits{ display:flex; flex-direction:column; gap:3px; margin-top:9px; }
+#modal.kaijuPopModal .kpHit{ --nx-rgb:var(--ep-rgb); display:grid; grid-template-columns:26px minmax(0,1fr) auto; align-items:center; column-gap:8px; padding:4px 8px 4px 5px; border-left:2px solid rgba(var(--nx-rgb),.85); background:linear-gradient(90deg, rgba(var(--nx-rgb),.12), rgba(10,18,32,.5) 70%); }
+#modal.kaijuPopModal .kpHit[data-tone="warn"]{ --nx-rgb:var(--warn-rgb); }
+#modal.kaijuPopModal .kpHit[data-tone="bad"]{ --nx-rgb:var(--order-rgb); animation:uhAlarm .9s ease-in-out infinite; }
+#modal.kaijuPopModal .kpHit[data-tone="off"]{ --nx-rgb:136,148,168; }
+#modal.kaijuPopModal .kpHit .ic{ width:26px; height:26px; }
+#modal.kaijuPopModal .kpHit .ic img{ display:block; width:100%; height:100%; object-fit:contain; }
+#modal.kaijuPopModal .kpHit .nm{ min-width:0; }
+#modal.kaijuPopModal .kpHit .nm b{ display:block; font-size:11.5px; font-weight:800; line-height:1.3; color:#fff; }
+#modal.kaijuPopModal .kpHit .nm small{ display:block; font-size:9px; font-weight:700; line-height:1.35; color:var(--text-3); }
+#modal.kaijuPopModal .kpHit .nm small em{ font-style:normal; margin-left:5px; color:rgb(var(--nx-rgb)); filter:brightness(1.2); }
+#modal.kaijuPopModal .kpHit .vl{ max-width:150px; text-align:right; }
+#modal.kaijuPopModal .kpHit .vl b{ display:block; font-family:var(--f-hud); font-size:17px; font-weight:800; line-height:1.05; color:rgb(var(--nx-rgb)); filter:brightness(1.12); }
+#modal.kaijuPopModal .kpHit .vl small{ display:block; font-size:9px; font-weight:800; line-height:1.35; color:var(--text-2); overflow-wrap:anywhere; }
+#modal.kaijuPopModal .kpMods{ margin-top:6px; }
+/* 必殺技 */
+#modal.kaijuPopModal .kpSp{ --nx-rgb:136,148,168; padding:7px 9px 8px; border:1px solid rgba(var(--nx-rgb),.38); background:linear-gradient(135deg, rgba(var(--nx-rgb),.13), rgba(8,14,26,.4) 72%); }
+#modal.kaijuPopModal .kpSp[data-tone="warn"]{ --nx-rgb:var(--warn-rgb); }
+#modal.kaijuPopModal .kpSp[data-tone="bad"]{ --nx-rgb:var(--order-rgb); animation:uhAlarm .9s ease-in-out infinite; }
+#modal.kaijuPopModal .kpSp[data-tone="ok"]{ --nx-rgb:var(--ep-rgb); }
+#modal.kaijuPopModal .kpSp .hd{ display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:2px 8px; }
+#modal.kaijuPopModal .kpSp .hd b{ font-size:15px; font-weight:800; color:#fff; }
+#modal.kaijuPopModal .kpSp .hd span{ font-size:10px; font-weight:800; color:rgb(var(--nx-rgb)); filter:brightness(1.25); }
+#modal.kaijuPopModal .kpPips{ display:flex; align-items:center; gap:3px; margin-top:6px; }
+#modal.kaijuPopModal .kpPips i{ flex:1; height:5px; background:rgba(214,226,246,.12); }
+#modal.kaijuPopModal .kpPips i.on{ background:rgb(var(--nx-rgb)); box-shadow:0 0 5px rgba(var(--nx-rgb),.7); }
+#modal.kaijuPopModal .kpSp[data-tone="off"] .kpPips i.on{ background:var(--warn); box-shadow:0 0 5px rgba(var(--warn-rgb),.6); }
+#modal.kaijuPopModal .kpPips small{ flex:0 0 auto; margin-left:5px; font-family:var(--f-hud); font-size:9px; font-weight:800; color:var(--text-2); white-space:nowrap; }
+#modal.kaijuPopModal .kpSp p{ margin:6px 0 0; font-size:10px; line-height:1.5; color:var(--text-2); }
+#modal.kaijuPopModal .kpSp .ln{ margin-top:4px; font-size:9.5px; line-height:1.5; color:var(--text-3); }
+#modal.kaijuPopModal .kpSp .ln b{ color:#ffd9a0; }
+/* 怪獣特性 */
+#modal.kaijuPopModal .kpTrait{ padding:7px 9px 8px; border-left:2px solid rgba(var(--ac-rgb),.85); background:linear-gradient(90deg, rgba(var(--ac-rgb),.13), rgba(var(--ac-rgb),.02) 82%); }
+#modal.kaijuPopModal .kpTrait .hd{ display:flex; flex-wrap:wrap; align-items:baseline; gap:2px 8px; }
+#modal.kaijuPopModal .kpTrait .hd b{ font-size:14px; font-weight:800; color:#fff; }
+#modal.kaijuPopModal .kpTrait .hd span{ font-size:10px; font-weight:800; color:#ffc2c9; }
+#modal.kaijuPopModal .kpTrait p{ margin:4px 0 0; font-size:10px; line-height:1.5; color:var(--text-2); }
+#modal.kaijuPopModal .kpTrait .af{ margin-top:5px; font-size:9.5px; font-weight:800; line-height:1.45; color:#ff9aa6; }
+#modal.kaijuPopModal .kpTrait .af.none{ color:var(--text-3); }
+/* 防衛軍の予定 */
+#modal.kaijuPopModal .kpDf{ --nx-rgb:var(--warn-rgb); padding:6px 9px 7px; border-left:2px solid rgb(var(--nx-rgb)); background:linear-gradient(90deg, rgba(var(--nx-rgb),.12), rgba(var(--nx-rgb),.02) 82%); }
+#modal.kaijuPopModal .kpDf[data-tone="bad"]{ --nx-rgb:var(--order-rgb); }
+#modal.kaijuPopModal .kpDf[data-tone="ok"]{ --nx-rgb:var(--ep-rgb); }
+#modal.kaijuPopModal .kpDf[data-tone="off"]{ --nx-rgb:136,148,168; }
+#modal.kaijuPopModal .kpDf .k{ font-size:9px; font-weight:800; letter-spacing:.06em; color:var(--text-3); }
+#modal.kaijuPopModal .kpDf .nm{ margin-top:1px; font-size:13.5px; font-weight:800; line-height:1.3; color:#fff; }
+#modal.kaijuPopModal .kpDf .ln{ margin-top:2px; font-size:10px; line-height:1.45; color:var(--text-2); }
+#modal.kaijuPopModal .kpDf .ln b{ color:#ff9aa6; }
+#modal.kaijuPopModal .kpDf .ln b.up{ color:#9ff3d2; }
+#modal.kaijuPopModal .kpDf .wn{ color:#ffb5b5; font-weight:800; }
+/* 推移とペース */
+#modal.kaijuPopModal .kpTrend{ position:relative; height:66px; border:1px solid rgba(168,190,226,.14); background:rgba(6,12,22,.55); }
+#modal.kaijuPopModal .kpTrend svg{ position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+#modal.kaijuPopModal .kpTrend .gl{ stroke:rgba(166,196,255,.1); stroke-width:1; vector-effect:non-scaling-stroke; }
+#modal.kaijuPopModal .kpTrend .tl{ fill:none; stroke-width:1.8; vector-effect:non-scaling-stroke; stroke-linejoin:round; stroke-linecap:round; }
+#modal.kaijuPopModal .kpTrend .tl.ep{ stroke:var(--ep); }
+#modal.kaijuPopModal .kpTrend .tl.vsp{ stroke:var(--vsp); }
+#modal.kaijuPopModal .kpTrend .tl.ddp{ stroke:var(--ddp); }
+#modal.kaijuPopModal .kpTrend .dt i{ position:absolute; right:-3px; width:6px; height:6px; margin-top:-3px; border-radius:50%; }
+#modal.kaijuPopModal .kpTrend .dt i.ep{ background:var(--ep); box-shadow:0 0 5px var(--ep); }
+#modal.kaijuPopModal .kpTrend .dt i.vsp{ background:var(--vsp); box-shadow:0 0 5px var(--vsp); }
+#modal.kaijuPopModal .kpTrend .dt i.ddp{ background:var(--ddp); box-shadow:0 0 5px var(--ddp); }
+#modal.kaijuPopModal .kpTrX{ position:relative; height:12px; margin-top:2px; font-family:var(--f-hud); font-size:8px; font-weight:700; color:var(--text-3); }
+#modal.kaijuPopModal .kpTrX span{ position:absolute; top:0; transform:translateX(-50%); white-space:nowrap; }
+#modal.kaijuPopModal .kpTrX span.f{ transform:none; }
+#modal.kaijuPopModal .kpTrX span.l{ transform:translateX(-100%); }
+#modal.kaijuPopModal .kpPace{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:4px; margin-top:5px; }
+#modal.kaijuPopModal .kpPace > div{ --m-rgb:var(--ep-rgb); min-width:0; padding:4px 5px 5px; border-top:1px solid rgba(var(--m-rgb),.65); background:rgba(10,18,32,.6); }
+#modal.kaijuPopModal .kpPace span{ display:block; font-family:var(--f-hud); font-size:8.5px; font-weight:800; letter-spacing:.08em; color:rgb(var(--m-rgb)); }
+#modal.kaijuPopModal .kpPace b{ display:block; font-family:var(--f-hud); font-size:14px; font-weight:800; line-height:1.15; color:#fff; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#modal.kaijuPopModal .kpPace b small{ font-size:8.5px; color:var(--text-3); }
+#modal.kaijuPopModal .kpPace > div > small{ display:block; font-size:8.5px; font-weight:700; line-height:1.3; color:var(--text-2); }
+#modal.kaijuPopModal .kpVerdict{ margin-top:5px; padding-left:11px; position:relative; font-size:10px; font-weight:800; line-height:1.45; }
+#modal.kaijuPopModal .kpVerdict::before{ content:""; position:absolute; left:1px; top:.6em; width:5px; height:5px; transform:rotate(45deg); background:currentColor; }
+#modal.kaijuPopModal .kpVerdict.ok{ color:#9fe9c8; }
+#modal.kaijuPopModal .kpVerdict.bad{ color:#ff9aa6; }
+#modal.kaijuPopModal .kpVerdict.warn{ color:#ffd98f; }
+/* 行動パターン */
+#modal.kaijuPopModal .kpMoves{ display:flex; flex-direction:column; gap:4px; }
+#modal.kaijuPopModal .kpMv{ padding:5px 8px 6px; border-left:2px solid rgba(168,190,226,.3); background:rgba(10,18,32,.55); }
+#modal.kaijuPopModal .kpMv.now{ border-left-color:var(--warn); background:linear-gradient(90deg, rgba(var(--warn-rgb),.13), rgba(10,18,32,.5) 76%); }
+#modal.kaijuPopModal .kpMv.sp{ border-left-color:rgba(var(--order-rgb),.85); }
+#modal.kaijuPopModal .kpMv.lock{ opacity:.6; }
+#modal.kaijuPopModal .kpMv .hd{ display:flex; align-items:baseline; gap:6px; }
+#modal.kaijuPopModal .kpMv .hd b{ min-width:0; font-size:12px; font-weight:800; line-height:1.3; color:#fff; overflow-wrap:anywhere; }
+#modal.kaijuPopModal .kpMv .hd em{ flex:0 0 auto; margin-left:auto; font-style:normal; font-family:var(--f-hud); font-size:8.5px; font-weight:800; letter-spacing:.12em; color:var(--warn); white-space:nowrap; }
+#modal.kaijuPopModal .kpMv.sp .hd em{ color:#ff9aa6; }
+#modal.kaijuPopModal .kpMv p{ margin:2px 0 0; font-size:9.5px; line-height:1.45; color:var(--text-2); }
+#modal.kaijuPopModal .kpMv .tg{ display:flex; flex-wrap:wrap; gap:3px; margin-top:4px; }
+#modal.kaijuPopModal .kpMv .tg span{ padding:1px 5px; border:1px solid rgba(168,190,226,.18); border-radius:2px; font-size:9px; font-weight:800; line-height:1.4; color:var(--text-2); white-space:nowrap; }
+/* 個体情報 */
+#modal.kaijuPopModal .kpProfName{ display:flex; align-items:baseline; gap:7px; margin-bottom:6px; }
+#modal.kaijuPopModal .kpProfName small{ font-size:10.5px; font-weight:800; letter-spacing:.12em; color:#ffc2c9; }
+#modal.kaijuPopModal .kpProfName b{ font-family:var(--f-min); font-size:17px; font-weight:700; letter-spacing:.1em; color:#fff; }
+#modal.kaijuPopModal .kpProf p{ margin:8px 0 0; font-size:10.5px; line-height:1.65; color:var(--text-2); }
+@media (max-width:350px){
+  #modal.kaijuPopModal .kpDl b{ font-size:26px; }
+  #modal.kaijuPopModal .kpName b{ font-size:18px; letter-spacing:.06em; }
+  #modal.kaijuPopModal .kpTile .vl b{ font-size:18px; }
+}
+/* 画質「最軽量」：モニターの走る光・砂嵐を止める */
+#modal.kaijuPopModal.kpLite .kpCam::after,#modal.kaijuPopModal.kpLite .kpCam::before{ animation:none; }
+@media (prefers-reduced-motion:reduce){
+  #modal.kaijuPopModal .uhPop *,#modal.kaijuPopModal .uhPop *::before,#modal.kaijuPopModal .uhPop *::after{ animation:none !important; }
 }
 
 /* 14 ──────────────────────────────────────────────────────── Phase overlay */
@@ -5867,7 +6124,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v387',
+    currentPrototypeVersion:'v389',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -7455,6 +7712,9 @@ function noahDrawKaijuGroundShadow(cell) {
   // v387：機体情報のポップアップ（外枠はカードのポップアップ、中身は機体解析HUD と同じ）。開いている間 { index, from }
   let noahUnitPop = null;
   let noahUnitPopInTimer = 0;
+  // v388：怪獣情報のポップアップ（機体情報のポップアップと同じ枠・部品）。開いている間 { at }
+  let noahKaijuPop = null;
+  let noahKaijuPopInTimer = 0;
   // v386：フェーズ表示（ROUND・TURN・PHASE）が消えた時刻。消えた直後のタップ（表示を飛ばすつもりのタップ）では機体情報を開かない
   let noahOverlayClosedAt = 0;
   // v381：最後に画面へ触った時刻（3Dは、しばらく触っていないとき描く回数をさらに減らす）
@@ -13619,7 +13879,7 @@ function getRandomExplosionCell(){
     {text:'いいえ', onClick(){ showPausePopup(false); }}
   ]); }
   function showKaijuPlanPopup(){
-    showKaijuDetailPopup();
+    showKaijuPopup();   // v388：怪獣情報のポップアップ（機体情報のポップアップと同じ形）。前の怪獣カード（showKaijuDetailPopup）は使わない
   }
   function showDefensePlanPopup(){ if(game.inputLocked) return;
     prepareDefensePlanForRound();
@@ -14752,6 +15012,7 @@ function getRandomExplosionCell(){
       </div>`;
   }
 
+  // v388〜：盤面の怪獣を押したときは showKaijuPopup（怪獣情報のポップアップ）を開く。これ（前の怪獣カード）はもう呼ばれない
   function showKaijuDetailPopup(){
     if(game.inputLocked) return;
     const k = game.selectedKaiju || kaijuDef(setupState.kaiju);
@@ -19429,6 +19690,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(h) h.el.classList.toggle('held', overHud);
     // v387：機体情報のポップアップが閉じた・別のポップアップに替わったら、その状態を消す
     if(noahUnitPop && !(open && ui.modal.classList.contains('unitPopModal'))) noahUnitPop = null;
+    if(noahKaijuPop && !(open && ui.modal.classList.contains('kaijuPopModal'))) noahKaijuPop = null;   // v388：怪獣情報のポップアップも同じ
   }
   function noahRdTap(e){
     const g = noahGacha;
@@ -20016,18 +20278,18 @@ function showHandPopup(index){ if(game.inputLocked) return;
     document.body.appendChild(el);
     return el;
   }
-  function uhCountUp(b, to){
+  function uhCountUp(b, to, from = 0){   // v388：from（初めの数）も渡せる（怪獣の EP は上限から今の値へ）
     if(!b) return;
     const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if(reduce || to <= 0){ b.textContent = String(to); return; }
+    if(reduce || to === from || (from === 0 && to <= 0)){ b.textContent = String(to); return; }
     const t0 = performance.now(), dur = 420;
     const step = now=>{
       if(!b.isConnected) return;
       const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
-      b.textContent = String(Math.round(to * e));
+      b.textContent = String(Math.round(from + (to - from) * e));
       if(k < 1) requestAnimationFrame(step);
     };
-    b.textContent = '0';
+    b.textContent = String(from);
     requestAnimationFrame(step);
   }
   function uhRender(i, dir){
@@ -20294,6 +20556,510 @@ function showHandPopup(index){ if(game.inputLocked) return;
     if(e.key === 'ArrowLeft'){ e.preventDefault(); upSwitch(-1); }
     else if(e.key === 'ArrowRight'){ e.preventDefault(); upSwitch(1); }
     else if(e.key === 'Escape'){ e.preventDefault(); playModalCancelSound(); closeModal(); }
+  });
+  // ===========================================================================
+  // v388 怪獣情報のポップアップ（#modal.kaijuPopModal）
+  //   盤面の怪獣を押すと開く（前は「怪獣カード」：正方形の絵と、押すと開く「特性」「行動予測」の小窓）。
+  //   外枠と並びは機体情報のポップアップ（v387）と同じ：hologramCard の枠・見出し、中身は .uhKit の部品で、全部まとめて縦にスクロール。
+  //   上から：名前と危険度・様子（診断）・観測の一言 → 3D のモデルの写真（v389：メイン・正面・真横の3つのモニター）と EP・VSP・DDP の札
+  //   → 次の行動（3×3 の範囲・威力・各機の被弾予測・効いている効果）→ 必殺技 → 怪獣特性（いま当てはまる機体）→ 防衛軍の予定
+  //   → 推移とペース → 行動パターン → 個体情報。（v388 は上から見た2Dの絵と、まわりに EP・VSP・DDP の三重の輪だった）
+  //   見るだけの画面で、ゲームの状態は変えない（防衛軍の予定は、ラウンドの初めに決まったものを読むだけ）。× ・「閉じる」・Esc で閉じる。
+  // ===========================================================================
+  const KP_RGB = '255,92,112';   // 怪獣の色（枠・照準の枠）
+  const KP_TIER_RGB = ['178,198,228', 'var(--warn-rgb)', 'var(--ddp-rgb)', 'var(--order-rgb)'];
+  function kpKaiju(){ return game.selectedKaiju || kaijuDef(setupState.kaiju); }
+  function kpImgSrc(){
+    try{ const s = currentKaijuFrameSrcsForLoad(activeKaijuVisualSetId); if(s && s[0]) return s[0]; }catch(e){}
+    return BATHYNOMA_LAND_SPRITE_SRC;
+  }
+  function kpKm(ddp){ return (Math.max(0, Number(ddp) || 0) * .25).toFixed(1); }   // 1 DDP ≒ 250m（DDP の説明より）
+  function kpRange(min, max){ min = Math.max(0, Number(min) || 0); max = Math.max(0, Number(max) || 0); return min === max ? `−${min}` : `−${min}〜−${max}`; }
+  function kpNum(n){ const v = Math.round(n * 10) / 10; return Number.isInteger(v) ? String(v) : v.toFixed(1); }
+  // 画面に出す数字をまとめて読む（読むだけ。ゲームの状態は変えない）
+  function kpData(){
+    const k = kpKaiju();
+    const d = { k, over:!!game.gameOver, cells:[], plan:null, action:null, raw:null, ddp:null };
+    d.dl = dangerLevel();
+    d.tier = d.dl >= DANGER_SPECIAL_UNLOCK ? 3 : (d.dl >= 3 ? 2 : (d.dl >= 1 ? 1 : 0));
+    d.stage = currentStageDef().name;
+    d.obs = String(game.observationNo || '00');
+    d.ep = Math.max(0, Number(game.ep) || 0);          d.epMax = Math.max(1, Number(game.epMax) || 1);
+    d.hp = Math.max(0, Number(game.kaijuHp) || 0);     d.hpMax = Math.max(1, Number(game.kaijuHpMax) || 1);
+    d.dd = Math.max(0, Number(game.distance) || 0);    d.ddMax = initialDistanceValue();
+    d.redirected = d.charging = d.ready = d.special = false;
+    if(!d.over){
+      try{
+        d.action = currentKaijuAction();
+        d.raw = currentRawKaijuAction();
+        d.redirected = !!(game.nextKaijuSpecialRedirect && d.raw.id === BATHYNOMA_SPECIAL_ID && d.action.id !== BATHYNOMA_SPECIAL_ID);
+        d.charging = isBathynomaSpecialCharging();
+        d.ready = isBathynomaSpecialReady();
+        d.special = d.action.id === BATHYNOMA_SPECIAL_ID;
+        d.cells = buildKaijuThreatPreview(d.action) || [];
+        d.ddp = kaijuDistanceRange(effectiveKaijuDistanceLoss(d.action));
+      }catch(e){}
+      try{ d.plan = currentDefenseActionPlan(); }catch(e){ d.plan = null; }
+    }
+    // 防衛軍の攻撃で減る VSP（多いほう）・増える EP。中止要請・無効のときは 0
+    const p = d.plan;
+    d.dfLive = !!(p && p.kind !== 'none' && !p.nullified && !game.defenseHotlineActive);
+    d.vLoss = d.dfLive ? Math.min(d.hp, Math.max(0, Number(p.max) || 0)) : 0;
+    d.epGain = d.dfLive ? Math.max(0, Number(p.epGain) || 0) : 0;
+    d.dLoss = d.ddp ? Math.min(d.dd, d.ddp.max) : 0;
+    return d;
+  }
+  // 怪獣の様子（右上の札）。危ないものから順に
+  function kpDiag(d){
+    if(d.over) return { tone:'base', en:'STANDBY', jp:'観測終了' };
+    if(d.special && !d.redirected) return { tone:'bad', en:'CRITICAL', jp:'必殺技' };
+    if(d.charging) return { tone:'bad', en:'CHARGING', jp:'必殺技準備' };
+    if(d.hp / d.hpMax <= .25) return { tone:'bad', en:'VITAL LOW', jp:'生命危機' };
+    if(d.dd / d.ddMax <= .25) return { tone:'bad', en:'BREACH', jp:'防衛線間近' };
+    if(d.redirected) return { tone:'ok', en:'REDIRECT', jp:'音響誘導' };
+    const r = d.ep / d.epMax;
+    if(r > .66) return { tone:'warn', en:'AGITATED', jp:'興奮状態' };
+    if(r > .33) return { tone:'warn', en:'UNSETTLED', jp:'興奮やや低下' };
+    return { tone:'ok', en:'CALMING', jp:'鎮静に近い' };
+  }
+  function kpNotes(d){
+    const notes = [];
+    if(d.over || !d.action) return notes;
+    const k = d.k, a = d.action;
+    if(d.redirected) notes.push({ tone:'info', text:`音響誘導により「${escapeHtml(d.raw.name)}」の発動軌道が逸れ、「${escapeHtml(a.name)}」に変わる` });
+    else if(d.special) notes.push({ tone:'bad', text:`${escapeHtml(k.name)}はまもなく「${escapeHtml(a.name)}」を放つ予備動作を見せている` });
+    else notes.push({ tone:'info', text:`${escapeHtml(k.name)}は${escapeHtml(d.stage)}を依然進行中。「${escapeHtml(a.name)}」の予備動作を見せている` });
+    if(d.charging) notes.push({ tone:'bad', text:`${escapeHtml(currentSpecialChargeText())}<br>次のラウンドに「${escapeHtml(kaijuActionWithOverrides(BATHYNOMA_SPECIAL_ID).name)}」を放つ兆候` });
+    if(d.hp / d.hpMax <= .25) notes.push({ tone:'bad', text:'VSP が残りわずか。0 になると生命維持が不可能となり、作戦失敗' });
+    if(d.dd / d.ddMax <= .25) notes.push({ tone:'bad', text:`最終防衛線まで約${kpKm(d.dd)}km。DDP が 0 になると作戦失敗` });
+    return notes;
+  }
+  function kpChipsHtml(d){
+    const chips = [`<span class="uhChip kpStage">${escapeHtml(d.stage)}</span>`, `<span class="uhChip">ROUND ${String(game.round).padStart(2, '0')}</span>`];
+    const al = Number(game.defenseAlertLevel) || 0;
+    if(al > 0) chips.push(`<span class="uhChip kpAlert" data-lv="${al >= 2 ? 2 : 1}">${escapeHtml(defenseAlertLabel(al))}</span>`);
+    if(game.endlessMode) chips.push(`<span class="uhChip">ENDLESS · 第${Number(game.endlessRunNo) || 1}保護対象</span>`);
+    return `<div class="uhChips">${chips.join('')}</div>`;
+  }
+  // v389：メイン・正面・真横の3つのモニター（特撮・SF の資料によくある、メイン＋サブの写し方）。
+  //   中身は 3D のモデルを noah3d.js の kaijuShots で撮った写真（開いた直後に1回。いまの姿勢・ステージの光のまま）。
+  //   正面・真横は正射影で、左に全高の目盛り（heightM。足の裏が 0）。撮れないとき（2D表示・モデルを読み込み中）は上から見た絵を1枚
+  const KP_CAMS = { main:'CAM-01 · MAIN', front:'CAM-02 · FRONT', side:'CAM-03 · SIDE' };
+  function kpCamHtml(view, chg){
+    const main = view === 'main';
+    return `<div class="kpCam ${main ? 'main' : 'sub'}${chg ? ' chg' : ''}" data-cam="${view}">
+        <canvas class="kpShot" data-cam="${view}"></canvas>
+        ${main ? `<img class="kpFallback" src="${kpImgSrc()}" alt="" draggable="false"><div class="kpLockBox" aria-hidden="true"><i></i><i></i><i></i><i></i></div>` : '<div class="kpRuler" aria-hidden="true"></div>'}
+        <div class="kpFloor" aria-hidden="true"></div>
+        <div class="kpCamUi" aria-hidden="true"><span class="tag">${KP_CAMS[view]}</span>${main ? `<span class="live"><i></i>${chg ? 'ALERT' : 'LIVE'}</span>` : '<span class="ft">ORTHO</span>'}</div>
+      </div>`;
+  }
+  function kpViewsHtml(d){
+    const chg = !d.over && (d.charging || (d.special && !d.redirected));
+    return `<div class="kpViews">${kpCamHtml('main', chg)}<div class="kpSubs">${kpCamHtml('front')}${kpCamHtml('side')}</div></div>`;
+  }
+  // 3D のモデルを撮って、モニターに写す。目盛り・足元の線・照準の枠を、写った体に合わせる。撮れなければ上から見た絵
+  function kpShoot(){
+    const pop = ui.modalBody.querySelector('.kpPop');
+    const views = pop && pop.querySelector('.kpViews');
+    if(!views) return false;
+    const h = noah3dActive ? noah3dHandle : null;
+    let res = null;
+    if(h && typeof h.kaijuShots === 'function' && (!h.kaijuReal || h.kaijuReal())){
+      const pr = Math.min(2, window.devicePixelRatio || 1);
+      const list = [...views.querySelectorAll('canvas.kpShot')].map(c=>{
+        c.width = Math.max(2, Math.round(c.clientWidth * pr));
+        c.height = Math.max(2, Math.round(c.clientHeight * pr));
+        return { view:c.dataset.cam, canvas:c };
+      });
+      try{ res = h.kaijuShots(list); }catch(e){ res = null; }
+    }
+    if(!res || !res.ok){
+      views.classList.add('kpNoCam');
+      const tag = views.querySelector('.kpCam.main .tag');
+      if(tag) tag.textContent = 'TOP VIEW · 2D';
+      return false;
+    }
+    views.classList.add('kpLive');
+    (res.views || []).forEach(v=>kpCamDecor(views.querySelector(`.kpCam[data-cam="${v.view}"]`), v));
+    return true;
+  }
+  function kpCamDecor(cam, v){
+    if(!cam || !v) return;
+    const pc = n=>`${(Math.max(0, Math.min(1, n)) * 100).toFixed(2)}%`;
+    if(Number.isFinite(v.y0)) cam.style.setProperty('--y0', pc(v.y0));
+    if(Number.isFinite(v.x0)) cam.style.setProperty('--x0', pc(v.x0));
+    const lb = cam.querySelector('.kpLockBox');
+    if(lb && Array.isArray(v.box)){
+      const [l, t, r, b] = v.box, m = .03;
+      Object.assign(lb.style, { left:pc(l - m), top:pc(t - m), width:pc(r - l + m * 2), height:pc(b - t + m * 2) });
+    }
+    const ru = cam.querySelector('.kpRuler');
+    const hm = Number(kpKaiju().heightM) || 0;
+    if(ru && hm > 0 && Number.isFinite(v.y0) && Number.isFinite(v.yH) && v.y0 > v.yH){
+      const step = hm >= 40 ? 10 : 5;
+      let html = '';
+      for(let m = 0; m <= hm + 1e-6; m += step) html += `<i style="top:${pc(1 - m / hm)}"${m === 0 || m === hm || m % (step * 4) === 0 ? ' class="mj"' : ''}></i>`;
+      html += `<b>${hm}m</b>`;
+      ru.innerHTML = html;
+      Object.assign(ru.style, { top:pc(v.yH), height:pc(v.y0 - v.yH) });
+    }
+  }
+  function kpTileHtml(o){
+    const pct = v=>`${Math.round(Math.max(0, Math.min(1, v)) * 1000) / 10}%`;
+    const now = Math.max(0, Math.min(1, o.v / o.max));
+    const after = Math.max(0, now - (o.loss || 0) / o.max);
+    const gain = o.gain ? Math.max(0, Math.min(1, now + o.gain / o.max) - now) : 0;
+    return `<div class="kpTile" data-k="${o.k}" style="--m-rgb:${o.rgb}">
+        <div class="hd"><span class="lb">${o.lb}</span><span class="jp">${o.jp}</span></div>
+        <div class="vl"><b>${o.v}</b><small>/${o.max}</small></div>
+        <div class="kpMini" style="--w:${pct(now)};--l:${pct(after)};--fw:${pct(now - after)};--gw:${pct(gain)}"><i></i>${now - after > 0 ? '<em></em>' : ''}${gain > 0 ? '<u></u>' : ''}</div>
+        ${o.r2 ? `<div class="r2">${o.r2}</div>` : ''}
+      </div>`;
+  }
+  // v389：EP・VSP・DDP の3つの札（上の数値と同じ色）。次で減る分は白、防衛軍の刺激で増える EP は黄色で点滅
+  function kpVitalsHtml(d){
+    const p = d.plan;
+    let vText = '';
+    if(game.defenseHotlineActive) vText = '防衛軍の攻撃は中止要請済み';
+    else if(p && p.nullified) vText = '防衛軍の攻撃は無効';
+    else if(d.dfLive) vText = `防衛軍 <b>${kpRange(p.min, p.max)}</b>`;
+    else if(p && p.kind === 'none') vText = '防衛軍の攻撃なし';
+    const km = Number(kpKm(d.dd)), kmText = `防衛線まで約${km >= 10 ? Math.round(km) : km.toFixed(1)}km`;
+    const dText = d.ddp ? `進撃 <b>${kpRange(d.ddp.min, d.ddp.max)}</b><br>${kmText}` : kmText;
+    const eText = `0 で保護成功${d.epGain ? `<br>防衛軍の刺激 <b>+${d.epGain}</b>` : ''}`;
+    return `<div class="kpTiles">
+        ${kpTileHtml({ k:'ep', lb:'EP', jp:'興奮値', rgb:'var(--ep-rgb)', v:d.ep, max:d.epMax, gain:d.epGain, r2:eText })}
+        ${kpTileHtml({ k:'vsp', lb:'VSP', jp:'生命安定', rgb:'var(--vsp-rgb)', v:d.hp, max:d.hpMax, loss:d.vLoss, r2:vText })}
+        ${kpTileHtml({ k:'ddp', lb:'DDP', jp:'防衛縦深', rgb:'var(--ddp-rgb)', v:d.dd, max:d.ddMax, loss:d.dLoss, r2:dText })}
+      </div>`;
+  }
+  // 威力：盤面のマスの DMG と同じ計算（基本＋危険度＋効果の補正＋位置）。ここから防御力を引く
+  //   useMod：このラウンドの攻撃にだけ効く補正（広域鎮静弾の −3 など）を入れるか。次のラウンド以降の必殺技には入れない
+  function kpPowerHtml(a, useMod = true){
+    if(Number.isFinite(Number(a.fixedDamage))) return `全機に固定 <b>${Math.max(0, Math.floor(Number(a.fixedDamage) || 0))}</b>（危険度・位置・防御の補正なし）`;
+    const b = kaijuDamageBonus(), mod = useMod ? (Number(game.nextKaijuDamageMod) || 0) : 0;
+    const raw = r=>(a.id === 'shockwave' && a.baseDamageByRow) ? ((a.baseDamageByRow[r]) || 1) : (Number(a.baseDamage) || 0);
+    const v = r=>Math.max(0, raw(r) + b + (a.noRowBonus ? 0 : rowTacticalBonus(r)) + mod);
+    const parts = [];
+    if(b) parts.push(`危険度+${b}`);
+    if(mod) parts.push(`効果${mod > 0 ? '+' : '−'}${Math.abs(mod)}`);
+    const inc = parts.length ? `（${parts.join('・')}込み）` : '';
+    if(a.noRowBonus && !(a.id === 'shockwave' && a.baseDamageByRow)) return `<b>${v(4)}</b>から防御力を引く（位置の補正なし）${inc}`;
+    return `前 <b>${v(4)}</b>・中 <b>${v(5)}</b>・後 <b>${v(6)}</b> から防御力を引く${inc}`;
+  }
+  function kpMapHtml(d){
+    const cells = [];
+    [4, 5, 6].forEach(row=>{
+      for(let col = 0; col < 3; col++){
+        const occ = unitAtGrid(col, row);
+        const tc = d.cells.find(c=>c.col === col && c.row === kaijuThreatRowIndex(row));
+        const cls = ['c'];
+        if(tc && tc.danger) cls.push('dg');
+        if(tc && (tc.blink || tc.seqCount > 1)) cls.push('cand');
+        let inner = '';
+        if(occ){
+          inner = `<img src="${noahAircraftImgSrc(occ.aircraftId)}" alt="" draggable="false"><span class="n">${game.units.indexOf(occ) + 1}</span>`;
+          if(tc && tc.danger && tc.damage != null) inner += `<span class="d${tc.breakRisk ? ' br' : ''}">${tc.damage > 0 ? '−' + tc.damage : '0'}</span>`;
+        }
+        cells.push(`<div class="${cls.join(' ')}">${inner}</div>`);
+      }
+    });
+    return `<div class="uhMap kpMap"><div class="kj">▲ KAIJU</div><div class="gw"><div class="rl"><span>前</span><span>中</span><span>後</span></div><div class="gr">${cells.join('')}</div></div></div>`;
+  }
+  // 各機の被弾予測（機体情報の「被弾予測」と同じ数字：特性・バリアも入れる。回避は確率なので別に）
+  function kpHitsHtml(){
+    return `<div class="kpHits">${game.units.map(u=>{
+      ensureStatus(u);
+      const th = uhThreat(u), f = uhForecast(u, th);
+      const on = unitOccupiesBoard(u);
+      const pos = on ? positionLabel(u) : (stateLabels[u.state] || '');
+      const eva = on && th.inRange && th.total > 0 && !th.barrier ? ` · 回避${evasionPercentFromMobility(effectiveMobility(u))}%` : '';
+      return `<div class="kpHit" data-tone="${f.tone}">
+          <span class="ic"><img src="${noahAircraftImgSrc(u.aircraftId)}" alt="" draggable="false"></span>
+          <div class="nm"><b>${escapeHtml(u.name)}</b><small>${escapeHtml(pos)}${f.tag ? `<em>${escapeHtml(f.tag)}</em>` : ''}</small></div>
+          <div class="vl"><b>${f.big}</b><small>${escapeHtml(f.sub)}${eva}</small></div>
+        </div>`;
+    }).join('')}</div>`;
+  }
+  // このラウンドの怪獣に効いている効果（カード・イベントなど）
+  function kpModsHtml(d){
+    const m = [];
+    const dm = Number(game.nextKaijuDamageMod) || 0, ds = Number(game.nextKaijuDistanceMod) || 0;
+    if(dm) m.push([dm < 0 ? 'up' : 'dn', `攻撃ダメージ ${dm > 0 ? '+' : '−'}${Math.abs(dm)}`]);
+    if(ds) m.push([ds < 0 ? 'up' : 'dn', `進撃 ${ds > 0 ? '+' : '−'}${Math.abs(ds)}`]);
+    if(game.nextKaijuSpecialRedirect) m.push(['up', '音響誘導：必殺技を通常攻撃に']);
+    return m.length ? `<div class="uhBuffs kpMods">${m.map(([c, t])=>`<span class="uhBuff ${c}">${escapeHtml(t)}</span>`).join('')}</div>` : '';
+  }
+  function kpActionHtml(d){
+    const a = d.action;
+    if(!a) return `<div class="kpNone">作戦は終了しました</div>`;
+    const sp = d.special && !d.redirected;
+    const tone = sp ? 'bad' : (d.redirected ? 'ok' : 'warn');
+    const tag = sp ? '必殺技' : (d.redirected ? '音響誘導で変更' : '');
+    const nobody = !activeKaijuTargets().length;
+    const st = kaijuStatusSummaryHtml(a);
+    let info = `<div class="k">対象</div><div class="ln">${escapeHtml(a.targetText || '')}</div>`;
+    info += `<div class="k">威力</div><div class="ln">${kpPowerHtml(a)}</div>`;
+    if(st) info += `<div class="k">命中時</div><div class="ln">${st}</div>`;
+    if(d.ddp){
+      const dm = Number(d.ddp.mod) || 0;
+      const parts = [`基本${effectiveKaijuDistanceLoss(a)}`];
+      if(d.ddp.bonus) parts.push(`危険度+${d.ddp.bonus}`);
+      if(dm) parts.push(`効果${dm > 0 ? '+' : '−'}${Math.abs(dm)}`);
+      parts.push('変動±1');
+      info += `<div class="k">進撃</div><div class="ln">DDP <b>${kpRange(d.ddp.min, d.ddp.max)}</b>（${parts.join('・')}）</div>`;
+    }
+    return `<div class="kpAct" data-tone="${tone}">
+        <div class="r1"><span class="k">ROUND ${String(game.round).padStart(2, '0')} の怪獣フェイズ</span>${tag ? `<em>${tag}</em>` : ''}</div>
+        <div class="nm">${d.redirected ? `<s>${escapeHtml(d.raw.name)}</s>` : ''}${escapeHtml(a.name)}</div>
+        <div class="sm">${escapeHtml(a.simple || '')}${nobody ? '<br>盤面に機体がいないので空振り（進撃はする）' : ''}</div>
+      </div>
+      <div class="uhTac kpTac">${kpMapHtml(d)}<div class="uhTacInfo">${info}</div></div>
+      ${kpHitsHtml()}
+      ${kpModsHtml(d)}`;
+  }
+  // 必殺技：危険度で解放 → 予兆（力を溜める）→ 次のラウンドに発動
+  function kpSpecialHtml(d){
+    if(!usesBathynomaCombatTemplate()) return '';
+    const sp = kaijuActionWithOverrides(BATHYNOMA_SPECIAL_ID);
+    const need = DANGER_SPECIAL_UNLOCK;
+    let tone, st;
+    if(d.over){ tone = 'off'; st = '—'; }
+    else if(d.special && !d.redirected){ tone = 'bad'; st = 'このラウンドに発動'; }
+    else if(d.redirected){ tone = 'ok'; st = '音響誘導で回避'; }
+    else if(d.charging){ tone = 'bad'; st = '次のラウンドに発動'; }
+    else if(d.dl >= need){ tone = 'warn'; st = '解放済み'; }
+    else{ tone = 'off'; st = `封印中（あと危険度${need - d.dl}）`; }
+    let pips = '';
+    for(let i = 0; i < need; i++) pips += `<i${i < d.dl ? ' class="on"' : ''}></i>`;
+    const how = d.dl >= need ? '予兆（力を溜める）の次のラウンドに放つ' : `危険度${need}で解放。予兆（力を溜める）の次のラウンドに放つ`;
+    const stx = kaijuStatusSummaryHtml(sp);
+    return `<div class="kpSp" data-tone="${tone}">
+        <div class="hd"><b>${escapeHtml(sp.name)}</b><span>${escapeHtml(st)}</span></div>
+        <div class="kpPips">${pips}<small>危険度 ${d.dl} / ${need}</small></div>
+        <p>${escapeHtml(how)}。${escapeHtml(sp.targetText || '')}</p>
+        <div class="ln">威力：${kpPowerHtml(sp, d.special && !d.redirected)}${stx ? `<br>命中時：${stx}` : ''}</div>
+      </div>`;
+  }
+  // 特性：いま当てはまる機体も
+  function kpTraitHtml(d){
+    const t = kaijuTraitDef(d.k.id);
+    if(!t) return '';
+    const hit = [];
+    game.units.forEach(u=>{
+      if(t.id === 'abyssal_pressure_collapse'){ const n = statusCount(u, 'bleed'); if(n > 0 && unitOccupiesBoard(u)) hit.push(`${u.name}（裂傷×${n}）`); }
+      else if(t.id === 'scorching_zone'){ if(u.state === 'deployed' && u.row === 4) hit.push(`${u.name}（前列）`); }
+      else if(t.id === 'piercing_poison'){ const n = [...(u.hand || []), ...(u.deck || [])].filter(c=>c && c.id === 'corrosion_mark').length; if(n) hit.push(`${u.name}（侵蝕痕${n}枚）`); }
+    });
+    return `<div class="kpTrait">
+        <div class="hd"><b>${escapeHtml(t.name)}</b>${t.short ? `<span>${escapeHtml(t.short)}</span>` : ''}</div>
+        <p>${escapeHtml(t.text || '')}</p>
+        <div class="af${hit.length ? '' : ' none'}">${hit.length ? `いま当てはまる：${escapeHtml(hit.join('・'))}` : 'いま当てはまる機体はありません'}</div>
+      </div>`;
+  }
+  // 防衛軍（O.R.D.E.R.）の予定：VSP（と EP・DDP）に効く
+  function kpDefenseHtml(d){
+    const p = d.plan;
+    if(!p) return '';
+    const lines = [];
+    let tone = 'warn', name = p.name || '防衛軍行動';
+    if(game.defenseHotlineActive){
+      tone = 'ok';
+      lines.push(`${game.defenseHotlineUnitName ? escapeHtml(game.defenseHotlineUnitName) + 'が' : ''}攻撃中止要請を使用済み。このラウンドの防衛軍行動は中止されます`);
+    }else if(p.kind === 'none'){
+      tone = 'off';
+      lines.push('このラウンド中、防衛軍はまだ攻撃体制を整えていません');
+    }else if(p.nullified){
+      tone = 'ok';
+      lines.push('防衛軍の攻撃は無効（VSP は変わりません）');
+    }else{
+      if(p.kind === 'special') tone = 'bad';
+      const fx = [`VSP <b>${kpRange(p.min, p.max)}</b>`];
+      if(p.epGain > 0) fx.push(`EP <b>+${p.epGain}</b>`);
+      if(p.ddpGain > 0) fx.push(`DDP <b class="up">+${p.ddpGain}</b>`);
+      lines.push(fx.join(' · '));
+      if(p.kind === 'stimulus') lines.push('刺激攻撃：怪獣の興奮が高まります');
+      if(p.kind === 'special' && p.line && p.weaponDue) lines.push('防衛ラインでの作戦に新兵器も投入されます');
+    }
+    if(isNewWeaponWarningActive() && !(game.defenseHotlineActive && isNewWeaponDue())){
+      const due = Number(game.newWeaponScheduledRound);
+      lines.push(`<span class="wn">${due === Number(game.round) ? '新兵器テスト：このラウンドの防衛軍フェイズで発動' : `新兵器テスト準備中：R${due} の防衛軍フェイズで発動予定`}</span>`);
+    }
+    const pl = game.pendingDefenseLineAttack;
+    if(pl && pl.round && Number(pl.round) > Number(game.round)) lines.push(`<span class="wn">${escapeHtml(pl.name || '防衛ライン強攻撃')}：R${pl.round} の防衛軍フェイズで発動予定</span>`);
+    return `<div class="kpDf" data-tone="${tone}">
+        <div class="r1"><span class="k">ROUND ${String(game.round).padStart(2, '0')} の防衛軍フェイズ（怪獣フェイズの後）</span></div>
+        <div class="nm">${escapeHtml(name)}</div>
+        ${lines.map(t=>`<div class="ln">${t}</div>`).join('')}
+      </div>`;
+  }
+  // 推移とペース：終わったラウンドの記録（metricHistory の round-end）から。この怪獣が出てからの分だけ
+  function kpTrendHtml(d){
+    if(d.over) return '';
+    const hist = (game.metricHistory || []).filter(p=>p && Number(p.round) >= 1 && Number(p.round) < Number(game.round)).sort((a, b)=>a.round - b.round);
+    if(!hist.length) return '';
+    const start = { round:0, ep:d.epMax, kaijuHp:d.hpMax, distance:d.ddMax };
+    const series = [start, ...hist, { round:-1, ep:d.ep, kaijuHp:d.hp, distance:d.dd }];
+    const ddTop = Math.max(d.ddMax, ...series.map(p=>Number(p.distance) || 0));
+    const n = series.length, W = 300, H = 64, PAD = 5;
+    const X = i=>(n > 1 ? i / (n - 1) : 0) * W;
+    const Y = r=>PAD + (1 - Math.max(0, Math.min(1, r))) * (H - PAD * 2);
+    const pts = (key, max)=>series.map((p, i)=>`${X(i).toFixed(1)},${Y((Number(p[key]) || 0) / max).toFixed(1)}`).join(' ');
+    const dots = [['ep', d.ep / d.epMax], ['vsp', d.hp / d.hpMax], ['ddp', d.dd / ddTop]].map(([c, r])=>`<i class="${c}" style="top:${(Y(r) / H * 100).toFixed(1)}%"></i>`).join('');
+    const step = Math.max(1, Math.ceil((n - 2) / 6));
+    const xl = series.map((p, i)=>{
+      const lb = i === 0 ? '開始' : (i === n - 1 ? 'いま' : ((i % step === 0) ? `R${p.round}` : ''));
+      return lb ? `<span style="left:${(X(i) / W * 100).toFixed(1)}%"${i === 0 ? ' class="f"' : (i === n - 1 ? ' class="l"' : '')}>${lb}</span>` : '';
+    }).join('');
+    // 直近（最大3ラウンド）の1ラウンドあたりの減り方と、そのままなら 0 まで何ラウンドか（記録の抜けがあってもラウンドの数で割る）
+    const vals = [start, ...hist];
+    const a0 = vals[Math.max(0, vals.length - 1 - 3)], a1 = vals[vals.length - 1];
+    const k = Math.max(1, Number(a1.round) - Number(a0.round));
+    const pace = key=>((Number(a0[key]) || 0) - (Number(a1[key]) || 0)) / k;
+    const P = [
+      { lb:'EP', rgb:'var(--ep-rgb)', cur:d.ep, p:pace('ep') },
+      { lb:'VSP', rgb:'var(--vsp-rgb)', cur:d.hp, p:pace('kaijuHp') },
+      { lb:'DDP', rgb:'var(--ddp-rgb)', cur:d.dd, p:pace('distance') }
+    ];
+    P.forEach(o=>{ o.eta = o.p > 0 ? Math.max(1, Math.ceil(o.cur / o.p)) : Infinity; });
+    const cell = o=>{
+      const v = o.p > 0 ? `−${kpNum(o.p)}` : (o.p < 0 ? `+${kpNum(-o.p)}` : '±0');
+      const eta = o.p > 0 ? (o.eta <= 40 ? `0 まで約${o.eta}R` : '0 まで40R以上') : '減っていない';
+      return `<div style="--m-rgb:${o.rgb}"><span>${o.lb}</span><b>${v}<small>/R</small></b><small>${eta}</small></div>`;
+    };
+    let verdict = '';
+    if(hist.length >= 2 && P[0].eta < Infinity){
+      const worst = Math.min(P[1].eta, P[2].eta);
+      const which = P[2].eta <= P[1].eta ? 'DDP' : 'VSP';
+      if(P[0].eta < worst) verdict = `<div class="kpVerdict ok">このペースなら、EP が先に 0 になる見込み（保護成功）</div>`;
+      else if(P[0].eta === worst) verdict = `<div class="kpVerdict warn">このペースだと、EP と ${which} がほぼ同時に 0 になる見込み（ぎりぎり）</div>`;
+      else verdict = `<div class="kpVerdict bad">このペースだと、${which} が先に尽きる見込み</div>`;
+    }else if(hist.length >= 2) verdict = `<div class="kpVerdict bad">直近のラウンドでは EP が減っていない</div>`;
+    return `<div class="uhSecT">TREND<b>推移とペース</b><em>直近${k}R の平均</em></div>
+      <div class="kpTrend">
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+          <line class="gl" x1="0" y1="${Y(.5).toFixed(1)}" x2="${W}" y2="${Y(.5).toFixed(1)}"/>
+          <line class="gl" x1="0" y1="${Y(.25).toFixed(1)}" x2="${W}" y2="${Y(.25).toFixed(1)}"/>
+          <polyline class="tl ddp" points="${pts('distance', ddTop)}"/>
+          <polyline class="tl vsp" points="${pts('kaijuHp', d.hpMax)}"/>
+          <polyline class="tl ep" points="${pts('ep', d.epMax)}"/>
+        </svg>
+        <div class="dt">${dots}</div>
+      </div>
+      <div class="kpTrX">${xl}</div>
+      <div class="kpPace">${P.map(cell).join('')}</div>
+      ${verdict}`;
+  }
+  // 行動パターン（いま観測されている行動。次の行動に NEXT）
+  function kpMovesHtml(d){
+    const ids = KAIJU_ACTION_IDS.filter(id=>id !== BATHYNOMA_SPECIAL_ID || usesBathynomaCombatTemplate());
+    return `<div class="kpMoves">${ids.map(id=>{
+      const a = kaijuActionWithOverrides(id);
+      const sp = id === BATHYNOMA_SPECIAL_ID;
+      const now = !!(d.action && d.action.id === id);
+      const lock = sp && d.dl < DANGER_SPECIAL_UNLOCK;
+      const tags = [];
+      if(Number.isFinite(Number(a.fixedDamage))) tags.push(`固定${Math.max(0, Math.floor(Number(a.fixedDamage) || 0))}`);
+      else if(a.id === 'shockwave' && a.baseDamageByRow) tags.push(`基本 前${a.baseDamageByRow[4]}・中${a.baseDamageByRow[5]}・後${a.baseDamageByRow[6]}`);
+      else tags.push(`基本${Number(a.baseDamage) || 0}`);
+      const st = kaijuStatusSummaryHtml(a);
+      if(st) st.split(' / ').forEach(s=>tags.push(s));
+      tags.push(`進撃${effectiveKaijuDistanceLoss(a)}`);
+      const badge = now ? 'NEXT' : (sp ? (lock ? `危険度${DANGER_SPECIAL_UNLOCK}〜` : 'SPECIAL') : '');
+      return `<div class="kpMv${now ? ' now' : ''}${sp ? ' sp' : ''}${lock ? ' lock' : ''}">
+          <div class="hd"><b>${escapeHtml(a.name)}</b>${badge ? `<em>${badge}</em>` : ''}</div>
+          <p>${escapeHtml(a.targetText || a.simple || '')}</p>
+          <div class="tg">${tags.map(t=>`<span>${t}</span>`).join('')}</div>
+        </div>`;
+    }).join('')}</div>`;
+  }
+  function kpProfileHtml(d){
+    const k = d.k;
+    const kv = [['観測個体No.', d.obs], ['推定全高', k.heightM ? `${k.heightM}m` : '—'], ['出現域', d.stage], ['VSP 上限', d.hpMax], ['初期 EP', d.epMax], ['初期 DDP', d.ddMax]];
+    return `<div class="kpProf">
+        <div class="kpProfName"><small>${escapeHtml(k.title || '')}</small><b>${escapeHtml(k.name || '')}</b></div>
+        <div class="uhKv">${kv.map(([a, b])=>`<div><span>${a}</span><b>${escapeHtml(String(b))}</b></div>`).join('')}</div>
+        ${k.text ? `<p>${escapeHtml(k.text)}</p>` : ''}
+      </div>`;
+  }
+  function kpBodyHtml(d, dg){
+    const k = d.k;
+    const sub = [k.title, k.heightM ? `推定全高${k.heightM}m` : ''].filter(Boolean);
+    const notes = kpNotes(d);
+    const sections = [];
+    sections.push(`<section class="uhIdBlock">
+        <div class="uhId">
+          <div class="uhIdMain"><div class="kpDl" style="--dl-rgb:${KP_TIER_RGB[d.tier]}"><small>DANGER</small><b>${d.dl}</b></div><div class="uhName kpName"><b>${escapeHtml(k.name)}</b><small>${sub.map(s=>`<span>${escapeHtml(s)}</span>`).join(' <i>/</i> ')}</small></div></div>
+          <div class="uhDiag"><span class="en"><i></i>${dg.en}</span><span class="jp">${dg.jp}</span></div>
+        </div>
+        ${kpChipsHtml(d)}
+        ${notes.length ? `<div class="uhNotes">${notes.map(o=>`<div class="uhNote ${o.tone}">${o.text}</div>`).join('')}</div>` : ''}
+      </section>`);
+    sections.push(`<section class="kpMain">${kpViewsHtml(d)}${kpVitalsHtml(d)}</section>`);
+    sections.push(`<section><div class="uhSecT">NEXT ACTION<b>次の行動</b><em>DANGER ${d.dl}</em></div>${kpActionHtml(d)}</section>`);
+    const spH = kpSpecialHtml(d);
+    if(spH) sections.push(`<section><div class="uhSecT">SPECIAL<b>必殺技</b></div>${spH}</section>`);
+    const trH = kpTraitHtml(d);
+    if(trH) sections.push(`<section><div class="uhSecT">TRAIT<b>怪獣特性</b></div>${trH}</section>`);
+    const dfH = kpDefenseHtml(d);
+    if(dfH) sections.push(`<section><div class="uhSecT">O.R.D.E.R.<b>防衛軍の予定</b><em>${escapeHtml(defenseAlertLabel())}</em></div>${dfH}</section>`);
+    const tdH = kpTrendHtml(d);
+    if(tdH) sections.push(`<section>${tdH}</section>`);
+    sections.push(`<section><div class="uhSecT">PATTERNS<b>行動パターン</b><em>${d.dl ? `基本値（危険度+${d.dl}は別）` : '基本値'}</em></div>${kpMovesHtml(d)}</section>`);
+    sections.push(`<section><div class="uhSecT">PROFILE<b>個体情報</b></div>${kpProfileHtml(d)}</section>`);
+    return sections.map((s, i)=>s.replace('<section', `<section style="--d:${i}"`)).join('');
+  }
+  function kpModalClass(){ return `cardDetailModal hologramCard kaijuPopModal${noahRdQuality() >= 2 ? ' kpLite' : ''}`; }
+  function kpHtml(d){
+    const dg = kpDiag(d);
+    return `
+      <svg class="holoPerimeter" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <path class="holoOuter" d="M5 .3H95L99.7 3.5V96.5L95 99.7H5L.3 96.5V3.5Z" fill="none" stroke="currentColor" vector-effect="non-scaling-stroke"/>
+        <path class="holoInner" d="M6 1.4H94L98.5 4.4V95.6L94 98.6H6L1.5 95.6V4.4Z" fill="none" stroke="currentColor" vector-effect="non-scaling-stroke"/>
+        <path class="holoAccent" d="M8 1.4H25M75 98.6H92M1.5 8V18M98.5 82V92" fill="none" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="holoIdentity" aria-hidden="true"><span>N.O.A.H.</span><span class="kpIdent">OBS-${escapeHtml(d.obs)} · ROUND ${String(game.round).padStart(2, '0')}</span></div>
+      <div class="uhPop uhKit kpPop in" data-tone="${dg.tone}" style="--ac-rgb:${KP_RGB};--hp-rgb:var(--ep-rgb);--tone-rgb:${UH_TONE_RGB[dg.tone] || 'var(--ep-rgb)'}">
+        <header class="uhPopHead">
+          <div class="uhTitle"><div class="en"><i></i>KAIJU ANALYSIS</div><div class="jp">怪獣解析</div></div>
+          <button type="button" class="cardInlineClose" data-inline-close="1" aria-label="閉じる">×</button>
+        </header>
+        <div class="uhPopBody">${kpBodyHtml(d, dg)}</div>
+        <footer class="uhPopFoot kpFoot">
+          <button type="button" class="upDone" data-kp-done="1">閉じる</button>
+        </footer>
+      </div>`;
+  }
+  function showKaijuPopup(){
+    if(!gameStarted || !game || game.inputLocked || noahGacha) return;
+    closeUnitHud({ instant:true });
+    const d = kpData();
+    noahKaijuPop = { at:performance.now() };
+    try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}
+    openModal(d.k.name, kpHtml(d), [], { modalClass:kpModalClass() });
+    kpBind();
+    const pop = ui.modalBody.querySelector('.kpPop');
+    clearTimeout(noahKaijuPopInTimer);
+    noahKaijuPopInTimer = setTimeout(()=>{ if(pop && pop.isConnected) pop.classList.remove('in'); }, 760);
+    kpShoot();   // v389：3D のモデルを撮ってモニターに写す（撮れなければ上から見た絵）
+    if(pop) uhCountUp(pop.querySelector('.kpTile[data-k="ep"] .vl b'), d.ep, d.epMax);   // EP は上限から今の値へ下がっていく
+  }
+  // 受け取り口は今回の中身（.kpPop）に付ける：次に開いたときに中身ごと消える（v380 の #modalBody に付けて増えていった件と同じ考え）
+  function kpBind(){
+    const pop = ui.modalBody.querySelector('.kpPop');
+    if(!pop) return;
+    pop.addEventListener('click', async e=>{
+      const t = e.target && e.target.closest ? e.target.closest('button') : null;
+      if(!t || !noahKaijuPop) return;
+      if(t.matches('[data-inline-close]')){ await flashThen(t, 'danger', ()=>{ playModalCancelSound(); closeModal(); }); return; }
+      if(t.matches('[data-kp-done]')){ await flashThen(t, 'primary', ()=>{ playModalCancelSound(); closeModal(); }); }
+    });
+  }
+  // キーボード：Esc で閉じる（怪獣情報のポップアップが開いているときだけ）
+  document.addEventListener('keydown', e=>{
+    if(!noahKaijuPop || !ui.modal || !ui.modal.classList.contains('kaijuPopModal') || ui.modalBg.style.display !== 'flex') return;
+    if(e.key === 'Escape'){ e.preventDefault(); playModalCancelSound(); closeModal(); }
   });
   function showStatusPopup(){ if(game.inputLocked) return; playTapSound(); normalizeArtifactState(); let unitBody=''; game.units.forEach((u,i)=>{ ensureStatus(u); const cannonCards=u.cannons.slice(0,activeCannons(u)).filter(Boolean).length; const barrierBonus=followBarrierDefenseBonus(u); const shieldBonus=shieldDefenseBonus(u); const defenseParts=[]; if(shieldBonus) defenseParts.push(`シールド${shieldBonus}`); if(barrierBonus) defenseParts.push(`バリア${barrierBonus}`); const normalDefense=Math.max(0,(Number(u.defense)||0)+shieldBonus+barrierBonus); const defenseText=statusCount(u,'corrosion')>0 ? `0（通常${normalDefense}）` : `${effectiveDefense(u)}${defenseParts.length ? `（本体${u.defense}+${defenseParts.join('+')}）` : ''}`; const mobilityText=statusCount(u,'freeze')>0 ? `0（通常${u.mobility}）` : `${u.mobility}`; unitBody += `<button type="button" class="statusBlock unitStatusButton" data-unit-status="${i}"><h4>第${i+1}行動機：${u.name}</h4>${statusBadgesHtml(u)}<div class="statusGrid"><div>状態：${stateLabels[u.state]}</div><div>HP：${u.hp} / ${u.maxHp}</div><div>防御力：${defenseText}</div><div>攻撃力：${u.attack}</div><div>精密性：${u.precision}</div><div>機動性：${mobilityText}</div><div>観測性能：${u.observation}</div><div>整備性：${u.maintenance}</div><div>ドローン性能：${dronePowerValue(u)}</div><div>ドローン制御：${droneControlLimit(u)}</div><div>追従ドローン：${ensureFollowDrones(u).length} / ${droneControlLimit(u)}</div><div>修理量：${repairValue(u)}</div><div>砲身：${activeCannons(u)} / 4</div><div>位置：${unitOccupiesBoard(u) ? positionLabel(u) : '-'}</div><div>山札：${u.deck.length} / 手札：${u.hand.length} / 上限：${maxHandSize(u)}</div><div>砲身内：${cannonCards}</div><div>基地内：${u.discard.length}</div></div><div class="unitStatusHint">タップで機体情報</div></button>`; }); const owned=(game.artifacts||[]).map(id=>artifactDef(id)).filter(Boolean); const artifactBody = owned.length ? `<div class="artifactOwnedGrid">` + owned.map(d=>`<button type="button" class="artifactTile" data-owned-artifact="${d.id}">${artifactArtHtml(d.id, d.name)}</button>`).join('') + `</div>` : `<div class="statusBlock"><h4>取得済みアーティファクト</h4><div class="muted">まだ取得していません。</div></div>`; const body = `<div class="statusTabs"><button type="button" class="statusTabBtn active" data-status-tab="units">機体情報</button><button type="button" class="statusTabBtn" data-status-tab="artifacts">アーティファクト</button></div><div class="statusTabPanel active" data-status-panel="units">${unitBody}</div><div class="statusTabPanel" data-status-panel="artifacts">${artifactBody}</div>`; openModal('ステータス', body, [{text:'閉じる',onClick(){}}]); ui.modalBody.querySelectorAll('[data-unit-status]').forEach(btn=>{ btn.addEventListener('click',()=>showUnitInfo(Number(btn.getAttribute('data-unit-status')), { from:'status' })); }); ui.modalBody.querySelectorAll('[data-status-tab]').forEach(btn=>{ btn.addEventListener('click',()=>{ const tab=btn.getAttribute('data-status-tab'); ui.modalBody.querySelectorAll('[data-status-tab]').forEach(b=>b.classList.toggle('active', b===btn)); ui.modalBody.querySelectorAll('[data-status-panel]').forEach(panel=>panel.classList.toggle('active', panel.getAttribute('data-status-panel')===tab)); }); }); ui.modalBody.querySelectorAll('[data-owned-artifact]').forEach(btn=>{ btn.addEventListener('click',()=>{ const id=btn.getAttribute('data-owned-artifact'); const item={ id, cost:0, sale:false, sold:true, kind:'artifact' }; openArtifactDetailModal(item, { hideFooter:true, onCloseX(){ showStatusPopup(); } }); }); }); }
   // v363：3D表示では、最接近攻撃・前中列薙ぎ払いの三日月弾を出さず、怪獣の腕の動きで見せる（noah3d.js の motionOffsets）。
@@ -22329,6 +23095,12 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     // v387 テスト用：機体情報のポップアップ
     debugUnitPopup: (i, from)=>{ showUnitPopup(Number(i) || 0, { from:from || 'board' }); return !!noahUnitPop; },
     debugUnitPopupState: ()=>noahUnitPop ? { index:noahUnitPop.index, from:noahUnitPop.from, cls:ui.modal.className, scroll:(ui.modalBody.querySelector('.uhPopBody') || {}).scrollTop || 0 } : null,
+    debugKaijuPopup: ()=>{ showKaijuPopup(); return !!noahKaijuPop; },
+    debugKaijuPopupState: ()=>{
+      if(!noahKaijuPop) return null;
+      const pop = ui.modalBody.querySelector('.kpPop'), body = pop && pop.querySelector('.uhPopBody');
+      return { cls:ui.modal.className, tone:pop ? pop.dataset.tone : '', sections:body ? body.querySelectorAll(':scope > section').length : 0, scroll:body ? body.scrollTop : 0, scrollMax:body ? body.scrollHeight - body.clientHeight : 0 };
+    },
     debugUnitInfoMode: (m)=>{ if(m === 'popup' || m === 'card') displaySettings.unitInfo = 'popup'; else if(m === 'hud') displaySettings.unitInfo = 'hud'; return displaySettings.unitInfo; },
     debugRdState: ()=>noahGacha ? { phase:noahGacha.phase, tier:noahGacha.tier, lv:noahGacha.lv, premium:noahGacha.premium, skip:noahGacha.skipPhase, ids:noahGacha.ids.slice(), duck:noahBgmDuckLevel,
       flipped:noahGacha.cardEls.map(e=>e.classList.contains('flip')), cls:noahGacha.el.className, particles:noahGacha.fx ? noahGacha.fx.ps.length : 0 } : null,
