@@ -467,6 +467,27 @@ SAVE / CONTINUE（v336〜）：
   ・3Dを使えない端末（2D表示）でも、簡単な格納庫と発進（台が近づく・緑の輪・機体が上へ）を出す。
   ・ルール説明（基地状態）にも書き足した。noah3d.js も v392（sw.js の目安も直した）。
   ・テスト用：bridge.debugHangar() / debugBaseTurn(i) / debugLaunchAt(ms|null) / debugLaunchSkip()、noah3d の handle.hangarState() / prepareHangar(type)
+- v393〜：格納庫の直し（ご主人様の5つの直しと、発進の効果音）。
+  ・前線確認でもマス目を出す（出撃できる空きマスを落ち着いた青で。札は OPEN。出撃したときの被弾予測の DMG も出す。3D・2D とも）。
+    見るだけなので、押しても出撃しない（出撃は今まで通り「ターン終了」→「出撃してターン終了」）。noahGridMode() が 'peek' を返す。
+  ・整備アームを縦に（ご主人様の横から見たスケッチの通り）：天井から真下へ下がる柱（3段の筒・継ぎ目の輪・縞・ケーブル・配電箱）と、
+    ① 柱の下の関節（水平の軸で縦に回る）から斜めの腕が機体へ（油圧の筒とピストン・ホース・縞・手首・つかむ工具／きり）、
+    ② 柱がまっすぐ機体の上まで下がり、先の工具（読み取りの頭・吹き付けの口）が機体に触れる、の2種類を2本ずつ。
+    発進の警報で、①は上へたたみ、②は柱ごと上がってから外へ退く。大破の修理では工具が小さく動き、①の先から火花。
+    部品は頂点の色でまとめて描く（動かない物は全部で1つ、腕は1本につき1つ）。ボタンとアームは対応させない。
+  ・機体のまわりに整備工場・基地らしい物を足した：電源車とケーブル・はしご付きの足場・弾薬（麻酔弾）の台車・工具箱・ボンベの架台・
+    ホースの巻き取り機・管制の机2つ（画面と点滅する灯り）・投光器2つ・牽引車・車止め・コーン・消火器・木箱・巻いたケーブル・床の両端の配管。
+    全部まとめて1つ（灯りは1つの InstancedMesh、画面は1枚の絵）なので、描く回数はほとんど増えない。
+  ・滑走路の白線を LED に：縁の2本（細かい粒の列）と中心の破線が、LOCKED の瞬間に台の側から奥へ点いていく（点いた瞬間は強く、まわりににじむ光）。
+    点火からは光が前へ流れる。両側の灯りも LOCKED に合わせて点く。塗った白線はやめて、消えているときは暗い溝。
+  ・基地メニューのボタン：上の小さな文字を働きの名前に（UNIT UPGRADE / CARD SYSTEM / R&D LAB / DEFENSE HOTLINE）。
+    中止要請の RP50（使用済み・LOCK も）は上の行の右の小さな札にして、下の「防衛軍攻撃中止要請」と重ならないようにした。
+  ・発進の効果音を作り直した：回転灯が回る間はサイレン（うなって上がり下がりし、ロックで下がって消える）。
+    上昇は重い機械の音（動き出しの「ガコン」・モーターの低いうなり・レールの「ガタガタ」・歯車がこすれる「ギギギギ」。台の速さに合わせて強く・速く）。
+    ロックは「ガチャ」（低い一撃・留め具が閉じる2つの音・がたつき・油圧の「プシュー」。電子音は入れない）。高い金属の響きにはしない。
+    長い音（サイレン・上昇）は、発進を飛ばした・やめた・ポーズを開いたときに止める（rdSfx.hgStop）。
+  ・3Dを使えない端末（2D表示）の格納庫も、縦のアームの見え方に合わせた。noah3d.js も v393（sw.js の目安も直した）。
+  ・テスト用：bridge.debugRdSfxSeq([[name, arg, 秒], ...], secs, raw)（いくつかの音を時刻をずらして鳴らし、まとめて測る）
 
 ===============================================================================
 -->
@@ -4418,11 +4439,10 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
 .hgCall .hgTxt{ display:flex; flex-direction:column; gap:2px; line-height:1.1; }
 .hgCall .hgTxt i{ font-style:normal; font-family:var(--f-hud); font-size:max(6px, calc(7.5px * var(--hgS, 1))); font-weight:700; letter-spacing:.16em; color:rgba(var(--hg-rgb),.72); white-space:nowrap; }
 .hgCall .hgTxt b{ font-size:calc(13px * var(--hgS, 1)); font-weight:800; letter-spacing:.04em; color:var(--plat); text-shadow:0 1px 2px rgba(0,0,0,.7); white-space:nowrap; }
-.hgCall .hgNote{ position:absolute; right:10px; top:5px; font-style:normal; font-family:var(--f-hud); font-size:max(6.5px, calc(8px * var(--hgS, 1))); font-weight:700; letter-spacing:.06em; color:rgba(226,234,246,.8); }
-.hgCall[data-hg="upgrade"] .hgNote,.hgCall[data-hg="rd"] .hgNote{ right:20px; }
+.hgCall .hgCapRow{ display:flex; align-items:center; justify-content:space-between; gap:calc(8px * var(--hgS, 1)); }   /* v393：働きの名前 ＋ 右に RP など（下の文字と重ならない） */
+.hgCall .hgNote{ flex:none; font-style:normal; font-family:var(--f-hud); font-size:max(6.5px, calc(7.5px * var(--hgS, 1))); font-weight:700; letter-spacing:.06em; line-height:1; color:rgba(232,238,248,.9);
+  padding:1px calc(4px * var(--hgS, 1)); border:1px solid rgba(var(--hg-rgb),.42); border-radius:2px; background:rgba(var(--hg-rgb),.1); }
 .hgCall .hgNote:empty{ display:none; }
-.hgCall .hgTxt i + b{ margin-right:calc(26px * var(--hgS, 1)); }
-.hgCall[data-hg="upgrade"] .hgTxt i + b,.hgCall[data-hg="card"] .hgTxt i + b,.hgCall[data-hg="rd"] .hgTxt i + b{ margin-right:0; }
 .hgCall:active{ transform:translateY(1px); }
 .hgCall.pressFlash{ filter:brightness(1.45) saturate(1.2); }
 .hgCall.off{ filter:saturate(.2) brightness(.72); }
@@ -6307,7 +6327,7 @@ canvas.noahConfetti{ position:fixed; inset:0; width:100vw; height:100vh; z-index
   const NOAH_PROJECT_META = {
     projectName:'N.O.A.H.',
     genre:'怪獣保護リアルタイムデッキ構築カードゲーム',
-    currentPrototypeVersion:'v392',
+    currentPrototypeVersion:'v393',
     defenseForce:{ shortName:'O.R.D.E.R.', fullName:'Operational Response Directorate for Extrahuman Removal', uiLabel:'防衛軍' },
     expectedInstructionStyle:'ユーザーが「このカード仕様をゲーム内に入れてください」と言った場合、CARD_DEFS、CARD_ART、ALL_SUPPLY、createUnit、resolveImmediateCard、fireAmmoを確認して実装する。',
     cardAttributes:['sedation','guidance','research','operation'],
@@ -10263,16 +10283,17 @@ function noahDrawKaijuGroundShadow(cell) {
     const now=performance.now();
     const pulse=(Math.sin(now/260)+1)/2;
     const isMove=opt.mode==='move';
+    const isPeek=opt.mode==='peek';   // v393：格納庫の「前線確認」（見るだけ。出撃できる空きマス）
     const current=!!opt.current;
     const threat=opt.forecast || null;
     const areaThreat=!!opt.areaThreat && !!(threat && threat.targeted);
     const tone=areaThreat ? tacticalThreatTone(threat.damage||0, !!threat.breakRisk) : null;
     const baseColor=areaThreat
       ? tone.rgb
-      : (current ? '255,232,142' : (isMove ? '84,232,218' : '118,255,192'));
+      : (current ? '255,232,142' : (isPeek ? '158,196,238' : (isMove ? '84,232,218' : '118,255,192')));
     const glowColor=areaThreat
       ? tone.glow
-      : (current ? 'rgba(255,224,122,.72)' : (isMove ? 'rgba(84,232,218,.62)' : 'rgba(118,255,192,.62)'));
+      : (current ? 'rgba(255,224,122,.72)' : (isPeek ? 'rgba(158,196,238,.5)' : (isMove ? 'rgba(84,232,218,.62)' : 'rgba(118,255,192,.62)')));
     const pad=Math.max(2,cellSize*.050);
     const x=r.x+pad, y=r.y+pad, w=r.w-pad*2, h=r.h-pad*2;
     const fillAlpha=areaThreat
@@ -10283,7 +10304,7 @@ function noahDrawKaijuGroundShadow(cell) {
       : (current ? .82 : .58);
     if(noah3dTacticalHolo){   // v366：3Dでは新しい見た目
       drawTacticalHoloCell(r,{ rgb:baseColor, glow:glowColor, fill:fillAlpha*.95, line:Math.min(1,lineAlpha+.08), strong:current,
-        hazard:areaThreat && !!threat.breakRisk, phase:unitCol*.21+row*.13, tag:current ? 'NOW' : (isMove ? 'MOVE' : 'DEPLOY'), tagAlpha:current ? .9 : .7 });
+        hazard:areaThreat && !!threat.breakRisk, phase:unitCol*.21+row*.13, tag:current ? 'NOW' : (isPeek ? 'OPEN' : (isMove ? 'MOVE' : 'DEPLOY')), tagAlpha:current ? .9 : (isPeek ? .6 : .7) });
       return;
     }
     boardCtx.save();
@@ -10322,7 +10343,7 @@ function noahDrawKaijuGroundShadow(cell) {
       blur:cellSize*((current && !areaThreat) ? .16 : (areaThreat ? .14 : .10))
     });
 
-    const tag=isMove ? 'MOVE' : 'DEPLOY';
+    const tag=isPeek ? 'OPEN' : (isMove ? 'MOVE' : 'DEPLOY');
     boardCtx.globalCompositeOperation='source-over';
     boardCtx.globalAlpha=areaThreat ? (current ? .74 : .60) : (current ? .72 : .52);
     boardCtx.fillStyle=`rgba(${baseColor},.92)`;
@@ -10663,7 +10684,8 @@ function noahDrawKaijuGroundShadow(cell) {
     return { damage, breakRisk:(unit.hp - damage)<=0, targeted:true, area };
   }
   function drawSortieDamageForecastOverlays(cellSize){
-    if(game.mode!=='sortie' || game.gameOver) return;
+    const gm=noahGridMode();
+    if((gm!=='sortie' && gm!=='peek') || game.gameOver) return;   // v393：前線確認（見るだけ）でも、出撃したときの被弾予測を出す
     const unit=curUnit();
     if(!unit) return;
     boardCtx.save();
@@ -13746,7 +13768,7 @@ function getRandomExplosionCell(){
         <div class="ruleParagraph">基地状態は、アサイラムアークが基地内に待機している状態です。</div>
         <div class="ruleParagraph">基地状態の機体は盤面上に存在しないため、怪獣の攻撃対象になりません。</div>
         <div class="ruleParagraph">基地状態では、研究開発、機体強化、カード除外、防衛軍攻撃中止要請、ターン終了を行えます。</div>
-        <div class="ruleParagraph">基地状態の機体のターンでは、盤面が基地（格納庫）の画面に切り替わります。各コマンドは、機体のまわりのボタン（整備アームから線でつながっています）から選びます。下の「前線確認」で戦場の様子を確認でき、右下の「基地」で格納庫へ戻れます。格納庫の機体を押すと、その機体の情報を確認できます。</div>
+        <div class="ruleParagraph">基地状態の機体のターンでは、盤面が基地（格納庫）の画面に切り替わります。各コマンドは、機体のまわりのボタン（機体から線でつながっています）から選びます。下の「前線確認」で戦場の様子を確認でき（出撃できる空きマスと、出撃したときの被弾予測も表示されます）、右下の「基地」で格納庫へ戻れます。格納庫の機体を押すと、その機体の情報を確認できます。</div>
 
         <div class="ruleParagraphGap">研究開発では、RPを消費して新しいカードを配備できます。研究開発候補一覧では、配備可能なカードの内容を確認できます。研究開発開始を行うと、属性が重複しない形で3枚の候補カードが提示され、その中から1枚を選んで、好きなアサイラムアーク1機へ配備します。配備先の機体が出撃状態なら山札へ追加して終幕を除いてシャッフルし、基地にいる機体なら基地内へ入ります（出撃するときに、基地内カードと山札をまとめてシャッフルして山札になります）。</div>
 
@@ -16280,17 +16302,18 @@ function checkGameEnd(){
     boardCtx.save();
     boardCtx.translate(offsetX, offsetY);
 
-    if((game.mode==='move' || game.mode==='sortie') && !game.gameOver){
+    const gridMode=noahGridMode();   // v393：格納庫の「前線確認」でもマス目を出す（'peek'）
+    if(gridMode){
       const unit=curUnit();
       const rows=[4,5,6];
       [0,1,2].forEach(unitCol=>{
         rows.forEach(row=>{
-          const occupied=isGridOccupied(unitCol,row,game.mode==='move' ? unit : null);
-          const current=game.mode==='move' && unit && unitColOf(unit)===unitCol && unit.row===row;
+          const occupied=isGridOccupied(unitCol,row,gridMode==='move' ? unit : null);
+          const current=gridMode==='move' && unit && unitColOf(unit)===unitCol && unit.row===row;
           if(occupied && !current) return;
           const forecast=unit ? hypotheticalKaijuDamageForCell(unit, unitCol, row) : null;
           const areaThreat=!!(forecast && forecast.area && forecast.targeted);
-          drawTacticalCandidateCell(cell, unitCol, row, { mode:game.mode, current, forecast, areaThreat });
+          drawTacticalCandidateCell(cell, unitCol, row, { mode:gridMode, current, forecast, areaThreat });
         });
       });
     }
@@ -19186,7 +19209,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
         if(o.lp2) fl.frequency.exponentialRampToValueAtTime(o.lp2, t0 + d);
         last.connect(fl); last = fl;
       }
-      last.connect(gn); gn.connect(bus);
+      last.connect(gn); gn.connect(o.out || bus);
       s.start(t0); s.stop(t0 + d + .05);
     }
     function noise(ctx, o){
@@ -19201,8 +19224,24 @@ function showHandPopup(index){ if(game.inputLocked) return;
       gn.gain.setValueAtTime(0.0001, t0);
       gn.gain.exponentialRampToValueAtTime(v, t0 + a);
       gn.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
-      s.connect(fl); fl.connect(gn); gn.connect(bus);
+      s.connect(fl); fl.connect(gn); gn.connect(o.out || bus);
       s.start(t0, Math.random() * .5); s.stop(t0 + d + .05);
+    }
+    // v393 長い音（発進のサイレン・上昇の機械音）：専用の音量の口を通して、飛ばしたとき・やめたときに止められるようにする（hgStop）
+    const live = [];
+    function voice(ctx, sec){
+      const g = ctx.createGain(); g.gain.value = 1; g.connect(bus);
+      const now = ctx.currentTime;
+      for(let i = live.length - 1; i >= 0; i--) if(live[i].ctx !== ctx || live[i].end < now) live.splice(i, 1);
+      live.push({ ctx, g, end:now + sec + .2 });
+      return g;
+    }
+    // 速さの曲線などを音量・高さに当てる（values は 0〜1 の列。lo〜hi に直して、t0 から sec 秒に広げる）
+    function curve(param, t0, sec, values, lo, hi){
+      const a = new Float32Array(values.length);
+      for(let i = 0; i < values.length; i++) a[i] = lo + (hi - lo) * values[i];
+      param.value = a[0];                                            // ＝ いまの時刻に a[0]（曲線と重ならないよう、曲線は少しあとから）
+      param.setValueCurveAtTime(a, t0 + .002, Math.max(.01, sec - .002));
     }
     function chord(ctx, freqs, o){ freqs.forEach((f, i)=>tone(ctx, Object.assign({}, o, { f, t:(o.t || 0) + (o.stagger || 0) * i }))); }
     function pad(ctx, freqs, o){ freqs.forEach(f=>[-8, 8].forEach(det=>tone(ctx, Object.assign({ type:'sawtooth' }, o, { f, det })))); }
@@ -19225,7 +19264,7 @@ function showHandPopup(index){ if(game.inputLocked) return;
     const VOL = { start:2.8, stream:5.5, tick:3.2, riser:3.7, esc:[1, 1.3, 1.3, 1.3], stall:1.2, pre:[1, 1, 3.7, 3.9, 1.8], charge:3.8, burst:[1.3, 1.3, 1.3, 1.3],
       fly:5.4, land:2.1, flip:2.6, stamp:[4.2, 4.4, 1.4, 1.3, 1.3], heartbeat:1.2, glitch:3.9, down:1.3, result:[5.6, 5.6, 3.2, 3.2, 3.2],
       hudOpen:7.5, hudSwitch:7.5, hudClose:6.5,   // v385 機体解析HUD（ほかの画面を開く音と同じくらいに合わせる）
-      hgOpen:4.8, hgPeek:8.5, hgAlarm:3, hgLift:5.6, hgLock:3.6, hgIgnite:7, hgLaunch:2.4 };   // v392 格納庫・発進シークエンス（OfflineAudioContext で測って合わせた）
+      hgOpen:4.8, hgPeek:8.5, hgAlarm:1.8, hgLift:2.4, hgLock:3.2, hgIgnite:7, hgLaunch:2.4 };   // v392 格納庫・発進シークエンス（OfflineAudioContext で測って合わせた。v393 サイレン・上昇・ロックを作り直して測り直した）
     const R = {
       start(c){
         tone(c, { f:220, f2:1760, gd:.16, d:.22, v:.12 });
@@ -19359,27 +19398,133 @@ function showHandPopup(index){ if(game.inputLocked) return;
         tone(c, { type:'triangle', f:1174.66, d:.08, v:.04, a:.002 });
         tone(c, { type:'triangle', f:1567.98, t:.05, d:.1, v:.03, a:.002 });
       },
-      // 発進シークエンス：警報（2つの高さの電子音）→ 上昇（うなりが上がり、光の輪が通る音）→ ロック（カチッ。短いノイズと低い一打ち＋確認の音）
-      //   → 点火（タービンが回り出す）→ 発進（ドン＋噴射の音が遠ざかる）。金属的な響きにはしない
+      // 発進シークエンス（v393 作り直し）：
+      //   警報 … 回転灯が回る間（昇り終えてロックするまで）、うなるサイレン（上がって下がるのを繰り返し、ロックで下がって消える）
+      //   上昇 … 重い機械の音：動き出しの「ガコン」→ モーターの低いうなり・レールの「ガタガタ」・歯車がこすれる「ギギギギ」（台の速さに合わせて強く・速く）
+      //   ロック … 「ガチャ」：低い一撃と、留め具が閉じる2つの音・少しのがたつき・油圧の「プシュー」（電子音は入れない）
+      //   → 点火（タービンが回り出す）→ 発進（ドン＋噴射の音が遠ざかる）。どれも高い金属の響き（キーン・カーン）にはしない
       hgAlarm(c){
-        for(let i = 0; i < 4; i++){
-          const f = i % 2 ? 1046.5 : 783.99;
-          tone(c, { type:'triangle', f, t:i * .19, d:.16, v:.07, a:.004 });
-          tone(c, { type:'square', f:f * 2, t:i * .19, d:.1, v:.012, a:.004, lp:2600 });
-        }
-        tone(c, { f:72, f2:58, d:.8, v:.16, a:.05 });
+        const out = voice(c, 2.9), t0 = c.currentTime;
+        tone(c, { f:70, f2:44, d:.55, v:.2, a:.006, out });                 // 警報が入る、低い一打ち
+        // 高さ：上がる（0.5秒）→ 下がる・上がるを2回半 → ロックの頃に下がって消える
+        const sweep = (p, m)=>{
+          p.setValueAtTime(230 * m, t0);
+          p.exponentialRampToValueAtTime(760 * m, t0 + .5);
+          let t = t0 + .5;
+          for(let k = 0; k < 2; k++){ p.exponentialRampToValueAtTime(520 * m, t + .36); p.exponentialRampToValueAtTime(780 * m, t + .78); t += .78; }
+          p.exponentialRampToValueAtTime(520 * m, t + .36);
+          p.exponentialRampToValueAtTime(300 * m, t + .8);
+        };
+        const env = c.createGain();
+        env.gain.setValueAtTime(0.0001, t0);
+        env.gain.exponentialRampToValueAtTime(1, t0 + .14);
+        env.gain.setValueAtTime(1, t0 + .8);
+        env.gain.exponentialRampToValueAtTime(.74, t0 + 1.05);             // 上昇が始まったら少し下げる（機械の音を聞かせる）
+        env.gain.setValueAtTime(.74, t0 + 2.3);
+        env.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.78);
+        // 回転灯に合わせた、ゆれ（回るスピーカーのように。1秒に約1.4回）
+        const trem = c.createGain(); trem.gain.value = .8;
+        const lfo = c.createOscillator(); lfo.frequency.value = 1.43;
+        const lg = c.createGain(); lg.gain.value = .2; lfo.connect(lg); lg.connect(trem.gain);
+        const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1900; lp.Q.value = .6;
+        const hp = c.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 170; hp.Q.value = .6;
+        const vol = c.createGain(); vol.gain.value = Math.min(.95, .05 * K);
+        lp.connect(hp); hp.connect(trem); trem.connect(env); env.connect(vol); vol.connect(out);
+        // 音：三角波（芯）＋ のこぎり波2つ（少しずらして厚く）
+        [['triangle', 0, 1], ['sawtooth', -9, .34], ['sawtooth', 9, .34]].forEach(([type, det, g])=>{
+          const o = c.createOscillator(); o.type = type; o.detune.value = det; sweep(o.frequency, 1);
+          const og = c.createGain(); og.gain.value = g; o.connect(og); og.connect(lp);
+          o.start(t0); o.stop(t0 + 2.9);
+        });
+        // 風の音（回るサイレンの、息の混じった響き。高さに付いていく）
+        const ns = c.createBufferSource(); ns.buffer = nbuf(c); ns.loop = true;
+        const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 3.2; sweep(bp.frequency, 1);
+        const ng = c.createGain(); ng.gain.value = 1.3;
+        ns.connect(bp); bp.connect(ng); ng.connect(lp);
+        ns.start(t0, Math.random() * .5); ns.stop(t0 + 2.9);
+        lfo.start(t0); lfo.stop(t0 + 2.9);
       },
       hgLift(c){
-        tone(c, { type:'sawtooth', f:55, f2:150, gd:1.6, d:1.75, v:.05, lp:300, lp2:1500, a:.25 });
-        noise(c, { f:380, f2:2800, d:1.7, v:.07, q:.9, a:.55 });
-        for(let i = 0; i < 10; i++) tone(c, { f:1150 + i * 95, t:.35 + i * .115, d:.05, a:.003, v:.024 });
+        //   スマホの小さなスピーカーでも重さが出るように、低い音の「倍音」（150〜900Hz あたり）をしっかり出す
+        const D = 1.75, out = voice(c, D + .3), t0 = c.currentTime;
+        // 台の速さ（0〜1）：3D の昇り方と同じ（動き出しはゆっくり → 真ん中で速く → 最後はゆっくり止まる）
+        const spd = u=>{ u = Math.max(0, Math.min(1, u)); return u < .5 ? Math.pow(u * 2, 1.2) : Math.pow(2 - u * 2, 1.4); };
+        const N = 64, sp = [];
+        for(let i = 0; i < N; i++) sp.push(spd(i / (N - 1)));
+        const lvl = sp.map((v, i)=>(.22 + .78 * v) * Math.min(1, (N - 1 - i) / 3));   // ロックの瞬間に止まる
+        // 動き出しの「ガコン」（ブレーキが外れる）
+        tone(c, { f:112, f2:40, d:.36, v:.36, a:.004, out });
+        tone(c, { type:'triangle', f:190, f2:70, d:.24, v:.3, a:.004, out });
+        noise(c, { ft:'lowpass', f:1000, f2:180, d:.18, v:.32, a:.003, q:.5, out });
+        noise(c, { f:330, d:.13, v:.26, a:.003, q:.8, t:.08, out });
+        tone(c, { type:'triangle', f:150, f2:62, d:.16, v:.22, a:.004, t:.08, out });
+        // モーターの低いうなり（高さも速さに合わせて上がる。歯車が噛む細かいゆれ付き）
+        {
+          const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1.1; curve(lp.frequency, t0, D, sp, 420, 760);
+          const am = c.createGain(); am.gain.value = .7;
+          const lfo = c.createOscillator(); lfo.type = 'triangle'; curve(lfo.frequency, t0, D, sp, 7, 15);
+          const lg = c.createGain(); lg.gain.value = .3; lfo.connect(lg); lg.connect(am.gain);
+          const g = c.createGain(); curve(g.gain, t0 + .05, D - .05, lvl.map((v, i)=>v * Math.min(1, i / 5)), 0, Math.min(.95, .05 * K));
+          lp.connect(am); am.connect(g); g.connect(out);
+          [[1, 0, 1], [1.5, 6, .5], [2, -5, .3]].forEach(([m, det, k])=>{
+            const o = c.createOscillator(); o.type = 'sawtooth'; o.detune.value = det;
+            curve(o.frequency, t0, D, sp, 44 * m, 72 * m);
+            const og = c.createGain(); og.gain.value = k; o.connect(og); og.connect(lp);
+            o.start(t0); o.stop(t0 + D + .1);
+          });
+          lfo.start(t0); lfo.stop(t0 + D + .1);
+        }
+        // 歯車がこすれる「ギギギギ」：低いのこぎり波（1秒に17〜29回こする）を、こもった3つの帯域に通す
+        {
+          const g = c.createGain(); curve(g.gain, t0 + .1, D - .1, lvl.map((v, i)=>Math.pow(v, 1.15) * Math.min(1, i / 7)), 0, Math.min(.95, .12 * K));
+          g.connect(out);
+          const o = c.createOscillator(); o.type = 'sawtooth';
+          curve(o.frequency, t0, D, sp, 17, 29);
+          const vib = c.createOscillator(); vib.frequency.value = 4.6 + Math.random(); const vg = c.createGain(); vg.gain.value = 2.4; vib.connect(vg); vg.connect(o.frequency);
+          [[360, 1.7, .8], [640, 2.1, 1], [1050, 2.4, .55]].forEach(([f, q, k])=>{
+            const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+            const bg = c.createGain(); bg.gain.value = k; o.connect(bp); bp.connect(bg); bg.connect(g);
+          });
+          o.start(t0); o.stop(t0 + D + .1); vib.start(t0); vib.stop(t0 + D + .1);
+          const ns = c.createBufferSource(); ns.buffer = nbuf(c); ns.loop = true;
+          const nb = c.createBiquadFilter(); nb.type = 'bandpass'; nb.frequency.value = 700; nb.Q.value = 1.3;
+          const ng = c.createGain(); ng.gain.value = .5;
+          ns.connect(nb); nb.connect(ng); ng.connect(g); ns.start(t0, Math.random() * .5); ns.stop(t0 + D + .1);
+        }
+        // レールの「ガタガタ」：こもった短いノック（速いほど間が詰まる。4つに1つは重い継ぎ目）
+        {
+          let t = .15, n = 0;
+          while(t < D - .07){
+            const v = spd(t / D);
+            const heavy = n % 4 === 0;
+            const a = (.08 + .13 * v) * (.65 + Math.random() * .35) * (heavy ? 1.4 : 1);
+            noise(c, { ft:'lowpass', f:430 + Math.random() * 330, d:heavy ? .075 : .05, v:a, a:.004, q:.7, t, out });
+            tone(c, { type:'triangle', f:heavy ? 205 : 250, f2:heavy ? 88 : 120, d:heavy ? .085 : .055, v:a * .8, a:.004, t, out });
+            t += .135 - .075 * v + (Math.random() - .5) * .022; n++;
+          }
+        }
+        // 縦穴の空気（低い風の音）
+        {
+          const ns = c.createBufferSource(); ns.buffer = nbuf(c); ns.loop = true;
+          const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = .5; curve(lp.frequency, t0, D, sp, 260, 760);
+          const g = c.createGain(); curve(g.gain, t0, D, sp, 0, Math.min(.95, .04 * K));
+          ns.connect(lp); lp.connect(g); g.connect(out); ns.start(t0, Math.random() * .5); ns.stop(t0 + D + .1);
+        }
       },
       hgLock(c){
-        noise(c, { ft:'highpass', f:3200, d:.035, v:.15, a:.001 });
-        tone(c, { type:'square', f:2400, d:.03, v:.03, a:.001, lp:5000 });
-        tone(c, { f:150, f2:70, d:.12, v:.3, a:.002 });
-        tone(c, { type:'triangle', f:1318.5, t:.09, d:.12, v:.05, a:.003 });
-        tone(c, { type:'triangle', f:1760, t:.16, d:.22, v:.05, a:.003 });
+        // ガ：重い一撃（低い胴の音 ＋ スマホでも聞こえる胴鳴り ＋ こもった衝撃）
+        tone(c, { f:108, f2:42, d:.4, v:.42, a:.003 });
+        tone(c, { type:'triangle', f:215, f2:92, d:.16, v:.34, a:.003 });
+        noise(c, { ft:'lowpass', f:1200, f2:200, d:.17, v:.42, a:.002, q:.5 });
+        noise(c, { f:390, d:.12, v:.38, a:.002, q:.7 });
+        // チャ：留め具が閉じる（2つ。少しずれる）
+        noise(c, { f:1550, f2:980, d:.075, v:.26, a:.002, q:1.1, t:.06 });
+        noise(c, { f:1120, f2:720, d:.065, v:.22, a:.002, q:1, t:.09 });
+        tone(c, { type:'triangle', f:320, f2:150, d:.07, v:.16, a:.003, t:.06 });
+        // がたつき（すぐ収まる）
+        [.17, .222, .26].forEach((t, i)=>{ noise(c, { ft:'lowpass', f:680, d:.045, v:.11 * (1 - i * .3), a:.003, q:.6, t }); tone(c, { type:'triangle', f:230, f2:110, d:.045, v:.08 * (1 - i * .3), a:.003, t }); });
+        // 油圧の「プシュー」（小さく）
+        noise(c, { f:3000, f2:1800, d:.5, v:.035, a:.04, q:.6, t:.22 });
       },
       hgIgnite(c){
         tone(c, { type:'sawtooth', f:180, f2:1100, gd:.4, d:.45, v:.045, lp:900, lp2:3200, a:.1 });
@@ -19405,6 +19550,31 @@ function showHandPopup(index){ if(game.inputLocked) return;
     });
     // 先にリミッター・残響を作っておく（作った直後の音は小さく出るので、研究開発のメニューを開いたときに用意）
     S.warm = ()=>{ io(); };
+    // v393 長い音（サイレン・上昇）を止める（発進を飛ばした・やめた・ポーズを開いた）
+    S.hgStop = ()=>{
+      live.forEach(v=>{ try{ const n = v.ctx.currentTime; v.g.gain.cancelScheduledValues(n); v.g.gain.setValueAtTime(v.g.gain.value, n); v.g.gain.setTargetAtTime(0, n, .035); }catch(e){} });
+      live.length = 0;
+    };
+    // テスト用（v393）：いくつかの音を、時刻をずらしてメモリ上で鳴らし、まとめて測る。list … [[name, arg, 秒], ...]
+    S.debugMeasureSeq = (list, secs = 5, raw = false)=>{
+      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      if(!OAC || !oc_ok(list)) return Promise.resolve(null);
+      const oc = new OAC(1, Math.round(44100 * (secs + .1)), 44100);
+      ovr = { ctx:oc, out:oc.destination }; bus = null; io();
+      const keep = bus;
+      ovr = null; bus = null;
+      const fire = (name, arg)=>{ ovr = { ctx:oc, out:oc.destination }; bus = keep; busCtx = oc; try{ S[name](arg); }finally{ ovr = null; bus = null; } };
+      const at = q=>Math.round((.1 + q) * 44100 / 128) * 128 / 44100;     // 区切り（128サンプル）にそろえる
+      list.slice().sort((a, b)=>a[2] - b[2]).forEach(([name, arg, t])=>{ oc.suspend(at(t)).then(()=>{ fire(name, arg); oc.resume(); }); });
+      return oc.startRendering().then(buf=>{
+        const d = buf.getChannelData(0); let peak = 0, sum = 0;
+        for(let i = 0; i < d.length; i++){ const v = Math.abs(d[i]); if(v > peak) peak = v; sum += d[i] * d[i]; }
+        const o = { peak:+peak.toFixed(3), rms:+Math.sqrt(sum / d.length).toFixed(4) };
+        if(raw) o.samples = Array.from(d, v=>Math.round(v * 32767));
+        return o;
+      });
+    };
+    function oc_ok(list){ return Array.isArray(list) && list.every(x=>Array.isArray(x) && typeof R[x[0]] === 'function'); }
     // テスト用：音をメモリ上で鳴らして、大きさ（ピーク・RMS）を測る。raw のときは波形も返す
     S.debugMeasure = (name, arg, secs = 2, raw = false)=>{
       const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -22337,15 +22507,22 @@ function showCardEnchantChoice(unit,item){
   let noahHangarNoCut = false;    // 発進が終わって戦場へ戻るとき（白い光のまま）は、切り替わりの幕を出さない
   // 発進シークエンスの区切り（ms）。3D（noah3d.js）も同じ数字で動く
   const NOAH_LAUNCH_T = { alert:0, lift:800, lock:2550, ignite:3050, go:3350, out:4150, total:4450 };
-  // ボタンはどれも同じ落ち着いた色（ミリタリー調）。上の小さな文字はアームの番号（レールの上の ARM-1〜4 と同じ）
+  // ボタンはどれも同じ落ち着いた色（ミリタリー調）。上の小さな文字は働きの名前（v393：アームとボタンは対応させない）
   const NOAH_HANGAR_CALLS = [
-    { key:'upgrade', cap:'ARM-1 ／ UPGRADE', label:'機体強化', flash:'primary' },
-    { key:'card', cap:'ARM-2 ／ CARD SYSTEM', label:'カード強化/除去', flash:'primary' },
-    { key:'rd', cap:'ARM-3 ／ R&amp;D', label:'研究開発', flash:'research' },
-    { key:'hotline', cap:'ARM-4 ／ HOTLINE', label:'防衛軍攻撃中止要請', flash:'danger' },
+    { key:'upgrade', cap:'UNIT UPGRADE', label:'機体強化', flash:'primary' },
+    { key:'card', cap:'CARD SYSTEM', label:'カード強化/除去', flash:'primary' },
+    { key:'rd', cap:'R&amp;D LAB', label:'研究開発', flash:'research' },
+    { key:'hotline', cap:'DEFENSE HOTLINE', label:'防衛軍攻撃中止要請', flash:'danger' },
   ];
   function noahHangarKey(){ return `${game.round}:${game.active}`; }
   function noahHangarUnit(){ return noahHangar && game && game.units ? game.units[noahHangar.unitIndex] || null : null; }
+  // v393 マス目（出撃・移動の候補のマス）を出すか：移動先・出撃先を選んでいる間は game.mode、格納庫の「前線確認」（見るだけ）は 'peek'
+  function noahGridMode(){
+    if(!game || game.gameOver) return null;
+    if(game.mode==='move' || game.mode==='sortie') return game.mode;
+    try{ if(noahHangarActive() && noahHangar.peek && !noahHangar.launch) return 'peek'; }catch(e){}
+    return null;
+  }
   function noahHangarActive(){
     if(!noahHangar || !gameStarted || !game || game.gameOver || game.endlessIntermission) return false;
     if(noahHangar.launch) return !noahHangar.launch.done;
@@ -22398,7 +22575,7 @@ function showCardEnchantChoice(unit,item){
     const el = document.createElement('div');
     el.id = 'hangarHud';
     el.innerHTML = `<svg class="hgLines" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${NOAH_HANGAR_CALLS.map(c=>`<g class="hgLine" data-line="${c.key}"><path class="hgL" pathLength="100" d=""/><rect class="hgTick" width="5" height="5" x="-9" y="-9"/><circle class="hgRing" r="5.5" cx="-9" cy="-9"/><circle class="hgDot" r="2.2" cx="-9" cy="-9"/></g>`).join('')}</svg>`
-      + NOAH_HANGAR_CALLS.map(c=>`<button class="hgCall" type="button" data-hg="${c.key}"><span class="hgLamp" aria-hidden="true"></span><span class="hgTxt"><i>${c.cap}</i><b>${c.label}</b><em class="hgNote"></em></span></button>`).join('')
+      + NOAH_HANGAR_CALLS.map(c=>`<button class="hgCall" type="button" data-hg="${c.key}"><span class="hgLamp" aria-hidden="true"></span><span class="hgTxt"><span class="hgCapRow"><i>${c.cap}</i><em class="hgNote"></em></span><b>${c.label}</b></span></button>`).join('')
       + `<button class="hgFront" type="button" data-hg="front"><span class="hgTxt"><i>FRONT LINE</i><b>前線確認</b></span></button>`
       + `<div class="hgBanner" aria-live="polite"><b></b><span></span><i class="hgBar"><u></u><s></s></i></div>`
       + `<div class="hgSeq" aria-live="polite"><div class="hgSeqHead"><i></i><span>LAUNCH SEQUENCE</span><em></em></div><div class="hgSeqWord"></div><div class="hgSeqSub"></div><div class="hgSeqBar"><u></u></div><div class="hgSkip">TAP TO SKIP</div></div>`;
@@ -22585,6 +22762,8 @@ function showCardEnchantChoice(unit,item){
     L.lastAt = now;
     const paused = ui.pauseBg && ui.pauseBg.style.display === 'flex';
     if(!paused && !L.frozen) L.t += dt;
+    if(paused && !L.pausedSfx){ L.pausedSfx = true; try{ rdSfx.hgStop(); }catch(e){} }   // v393 ポーズ中はサイレン・機械音を止める
+    if(!paused) L.pausedSfx = false;
     const T = NOAH_LAUNCH_T;
     const cue = (name, at, fn)=>{ if(!L.fired[name] && L.t >= at){ L.fired[name] = true; try{ fn(); }catch(e){} } };
     cue('alert', T.alert, ()=>rdSfx.hgAlarm());
@@ -22608,11 +22787,12 @@ function showCardEnchantChoice(unit,item){
     ['alert','lift','lock','ignite','go'].forEach(k=>{ L.fired[k] = true; });
     L.t = T.out;
     L.skipAt = performance.now();
+    try{ rdSfx.hgStop(); }catch(e){}
     try{ rdSfx.hgPeek(); }catch(e){}
   }
   function noahLaunchAbort(){
     const L = noahHangar && noahHangar.launch;
-    if(L){ L.done = true; if(L.raf) cancelAnimationFrame(L.raf); }
+    if(L){ L.done = true; if(L.raf) cancelAnimationFrame(L.raf); try{ rdSfx.hgStop(); }catch(e){} }
     noahHangar = null;
     noahBoardFlash('off');
     if(L && L.game === game && game) setInputLocked(false);
@@ -22709,27 +22889,6 @@ function showCardEnchantChoice(unit,item){
     g.fillStyle = '#c98c27';
     for(let i = 0; i < 40; i++){ const a = i / 40 * Math.PI * 2; g.beginPath(); g.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); g.lineTo(cx + Math.cos(a + .08) * R, cy + Math.sin(a + .08) * R); g.lineTo(cx + Math.cos(a + .2) * R * 1.4, cy + Math.sin(a + .2) * R * 1.4); g.lineTo(cx + Math.cos(a + .12) * R * 1.4, cy + Math.sin(a + .12) * R * 1.4); g.closePath(); g.fill(); }
     g.restore();
-    // 天井のレール（左右）と、そこから下がるアーム（3D と同じ並び。色はガンメタル・黒・白い灯り）
-    const railX = [cx - R * 1.5, cx + R * 1.5];
-    g.globalAlpha = (L && lt >= T.lift) ? Math.max(0, 1 - lift * 2) : 1;
-    g.fillStyle = '#2b3036'; railX.forEach(x=>g.fillRect(x - R * 0.12, 0, R * 0.24, H));
-    g.fillStyle = 'rgba(0,0,0,.45)'; railX.forEach(x=>g.fillRect(x - R * 0.12, 0, R * 0.04, H));
-    const arms = [[-1, -0.59, 'upgrade', -0.49, -0.33], [1, -0.46, 'card', 0.45, -0.2], [-1, 0.54, 'rd', -0.59, 0.27], [1, 0.66, 'hotline', 0.56, 0.32]];
-    const anchors = [];
-    arms.forEach(([side, ty, key, hx0, hy0])=>{
-      const bx = cx + side * R * 1.5, by = cy + ty * R * 2.0;
-      const k = L ? Math.max(0, 1 - Math.max(0, lt - 100) / 500) : 1;
-      const hx = bx + (cx + hx0 * R * 2 - bx) * k + (1 - k) * (-side * R * 0.3), hy = by + (cy + hy0 * R * 2 - by) * k;
-      const ex = (bx + hx) / 2 + (hy - by) * 0.18 * side, ey = (by + hy) / 2 - (hx - bx) * 0.18 * side;   // ひじ（少し外へ）
-      g.lineCap = 'round';
-      g.strokeStyle = '#3a4048'; g.lineWidth = R * 0.12;
-      g.beginPath(); g.moveTo(bx, by); g.lineTo(ex, ey); g.lineTo(hx, hy); g.stroke();
-      g.fillStyle = '#121418';
-      [[bx, by, 0.13], [ex, ey, 0.1], [hx, hy, 0.08]].forEach(([x, y, r])=>{ g.beginPath(); g.arc(x, y, R * r, 0, Math.PI * 2); g.fill(); });
-      g.fillStyle = '#d8ecff'; g.shadowColor = '#d8ecff'; g.shadowBlur = 8; g.beginPath(); g.arc(hx, hy, R * 0.045, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
-      anchors.push({ key, x:hx, y:hy });
-    });
-    g.globalAlpha = 1;
     // 台と機体
     g.save();
     g.translate(cx, cy); g.scale(zoom, zoom);
@@ -22763,6 +22922,55 @@ function showCardEnchantChoice(unit,item){
     }
     if(locked){ const k = Math.max(0, 1 - (lt - T.lock) / 450); g.strokeStyle = `rgba(140,255,200,${k})`; g.lineWidth = 6; g.beginPath(); g.arc(0, 0, R * (1.05 + (1 - k) * 0.3), 0, Math.PI * 2); g.stroke(); }
     g.restore();
+    // v393 アーム（機体の上に重ねる。3D と同じ並び）：天井から下がる柱（上から見ると、外へ向かって太くなる線）・ひじ・機体へ伸びる腕・工具
+    //   位置は 3D の格納庫と同じ（台の半径 2 ＝ R）。カメラの真下（台の少し手前）から外へ放射状に見える
+    const u = R / 2, nad = { x:cx, y:cy + 2.5 * u };
+    const P = (x, y, z)=>{ const k = 14.2 / Math.max(1.6, 14.2 - y); return [nad.x + (cx + x * u - nad.x) * k, nad.y + (cy + z * u - nad.y) * k]; };
+    const arms = [
+      { key:'upgrade', link:[-2.32, 3.15, -1.62], tip:[-0.72, 0.74, -0.98] },
+      { key:'card', tip:[0.98, 0.7, -0.38] },
+      { key:'rd', tip:[-1.12, 0.68, 0.8] },
+      { key:'hotline', link:[2.28, 3.25, 1.86], tip:[0.62, 0.74, 1.15] },
+    ];
+    const anchors = [];
+    const k = L ? Math.max(0, 1 - Math.max(0, lt - 100) / 600) : 1;   // 発進：たたむ・外へ退く
+    g.globalAlpha = (L && lt >= T.lift) ? Math.max(0, 1 - lift * 2) : 1;
+    g.lineCap = 'butt';
+    const mast = (x, y0, z)=>{   // 柱（下の端 → 天井）。太さは近いほど太く
+      const [ax, ay] = P(x, y0, z), [bx, by] = P(x, 11.5, z);
+      const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l;
+      const w0 = R * 0.035, w1 = R * 0.13;
+      g.fillStyle = '#2f353c';
+      g.beginPath(); g.moveTo(ax + nx * w0, ay + ny * w0); g.lineTo(bx + nx * w1, by + ny * w1); g.lineTo(bx - nx * w1, by - ny * w1); g.lineTo(ax - nx * w0, ay - ny * w0); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(150,160,172,.22)';
+      g.beginPath(); g.moveTo(ax + nx * w0 * .5, ay + ny * w0 * .5); g.lineTo(bx + nx * w1 * .5, by + ny * w1 * .5); g.lineTo(bx + nx * w1 * .2, by + ny * w1 * .2); g.lineTo(ax + nx * w0 * .2, ay + ny * w0 * .2); g.closePath(); g.fill();
+      [0.2, 0.42].forEach(q=>{ const [qx, qy] = P(x, y0 + (11.5 - y0) * q, z); g.fillStyle = '#9b7a2c'; g.beginPath(); g.arc(qx, qy, R * (0.045 + q * 0.06), 0, Math.PI * 2); g.fill(); });
+      return [ax, ay];
+    };
+    arms.forEach(A=>{
+      let [tx, ty, tz] = A.tip;
+      if(A.link){
+        const [mx, sy, mz] = A.link;
+        // たたむ：先がひじの真上へ寄って上がる
+        tx = mx + (tx - mx) * (0.15 + 0.85 * k); tz = mz + (tz - mz) * (0.15 + 0.85 * k); ty = sy + (ty - sy) * (2 * k - 1);
+        const [ex, ey] = mast(mx, sy + .2, mz);
+        const [hx, hy] = P(tx, ty, tz);
+        g.strokeStyle = '#454c55'; g.lineWidth = R * 0.1; g.beginPath(); g.moveTo(ex, ey); g.lineTo(hx, hy); g.stroke();
+        g.strokeStyle = 'rgba(200,208,216,.45)'; g.lineWidth = R * 0.02; g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex + (hx - ex) * .7, ey + (hy - ey) * .7); g.stroke();
+        g.fillStyle = '#1e2227'; g.fillRect(ex - R * 0.1, ey - R * 0.1, R * 0.2, R * 0.2);
+        g.fillStyle = '#9b7a2c'; g.fillRect(ex - R * 0.1, ey - R * 0.1, R * 0.2, R * 0.035);
+        if(k > 0.5) anchors.push({ key:A.key, x:hx, y:hy });
+        g.fillStyle = '#d8ecff'; g.shadowColor = '#d8ecff'; g.shadowBlur = 6; g.beginPath(); g.arc(hx, hy, R * 0.035, 0, Math.PI * 2); g.fill(); g.shadowBlur = 0;
+      }else{
+        const out = 1 + (1 - k) * 1.8;   // 外へ退く
+        tx *= out; tz *= out; ty += (1 - k) * 3.4;
+        const [hx, hy] = mast(tx, ty + 0.35, tz);
+        g.fillStyle = '#16181b'; g.beginPath(); g.arc(hx, hy, R * 0.06, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = 'rgba(159,232,255,.8)'; g.lineWidth = 1.5; g.beginPath(); g.arc(hx, hy, R * 0.06, 0, Math.PI * 2); g.stroke();
+        if(k > 0.5) anchors.push({ key:A.key, x:hx, y:hy });
+      }
+    });
+    g.globalAlpha = 1;
     // 昇っている間：縦穴の光の輪が流れる
     if(L && lt >= T.lift && lt < T.lock){
       for(let i = 0; i < 6; i++){
@@ -23566,16 +23774,17 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
         drawKaijuBoardThreatDamage(cell);
         return noah3dTacticalTagCount>0 ? 'drawn' : 'empty';
       }
-      if((game.mode==='move' || game.mode==='sortie') && !game.gameOver){
+      const gridMode=noahGridMode();   // v393：格納庫の「前線確認」でもマス目を出す（'peek'）
+      if(gridMode){
         const unit=curUnit();
         [0,1,2].forEach(unitCol=>{
           [4,5,6].forEach(row=>{
-            const occupied=isGridOccupied(unitCol,row,game.mode==='move' ? unit : null);
-            const current=game.mode==='move' && unit && unitColOf(unit)===unitCol && unit.row===row;
+            const occupied=isGridOccupied(unitCol,row,gridMode==='move' ? unit : null);
+            const current=gridMode==='move' && unit && unitColOf(unit)===unitCol && unit.row===row;
             if(occupied && !current) return;
             const forecast=unit ? hypotheticalKaijuDamageForCell(unit, unitCol, row) : null;
             const areaThreat=!!(forecast && forecast.area && forecast.targeted);
-            drawTacticalCandidateCell(cell, unitCol, row, { mode:game.mode, current, forecast, areaThreat });
+            drawTacticalCandidateCell(cell, unitCol, row, { mode:gridMode, current, forecast, areaThreat });
           });
         });
       }
@@ -23596,7 +23805,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
   function noah3dTacticalLevel(){
     if(!gameStarted || !game) return 0;
     if(game.gameOver) return 0;   // v376：決着したら戦術パネル（DMG のマス）は出さない（怪獣の決着の動きを見せる。HPの札・観測HUDも決着で消える）
-    if((game.mode==='move' || game.mode==='sortie') && !game.gameOver) return 2;
+    if(noahGridMode()) return 2;
     if(game.phase!=='attack'){
       try{ if(getKaijuBoardThreatCells().some(c=>c.danger || c.damage!=null)) return 2; }catch(e){ return 2; }
     }
@@ -23791,6 +24000,7 @@ if(new URLSearchParams(location.search).get('preview')==='effects'&&window.paren
     debugRdState: ()=>noahGacha ? { phase:noahGacha.phase, tier:noahGacha.tier, lv:noahGacha.lv, premium:noahGacha.premium, skip:noahGacha.skipPhase, ids:noahGacha.ids.slice(), duck:noahBgmDuckLevel,
       flipped:noahGacha.cardEls.map(e=>e.classList.contains('flip')), cls:noahGacha.el.className, particles:noahGacha.fx ? noahGacha.fx.ps.length : 0 } : null,
     debugRdSfx: (name, arg, secs, raw)=>rdSfx.debugMeasure(name, arg, secs, raw),
+    debugRdSfxSeq: (list, secs, raw)=>rdSfx.debugMeasureSeq(list, secs, raw),
     debugBgmDuck: ()=>noahBgmDuckLevel,
     debugEventList: ()=>GAME_EVENTS.map(e=>({ id:e.id, tier:e.tier, name:e.name, available:(()=>{ try{ return !!e.available(); }catch(err){ return 'ERR '+err.message; } })() })),
     debugEventRoll: (n)=>{ const c={}; for(let i=0;i<n;i++){ const e=rollGameEvent(); const k=e ? e.tier : 'none'; c[k]=(c[k]||0)+1; } return c; },

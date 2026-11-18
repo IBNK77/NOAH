@@ -44,6 +44,9 @@
 // v392〜：基地（格納庫）の画面と発進シークエンス（buildHangar・renderHangar。bridge.boardView() が 'hangar' の間は戦場の代わりに描く）。
 //   見下ろしの格納庫・昇降台・機体・整備アーム（index.html の基地メニューのボタンの線の出る所。bridge.hangarAnchors）。
 //   発進：警報 → 台が上の階の滑走路へ昇る → 噛み合う → 点火 → 発進（時間は bridge.hangarInfo().launch）。発進した機体は戦場の下から飛んでくる（bridge.entryFrom）。
+// v393〜：整備アームを縦に（天井から下がる柱 → 縦に回る関節 → 斜めの腕／まっすぐ下りる柱。HG_ARMS）。部品は頂点の色でまとめる（hgParts・hgMerge）。
+//   機体のまわりの道具（電源車・足場・弾薬の台車・工具箱・ボンベ・管制の机・投光器・牽引車など。まとめて1つ）、小さな灯り（InstancedMesh）・画面（hgScreenAtlas）。
+//   滑走路の LED（縁の2本と中心の破線。ロックで台の側から奥へ点く・にじむ光）。塗った白線はやめた。
 // =============================================================================
 (function () {
 'use strict';
@@ -3749,36 +3752,76 @@ function start(bridge) {
     deckLen: 66,       // 滑走路の長さ（台の穴から先）
   };
   const HG_BG = 0x04070c;
-  // 4本の整備アーム（基地メニューのボタンの線が出る所）。天井から吊った左右2本のレール（ガントリー）の台車から柱が下がり、
-  //   その先の水平な2本の腕（肩・ひじは水平に回る）の先に工具と灯り（anchor）。色はガンメタル・黒・白い文字（ミリタリー調・色は控えめ）
-  //   side … どちらのレールか（-1 左・1 右）、tz … 台車の位置（奥 −・手前 +）、head … 腕の先を置く所 [x, z]（機体の上）
-  const HG_RAIL = { x: 3.0, y: 4.9, len: 22, w: 0.46, h: 0.5 };
-  const HG_ARM = { L1: 1.4, L2: 1.25, shoulderY: 2.7, tool: 0.42 };
+  // 4本の整備アーム（v393。ご主人様の横から見たスケッチ）：天井から真下へ下がる柱（伸び縮みする3段の筒）と、
+  //   'link' … 柱の下の関節（水平の軸で縦に回る）から、斜めの腕が機体へ（スケッチの右）
+  //   'drop' … 柱がまっすぐ機体の真上まで下がり、先の工具が機体に触れる（スケッチの左。発進のときは上がって外へ退く）
+  //   mast … 柱の位置 [x, z]（drop は tip の真上）、sy … 関節の高さ、tip … 工具の先（機体の上）[x, y, z]、tool … 工具の種類
+  //   key … 基地メニューの線の行き先（線は工具の先＝機体の作業点へ。ボタンとアームの対応はしなくてよい、とのこと）
   const HG_ARMS = [
-    { key: 'upgrade', side: -1, tz: -2.35, head: [-0.98, -1.3] },    // 左上：機体強化
-    { key: 'card', side: 1, tz: -1.7, head: [0.92, -0.6] },          // 右：カード強化/除去
-    { key: 'rd', side: -1, tz: 2.15, head: [-1.18, 1.08] },          // 左下：研究開発
-    { key: 'hotline', side: 1, tz: 2.65, head: [1.12, 1.28] },       // 右下：防衛軍攻撃中止要請
+    { key: 'upgrade', type: 'link', mast: [-2.32, -1.62], sy: 3.15, tip: [-0.72, 0.74, -0.98], tool: 'grip' },
+    { key: 'card', type: 'drop', tip: [0.98, 0.7, -0.38], tool: 'scan' },
+    { key: 'rd', type: 'drop', tip: [-1.12, 0.68, 0.8], tool: 'nozzle' },
+    { key: 'hotline', type: 'link', mast: [2.28, 1.86], sy: 3.25, tip: [0.62, 0.74, 1.15], tool: 'drill' },
   ];
-  // 水平な2本の腕：肩 (sx, sz) から先 (px, pz) へ。ひじは機体（原点）から遠い側に曲げる。返す値は肩・前腕の向き（rotation.y）
-  function hgArmIK(sx, sz, px, pz, out) {
-    const L1 = HG_ARM.L1, L2 = HG_ARM.L2;
-    let dx = px - sx, dz = pz - sz, d = Math.hypot(dx, dz);
-    const dMax = L1 + L2 - 1e-3, dMin = Math.abs(L1 - L2) + 1e-3;
-    if (d > dMax) { dx *= dMax / d; dz *= dMax / d; d = dMax; }
-    if (d < dMin) { const k = dMin / Math.max(1e-6, d); dx *= k; dz *= k; d = dMin; }
-    const phi = Math.atan2(dz, dx);
-    const beta = Math.acos(Math.max(-1, Math.min(1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d))));
-    let best = null;
-    for (const sgn of [1, -1]) {
-      const a = phi + sgn * beta, ex = sx + Math.cos(a) * L1, ez = sz + Math.sin(a) * L1;
-      const far = ex * ex + ez * ez;
-      if (!best || far > best.far) best = { ex, ez, far };
+  const HG_ARM_TOP = 11.5;     // 柱の上の端（天井。画面の外）
+  const HG_LINK_UP = 1.42;     // 発進のとき、斜めの腕を上へたたむ角度
+  // 色（頂点の色。ミリタリー調：ガンメタル・黒・鋼・くすんだ黄の縞・オリーブ）
+  const HG_COL = { gun: 0x464e57, gun2: 0x5a636d, dark: 0x2a3037, black: 0x16181b, steel: 0x9aa3ac, rod: 0xc8d0d8, hazard: 0xa3802f, rubber: 0x101113,
+    olive: 0x4a5236, olive2: 0x3b422e, khaki: 0x6b6446, white: 0xc9ced4, red: 0x7c2626, orange: 0x9e5a2a, gray: 0x5d646c, plate: 0x4a5057 };
+  // 形をまとめて1つにする（色は頂点の色）。parts … [{ geo, m: Matrix4, color: Color }]。geo は position・normal・uv（あれば index）
+  function hgMerge(parts) {
+    let nv = 0, ni = 0;
+    for (const p of parts) { const n = p.geo.attributes.position.count; nv += n; ni += p.geo.index ? p.geo.index.count : n; }
+    const pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), col = new Float32Array(nv * 3);
+    const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+    const v = new THREE.Vector3(), nm = new THREE.Matrix3();
+    let vo = 0, io = 0;
+    for (const p of parts) {
+      const g = p.geo, P = g.attributes.position, N = g.attributes.normal, U = g.attributes.uv, n = P.count;
+      nm.getNormalMatrix(p.m);
+      for (let i = 0; i < n; i++) {
+        v.fromBufferAttribute(P, i).applyMatrix4(p.m); pos[(vo + i) * 3] = v.x; pos[(vo + i) * 3 + 1] = v.y; pos[(vo + i) * 3 + 2] = v.z;
+        if (N) { v.fromBufferAttribute(N, i).applyMatrix3(nm).normalize(); nor[(vo + i) * 3] = v.x; nor[(vo + i) * 3 + 1] = v.y; nor[(vo + i) * 3 + 2] = v.z; }
+        if (U) { uv[(vo + i) * 2] = U.getX(i); uv[(vo + i) * 2 + 1] = U.getY(i); }
+        col[(vo + i) * 3] = p.color.r; col[(vo + i) * 3 + 1] = p.color.g; col[(vo + i) * 3 + 2] = p.color.b;
+      }
+      if (g.index) for (let i = 0; i < g.index.count; i++) idx[io + i] = g.index.getX(i) + vo;
+      else for (let i = 0; i < n; i++) idx[io + i] = vo + i;
+      vo += n; io += g.index ? g.index.count : n;
+      g.dispose();
     }
-    const tx = sx + dx, tz = sz + dz;
-    out.upper = Math.atan2(sx - best.ex, sz - best.ez);          // 肩：ローカル −Z をひじへ
-    out.fore = Math.atan2(best.ex - tx, best.ez - tz);           // 前腕：ひじから先へ（world の向き）
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.BufferAttribute(pos, 3)); out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    out.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    out.setIndex(new THREE.BufferAttribute(idx, 1));
+    out.computeBoundingSphere(); out.computeBoundingBox();
     return out;
+  }
+  // 部品を並べる道具：add（形・色・位置・回転・拡大）、rod（2点の間の円柱）、tube（曲がった管）、mesh（まとめて1つの Mesh に）
+  function hgParts() {
+    const list = [], E = new THREE.Euler(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+    const api = {
+      list,
+      add(geo, color, p, r, sc) {
+        E.set(r ? r[0] : 0, r ? r[1] : 0, r ? r[2] : 0, r && r[3] ? r[3] : 'XYZ'); Q.setFromEuler(E);
+        P.set(p ? p[0] : 0, p ? p[1] : 0, p ? p[2] : 0); S.set(sc ? sc[0] : 1, sc ? sc[1] : 1, sc ? sc[2] : 1);
+        list.push({ geo, m: new THREE.Matrix4().compose(P, Q, S), color: new THREE.Color(color) });
+        return api;
+      },
+      rod(a, b, r, color, seg = 12, r2) {
+        const A = new THREE.Vector3().fromArray(a), Bv = new THREE.Vector3().fromArray(b), len = A.distanceTo(Bv);
+        const q = new THREE.Quaternion().setFromUnitVectors(UP, Bv.clone().sub(A).normalize());
+        list.push({ geo: new THREE.CylinderGeometry(r2 == null ? r : r2, r, len, seg), m: new THREE.Matrix4().compose(A.clone().add(Bv).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)), color: new THREE.Color(color) });
+        return api;
+      },
+      tube(points, r, color, seg = 24) {
+        const curve = new THREE.CatmullRomCurve3(points.map(q => new THREE.Vector3().fromArray(q)));
+        list.push({ geo: new THREE.TubeGeometry(curve, seg, r, 6, false), m: new THREE.Matrix4(), color: new THREE.Color(color) });
+        return api;
+      },
+      mesh(mat, opt = {}) { const m = new THREE.Mesh(hgMerge(list), mat); m.castShadow = opt.shadow !== false; m.receiveShadow = opt.recv !== false; return m; },
+    };
+    return api;
   }
   let hg = null, hgOn = false, hgSaved = null, hgEnterAt = 0, hgAnchorKey = '', hgAnchorAt = 0, hgBusy = false, hgLastInfo = null;
   const hgV = new THREE.Vector3(), hgV2 = new THREE.Vector3(), hgM = new THREE.Matrix4(), hgQ = new THREE.Quaternion(), hgC = new THREE.Color();
@@ -3870,13 +3913,6 @@ function start(bridge) {
       // 床の灯りの台座（3Dの灯りの下）
       g.fillStyle = 'rgba(0,0,0,.6)';
       for (let i = 0; i < 8; i++) for (const sx of [-1, 1]) g.fillRect(X(sx * 1.25) - 0.1 * k, Z(-3.15 - i * 0.75) - 0.17 * k, 0.2 * k, 0.34 * k);
-      // 天井のレールの真下：頭上注意の線（くすんだ黄の破線）と文字
-      g.save();
-      g.setLineDash([0.34 * k, 0.2 * k]); g.lineWidth = 0.05 * k; g.strokeStyle = 'rgba(180,150,80,.38)';
-      for (const sx of [-1, 1]) for (const off of [-0.42, 0.42]) { g.beginPath(); g.moveTo(X(sx * HG_RAIL.x + off), Z(-8.6)); g.lineTo(X(sx * HG_RAIL.x + off), Z(8.6)); g.stroke(); }
-      g.restore();
-      g.font = `700 ${Math.round(0.2 * k)}px ${HG_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = 'rgba(205,212,222,.28)';
-      for (const sx of [-1, 1]) for (const zz of [-0.2, 4.4]) { g.save(); g.translate(X(sx * HG_RAIL.x), Z(zz)); g.rotate(sx * Math.PI / 2); g.fillText('OVERHEAD ARM', 0, 0); g.restore(); }
       // 床の文字（薄い塗装）
       g.save(); g.fillStyle = 'rgba(205,216,230,.18)';
       g.font = `800 ${Math.round(0.5 * k)}px ${HG_FONT}`;
@@ -3975,16 +4011,57 @@ function start(bridge) {
     }
     for (let i = 0; i < 120; i++) { g.fillStyle = `rgba(0,0,0,${(0.03 + r() * 0.05).toFixed(3)})`; g.beginPath(); g.arc(r() * 256, r() * 256, 1 + r() * 5, 0, Math.PI * 2); g.fill(); }
   });
-  // 滑走路（幅 4.6 × 長さ 8 を繰り返す）。縁の白線・中心の破線・細かいざらつき
+  // 滑走路（幅 4.6 × 長さ 8 を繰り返す）。縁と中心の LED の溝・細かいざらつき
   const hgRunwayTexture = () => canvasTexture(256, 448, (g) => {
     const r = rng(77);
     g.fillStyle = '#0d1218'; g.fillRect(0, 0, 256, 448);
     for (let i = 0; i < 1400; i++) { g.fillStyle = `rgba(${r() < 0.5 ? '0,0,0' : '160,180,205'},${(0.02 + r() * 0.04).toFixed(3)})`; g.fillRect(r() * 256, r() * 448, 2, 2); }
-    g.fillStyle = 'rgba(230,236,244,.78)'; g.fillRect(10, 0, 7, 448); g.fillRect(239, 0, 7, 448);
-    g.fillStyle = 'rgba(230,236,244,.7)'; g.fillRect(124, 60, 8, 150);
-    g.fillStyle = 'rgba(200,210,222,.22)'; g.fillRect(40, 0, 3, 448); g.fillRect(213, 0, 3, 448);
+    // LED の溝（v393：白線は塗らずに、LED が光る。消えているときは暗い溝）
+    for (const x of [8, 237]) { g.fillStyle = '#05080b'; g.fillRect(x, 0, 11, 448); g.fillStyle = 'rgba(140,160,185,.22)'; g.fillRect(x, 0, 1, 448); g.fillRect(x + 10, 0, 1, 448); }
+    g.fillStyle = '#070a0e'; g.fillRect(123, 0, 10, 448);
+    g.fillStyle = 'rgba(200,210,222,.16)'; g.fillRect(40, 0, 3, 448); g.fillRect(213, 0, 3, 448);
     g.fillStyle = 'rgba(0,0,0,.25)'; for (let i = 0; i < 18; i++) { const x = 60 + r() * 136; g.fillRect(x, r() * 448, 3 + r() * 4, 30 + r() * 80); }   // 焦げ跡
   });
+  // 管制の机の画面（4枚を1枚に。256×128 が4つ）：左上 レーダー・右上 棒グラフ・右下 機体の線画・左下 文字
+  let hgScreenTex = null;
+  const hgScreenAtlas = () => hgScreenTex || (hgScreenTex = canvasTexture(512, 256, (g) => {
+    const r = rng(5150);
+    const cell = (ox, oy, tint) => {
+      g.fillStyle = '#03080a'; g.fillRect(ox, oy, 256, 128);
+      g.fillStyle = tint; g.globalAlpha = 0.07; for (let y = 0; y < 128; y += 3) g.fillRect(ox, oy + y, 256, 1); g.globalAlpha = 1;
+      g.strokeStyle = tint; g.globalAlpha = 0.5; g.lineWidth = 2; g.strokeRect(ox + 3, oy + 3, 250, 122); g.globalAlpha = 1;
+    };
+    // 左上：レーダー（同心円・十字・掃く扇・点）
+    cell(0, 0, '#5dffb0');
+    { const cx = 64, cy = 64; g.strokeStyle = 'rgba(93,255,176,.55)'; g.lineWidth = 1.5;
+      for (const rr of [18, 36, 54]) { g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.stroke(); }
+      g.beginPath(); g.moveTo(cx - 56, cy); g.lineTo(cx + 56, cy); g.moveTo(cx, cy - 56); g.lineTo(cx, cy + 56); g.stroke();
+      const sw = g.createRadialGradient(cx, cy, 0, cx, cy, 56); sw.addColorStop(0, 'rgba(93,255,176,.65)'); sw.addColorStop(1, 'rgba(93,255,176,.05)');
+      g.fillStyle = sw; g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, 56, -0.9, -0.15); g.closePath(); g.fill();
+      g.fillStyle = '#c8ffe4'; for (const [a, d] of [[-0.4, 40], [2.2, 26], [3.6, 47]]) { g.beginPath(); g.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, 3, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = 'rgba(93,255,176,.8)'; g.font = `700 13px ${HG_FONT}`; g.textBaseline = 'top';
+      g.fillText('SECTOR 7', 136, 16); g.fillText('CONTACT 03', 136, 36);
+      g.fillStyle = 'rgba(93,255,176,.45)'; for (let i = 0; i < 4; i++) g.fillRect(136, 62 + i * 13, 40 + r() * 70, 6); }
+    // 右上：棒グラフ（くすんだ橙）
+    cell(256, 0, '#ffb45a');
+    { g.fillStyle = 'rgba(255,180,90,.85)'; g.font = `700 13px ${HG_FONT}`; g.textBaseline = 'top'; g.fillText('POWER  /  FUEL', 270, 12);
+      for (let i = 0; i < 11; i++) { const hgt = 18 + r() * 66; g.fillStyle = i === 7 ? 'rgba(255,110,80,.9)' : 'rgba(255,180,90,.7)'; g.fillRect(272 + i * 20, 116 - hgt, 13, hgt); }
+      g.fillStyle = 'rgba(255,180,90,.35)'; g.fillRect(268, 117, 222, 2); }
+    // 右下：機体の線画（水色）
+    cell(256, 128, '#8fd8ff');
+    { const cx = 384, cy = 192; g.strokeStyle = 'rgba(143,216,255,.8)'; g.lineWidth = 1.6; g.beginPath();
+      g.moveTo(cx, cy - 50); g.lineTo(cx + 9, cy - 18); g.lineTo(cx + 62, cy + 14); g.lineTo(cx + 62, cy + 22); g.lineTo(cx + 10, cy + 14); g.lineTo(cx + 8, cy + 40);
+      g.lineTo(cx + 24, cy + 52); g.lineTo(cx - 24, cy + 52); g.lineTo(cx - 8, cy + 40); g.lineTo(cx - 10, cy + 14); g.lineTo(cx - 62, cy + 22); g.lineTo(cx - 62, cy + 14); g.lineTo(cx - 9, cy - 18); g.closePath(); g.stroke();
+      g.strokeStyle = 'rgba(143,216,255,.3)'; for (let x = 270; x < 500; x += 22) { g.beginPath(); g.moveTo(x, 136); g.lineTo(x, 248); g.stroke(); }
+      g.fillStyle = 'rgba(255,120,90,.9)'; g.beginPath(); g.arc(cx + 40, cy + 16, 4, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(143,216,255,.85)'; g.font = `700 12px ${HG_FONT}`; g.textBaseline = 'top'; g.fillText('AIRFRAME CHECK', 268, 136); }
+    // 左下：文字の画面（緑）
+    cell(0, 128, '#9dff8a');
+    { g.font = `700 12px ${HG_FONT}`; g.textBaseline = 'top';
+      const lines = ['SYS DIAG ........ OK', 'HYD PRESS ....... 3020', 'ARM-1  ARM-4 .... READY', 'DECK 01 ......... CLEAR', 'TRANQ ROUNDS .... 36', 'LINK HQ ......... ONLINE'];
+      lines.forEach((ln, i) => { g.fillStyle = i === 3 ? 'rgba(255,200,110,.9)' : 'rgba(157,255,138,.78)'; g.fillText(ln, 12, 138 + i * 17); });
+      g.fillStyle = 'rgba(157,255,138,.8)'; g.fillRect(12, 240, 8, 3); }
+  }));
   // 上の階の、台の穴のまわりの印（透明の地に、警戒線・LOCK の印・矢印・文字）。7 マス角
   function hgLiftDecalTexture() {
     const N = 512, c = N / 2, k = N / 7, TAU = Math.PI * 2;
@@ -4138,89 +4215,274 @@ function start(bridge) {
       sp.visible = false; plat.add(sp); O.exhaust.push(sp);
     }
 
-    // 整備アーム：天井から吊った左右のレール（ガントリー）→ 台車 → 下がる柱（伸び縮みする）→ 水平な2本の腕 → 工具と灯り
-    const armMats = {
-      gun: metal(0x5b636d, 0.46, 0.55),     // ガンメタル（腕・柱）
-      rail: metal(0x2c3137, 0.52, 0.55),    // レール
-      dark: metal(0x1c2026, 0.55, 0.5),
-      black: metal(0x101215, 0.6, 0.4),
-      mark: std({ color: 0xd5dbe3, roughness: 0.7, metalness: 0.05 }),   // 白い印
+    // ---- 整備アーム：天井から下がる柱（3段の筒）・縦に回る関節・油圧の筒・ホース・工具 --------------------------
+    //   部品は頂点の色でまとめる（動かない物は全部で1つ、腕は1本につき1つ）。描く回数を増やさずに細かくする
+    const C = HG_COL;
+    const vcMat = std({ vertexColors: true, roughness: 0.46, metalness: 0.55, envMap: O.envTex, envMapIntensity: 1.05 });   // 天井の照明が映る（真っ黒にしない）
+    const armMats = { dark: metal(0x1c2026, 0.55, 0.5) };   // 回転灯の柱など
+    const SP = hgParts();          // 動かない物（link の柱・関節の箱・床の上の道具）
+    const leds = [];               // 小さな灯り { p:[x,y,z], c:[r,g,b], mode, rate, ph }
+    const screens = [];            // 画面 { p, r, w, h, uv:[u0,v0,u1,v1] }
+    // 柱：x, z … 中心、y0 … 下の端、(ox, oz) … ケーブルを通す横の向き
+    const mastParts = (pb, x, z, y0, ox, oz) => {
+      //   上から：天井の固定の筒（細め。カメラに近いので太く見える）→ 中の筒 → 下の筒（伸び縮み）。継ぎ目の輪・縞・ケーブル・配電箱
+      const top = HG_ARM_TOP, yO = Math.max(y0 + 3.3, 6.4), yM = yO - 1.85;
+      pb.rod([x, yO, z], [x, top, z], 0.088, C.gun, 12);
+      for (let y = yO + 0.6; y < top; y += 1.45) pb.add(new THREE.CylinderGeometry(0.108, 0.108, 0.07, 12), C.black, [x, y, z]);
+      pb.add(new THREE.CylinderGeometry(0.118, 0.118, 0.12, 12), C.gun2, [x, yO + 0.02, z]);
+      pb.rod([x, yM, z], [x, yO + 0.06, z], 0.07, C.gun2, 12);
+      pb.add(new THREE.CylinderGeometry(0.088, 0.088, 0.08, 12), C.black, [x, yM + 0.04, z]);
+      pb.rod([x, y0, z], [x, yM + 0.05, z], 0.056, C.steel, 12);
+      for (let i = 0; i < 5; i++) pb.add(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 12), i % 2 ? C.black : C.hazard, [x, y0 + 0.28 + i * 0.05, z]);
+      pb.tube([[x + ox * 0.15, top, z + oz * 0.15], [x + ox * 0.15, yO - 0.2, z + oz * 0.15], [x + ox * 0.19, yM - 0.25, z + oz * 0.19], [x + ox * 0.11, y0 + 0.6, z + oz * 0.11], [x + ox * 0.05, y0 + 0.18, z + oz * 0.05]], 0.02, C.rubber, 30);
+      pb.tube([[x - ox * 0.13, top, z - oz * 0.13], [x - ox * 0.13, yO + 0.3, z - oz * 0.13], [x - ox * 0.09, yO - 0.4, z - oz * 0.09]], 0.014, C.black, 12);
+      pb.add(new THREE.BoxGeometry(0.15, 0.26, 0.1), C.dark, [x + ox * 0.15, yO - 0.75, z + oz * 0.15], [0, Math.atan2(ox, oz), 0]);
+      pb.add(new THREE.BoxGeometry(0.09, 0.04, 0.12), C.black, [x + ox * 0.15, yO - 0.6, z + oz * 0.15], [0, Math.atan2(ox, oz), 0]);
+      return [x + ox * 0.21, yO - 0.7, z + oz * 0.21];
     };
-    const R_ = HG_RAIL;
-    const armGeo = {
-      rail: new THREE.BoxGeometry(R_.w, R_.h, R_.len), flange: new THREE.BoxGeometry(R_.w + 0.2, 0.06, R_.len),
-      strut: new THREE.BoxGeometry(0.16, 11, 0.16), brace: new THREE.BoxGeometry(0.62, 0.12, 0.34),
-      trolley: new THREE.BoxGeometry(0.64, 0.34, 0.8), wheel: new THREE.CylinderGeometry(0.1, 0.1, 0.72, 12).rotateZ(Math.PI / 2),
-      dropOuter: new THREE.CylinderGeometry(0.13, 0.13, 1, 14).translate(0, -0.5, 0), dropInner: new THREE.CylinderGeometry(0.085, 0.085, 1, 12).translate(0, -0.5, 0),
-      shoulder: new THREE.CylinderGeometry(0.25, 0.25, 0.26, 20), elbow: new THREE.CylinderGeometry(0.19, 0.19, 0.22, 18), wrist: new THREE.CylinderGeometry(0.15, 0.15, 0.2, 16),
-      upper: new THREE.BoxGeometry(0.25, 0.16, HG_ARM.L1).translate(0, 0, -HG_ARM.L1 / 2), fore: new THREE.BoxGeometry(0.2, 0.14, HG_ARM.L2).translate(0, 0, -HG_ARM.L2 / 2),
-      stripe: new THREE.BoxGeometry(0.06, 0.012, HG_ARM.L1 * 0.62).translate(0, 0.086, -HG_ARM.L1 * 0.5), stripe2: new THREE.BoxGeometry(0.05, 0.012, HG_ARM.L2 * 0.5).translate(0, 0.076, -HG_ARM.L2 * 0.45), tool: new THREE.BoxGeometry(0.16, HG_ARM.tool, 0.16).translate(0, -HG_ARM.tool / 2, 0),
-      tip: new THREE.CylinderGeometry(0.035, 0.08, 0.14, 10).translate(0, -0.07, 0), lamp: new THREE.BoxGeometry(0.15, 0.03, 0.15),
-      label: new THREE.PlaneGeometry(0.42, 0.95).rotateX(-Math.PI / 2),
-    };
-    // レール（I形の梁）と、天井へ上がる吊り材
-    for (const sx of [-1, 1]) {
-      const x = sx * R_.x;
-      add(root, armGeo.rail, armMats.rail, { p: [x, R_.y, 0], shadow: true, recv: true });
-      add(root, armGeo.flange, armMats.dark, { p: [x, R_.y - R_.h / 2, 0], shadow: true });
-      add(root, armGeo.flange, armMats.dark, { p: [x, R_.y + R_.h / 2, 0], shadow: true });
-      for (const z of [-3.45, 3.65]) {
-        add(root, armGeo.strut, armMats.dark, { p: [x, R_.y + R_.h / 2 + 5.5, z], shadow: true });
-        add(root, armGeo.brace, armMats.black, { p: [x, R_.y + R_.h / 2 + 0.06, z] });
+    // 工具（ローカル：根元が原点、−Z 方向へ長さ len。先が工具の先）
+    const toolParts = (pb, kind, z0, len) => {
+      const z1 = z0 - len;
+      if (kind === 'grip') {
+        pb.add(new THREE.BoxGeometry(0.24, 0.17, 0.11), C.dark, [0, 0, z0 - 0.06]);
+        for (const sx of [-1, 1]) {
+          pb.add(new THREE.BoxGeometry(0.05, 0.08, 0.2), C.gun2, [sx * 0.085, 0, z1 + 0.1], [0, sx * 0.22, 0]);
+          pb.add(new THREE.BoxGeometry(0.055, 0.085, 0.05), C.black, [sx * 0.07, 0, z1 + 0.02]);
+        }
+      } else if (kind === 'drill') {
+        pb.rod([0, 0, z0], [0, 0, z0 - 0.17], 0.085, C.dark, 12);
+        pb.rod([0, 0, z0 - 0.17], [0, 0, z0 - 0.23], 0.045, C.steel, 10);
+        pb.rod([0, 0, z0 - 0.23], [0, 0, z1], 0.014, C.rod, 6);
+        pb.add(new THREE.BoxGeometry(0.06, 0.12, 0.08), C.hazard, [0.09, 0, z0 - 0.08]);
+      } else if (kind === 'scan') {
+        pb.rod([0, 0, z0], [0, 0, z0 - 0.08], 0.11, C.black, 14);
+        pb.rod([0, 0, z0 - 0.08], [0, 0, z1], 0.165, C.dark, 18, 0.15);
+        pb.add(new THREE.TorusGeometry(0.15, 0.02, 6, 20), C.steel, [0, 0, z1 + 0.05]);
+      } else {   // nozzle
+        pb.rod([0, 0, z0], [0, 0, z0 - 0.1], 0.08, C.black, 12);
+        pb.rod([0, 0, z0 - 0.1], [0, 0, z1], 0.025, C.steel, 10, 0.075);
+        pb.add(new THREE.BoxGeometry(0.07, 0.07, 0.12), C.hazard, [0.07, 0.04, z0 - 0.06]);
       }
-    }
-    // レールの上の白い文字（ARM-1〜4。上から見える）
-    const labelTex = (txt) => canvasTexture(96, 216, (g) => {
-      g.clearRect(0, 0, 96, 216);
-      g.save(); g.translate(48, 108); g.rotate(-Math.PI / 2);
-      g.fillStyle = 'rgba(220,226,234,.82)'; g.font = `800 40px ${HG_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText(txt, 0, 2);
-      g.restore();
-    });
+    };
+    O.arms = [];
     HG_ARMS.forEach((A, ai) => {
-      const sx = A.side * R_.x, sz = A.tz;
-      // 台車（レールの下）と車輪
-      const trolley = new THREE.Group(); trolley.position.set(sx, R_.y - R_.h / 2 - 0.2, sz); root.add(trolley);
-      add(trolley, armGeo.trolley, armMats.dark, { shadow: true });
-      add(trolley, armGeo.wheel, armMats.black, { p: [0, 0.2, -0.26] });
-      add(trolley, armGeo.wheel, armMats.black, { p: [0, 0.2, 0.26] });
-      const lab = new THREE.Mesh(armGeo.label, new THREE.MeshStandardMaterial({ map: labelTex(`ARM-${ai + 1}`), transparent: true, depthWrite: false, roughness: 0.7, metalness: 0 }));
-      lab.position.set(sx, R_.y + R_.h / 2 + 0.035, sz); lab.renderOrder = 0.5; root.add(lab);
-      // 下がる柱（外筒は決まった長さ、内筒は肩の高さに合わせて伸び縮み）
-      const dropTop = trolley.position.y - 0.17;
-      const outer = add(root, armGeo.dropOuter, armMats.gun, { p: [sx, dropTop, sz], shadow: true });
-      outer.scale.y = 0.75;
-      const inner = add(root, armGeo.dropInner, armMats.dark, { p: [sx, dropTop - 0.7, sz], shadow: true });
-      // 肩（水平に回る）・上腕・ひじ・前腕・手首・工具・灯り
-      const shoulder = new THREE.Group(); shoulder.position.set(sx, HG_ARM.shoulderY, sz); root.add(shoulder);
-      add(shoulder, armGeo.shoulder, armMats.black, { shadow: true });
-      const upper = new THREE.Group(); shoulder.add(upper);
-      add(upper, armGeo.upper, armMats.gun, { shadow: true });
-      add(upper, armGeo.stripe, armMats.mark);
-      const elbow = new THREE.Group(); elbow.position.z = -HG_ARM.L1; upper.add(elbow);
-      add(elbow, armGeo.elbow, armMats.black, { shadow: true });
-      const fore = new THREE.Group(); elbow.add(fore);
-      add(fore, armGeo.fore, armMats.gun, { shadow: true });
-      add(fore, armGeo.stripe2, armMats.mark);
-      const wrist = new THREE.Group(); wrist.position.z = -HG_ARM.L2; fore.add(wrist);
-      add(wrist, armGeo.wrist, armMats.black, { shadow: true });
-      add(wrist, armGeo.tool, armMats.dark, { p: [0, -0.08, 0], shadow: true });
-      add(wrist, armGeo.tip, armMats.black, { p: [0, -0.08 - HG_ARM.tool, 0] });
-      const lampMat = basic({ color: 0xcfe6ff });
-      add(wrist, armGeo.lamp, lampMat, { p: [0, 0.115, 0] });
-      const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xcfe6ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-      glow.scale.setScalar(0.62); glow.position.set(0, 0.14, 0); wrist.add(glow);
-      const anchor = new THREE.Object3D(); anchor.position.set(0, 0.13, 0); wrist.add(anchor);
-      // 作業灯（機体の上に落ちる薄い光）と、大破のときの火花（工具の先）
-      const pool = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xe6f2ff, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-      pool.scale.setScalar(1.25); pool.renderOrder = 0.8; root.add(pool);
-      const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xffc070, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
-      spark.position.set(0, -0.12 - HG_ARM.tool, 0); spark.visible = false; wrist.add(spark); O.sparks.push(spark);
-      const [hx, hz] = A.head;
-      // 退くときの先：レールの近く（台車の少し外）へたたむ
-      const retract = [sx - A.side * 0.62, sz + (sz < 0 ? -0.62 : 0.62)];
-      O.arms.push({ key: A.key, side: A.side, sx, sz, head: [hx, hz], retract, shoulder, upper, elbow, fore, wrist, inner, dropTop, glow, pool, anchor, lampMat, ik: {} });
+      const [tx, ty, tz] = A.tip;
+      const toolLen = { grip: 0.26, drill: 0.36, scan: 0.22, nozzle: 0.3 }[A.tool] || 0.26;
+      const arm = { key: A.key, type: A.type, tool: A.tool };
+      if (A.type === 'link') {
+        const [mx, mz] = A.mast, sy = A.sy;
+        const yaw = Math.atan2(mx - tx, mz - tz);          // ローカル −Z を工具の先へ
+        const ox = Math.cos(yaw), oz = -Math.sin(yaw);     // 腕の向きに直角（ケーブルを通す側）
+        leds.push({ p: mastParts(SP, mx, mz, sy + 0.24, ox, oz), c: [1, 0.62, 0.18], mode: 'blink', rate: 1.1, ph: ai * 0.37 });
+        // 関節の箱：左右に軸の出っ張り・ボルトの輪、上に配線の口
+        SP.add(new THREE.BoxGeometry(0.36, 0.34, 0.42), C.dark, [mx, sy + 0.03, mz], [0, yaw, 0]);
+        SP.add(new THREE.BoxGeometry(0.37, 0.05, 0.43), C.hazard, [mx, sy + 0.17, mz], [0, yaw, 0]);
+        SP.add(new THREE.CylinderGeometry(0.16, 0.16, 0.54, 18), C.black, [mx, sy, mz], [0, yaw, Math.PI / 2]);
+        for (const sd of [-1, 1]) {
+          SP.add(new THREE.TorusGeometry(0.115, 0.018, 6, 18), C.steel, [mx + ox * 0.27 * sd, sy, mz + oz * 0.27 * sd], [0, yaw + Math.PI / 2, 0]);
+          SP.add(new THREE.CylinderGeometry(0.05, 0.05, 0.04, 10), C.steel, [mx + ox * 0.285 * sd, sy, mz + oz * 0.285 * sd], [0, yaw, Math.PI / 2]);
+        }
+        SP.add(new THREE.BoxGeometry(0.16, 0.07, 0.16), C.gun2, [mx, sy + 0.23, mz], [0, yaw, 0]);
+        leds.push({ p: [mx + ox * 0.19, sy + 0.1, mz + oz * 0.19], c: [0.35, 1, 0.55], mode: 'steady' });
+        // 斜めの腕（根元が原点・−Z へ長さ L。rotation.x で上下に振る）
+        const d = Math.hypot(tx - mx, tz - mz), dy = ty - sy, L = Math.hypot(d, dy);
+        const link = new THREE.Group(); link.rotation.order = 'YXZ'; link.position.set(mx, sy, mz); link.rotation.y = yaw; root.add(link);
+        const lp = hgParts();
+        const beamL = L - toolLen - 0.2;
+        lp.add(new THREE.BoxGeometry(0.21, 0.19, beamL - 0.14), C.gun2, [0, 0, -(0.14 + beamL) / 2]);
+        lp.add(new THREE.BoxGeometry(0.22, 0.025, beamL * 0.7), C.gun, [0, 0.105, -beamL * 0.45]);
+        for (let k = 0; k < 4; k++) lp.add(new THREE.BoxGeometry(0.045, 0.012, 0.09), C.black, [0.07, 0.12, -0.5 - k * beamL * 0.15]);   // 点検口のふた
+        for (const sx of [-1, 1]) lp.add(new THREE.BoxGeometry(0.025, 0.3, 0.52), C.dark, [sx * 0.12, 0, -0.22]);
+        lp.add(new THREE.CylinderGeometry(0.135, 0.135, 0.29, 16), C.black, [0, 0, 0], [0, 0, Math.PI / 2]);
+        // 油圧の筒（腕の上の横。上から見える所）とピストンの棒
+        for (const sx of [-1, 1]) {
+          lp.rod([sx * 0.145, 0.06, -0.3], [sx * 0.145, 0.06, -beamL * 0.55], 0.042, C.dark, 10);
+          lp.rod([sx * 0.145, 0.06, -beamL * 0.55], [sx * 0.145, 0.05, -beamL * 0.82], 0.02, C.rod, 8);
+          lp.add(new THREE.BoxGeometry(0.06, 0.07, 0.07), C.black, [sx * 0.145, 0.05, -beamL * 0.83]);
+          lp.add(new THREE.BoxGeometry(0.06, 0.07, 0.07), C.black, [sx * 0.145, 0.06, -0.28]);
+        }
+        lp.tube([[0.04, 0.12, -0.08], [0.05, 0.19, -beamL * 0.5], [0.04, 0.13, -beamL + 0.05], [0.02, 0.07, -beamL - 0.12]], 0.022, C.rubber, 20);
+        lp.add(new THREE.BoxGeometry(0.225, 0.205, 0.05), C.hazard, [0, 0, -beamL + 0.34]);
+        lp.add(new THREE.BoxGeometry(0.225, 0.205, 0.05), C.black, [0, 0, -beamL + 0.29]);
+        lp.add(new THREE.BoxGeometry(0.225, 0.205, 0.05), C.hazard, [0, 0, -beamL + 0.24]);
+        lp.add(new THREE.CylinderGeometry(0.1, 0.1, 0.2, 14), C.black, [0, 0, -beamL - 0.1], [Math.PI / 2, 0, 0]);
+        lp.add(new THREE.TorusGeometry(0.1, 0.014, 6, 16), C.steel, [0, 0, -beamL - 0.02]);
+        toolParts(lp, A.tool, -beamL - 0.2, toolLen);
+        link.add(lp.mesh(vcMat));
+        const anchor = new THREE.Object3D(); anchor.position.set(0, 0, -L); link.add(anchor);
+        const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xffc070, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+        spark.position.set(0, 0, -L); spark.visible = false; link.add(spark); O.sparks.push(spark);
+        const pitch = Math.atan2(dy, d);
+        link.rotation.x = pitch;
+        Object.assign(arm, { link, pitch, anchor });
+      } else {
+        // まっすぐ下りる柱（機体の真上）。発進のときは上がって外へ（天井のレールの上を滑る）
+        const g = new THREE.Group(); g.position.set(tx, 0, tz); root.add(g);
+        const r0 = Math.hypot(tx, tz), ux = tx / r0, uz = tz / r0;
+        const ox = -uz, oz = ux;
+        const dp = hgParts();
+        const y0 = ty + toolLen + 0.14;
+        const ledP = mastParts(dp, 0, 0, y0, ox, oz);
+        dp.add(new THREE.CylinderGeometry(0.1, 0.085, 0.15, 16), C.black, [0, y0 - 0.06, 0]);
+        dp.add(new THREE.BoxGeometry(0.26, 0.06, 0.08), C.gun2, [0, y0 + 0.07, 0], [0, Math.atan2(ox, oz), 0]);
+        for (const sd of [-1, 1]) dp.add(new THREE.BoxGeometry(0.05, 0.12, 0.05), C.hazard, [ox * 0.12 * sd, y0 + 0.07, oz * 0.12 * sd]);
+        const tp = hgParts(); toolParts(tp, A.tool, 0, toolLen);
+        tp.list.forEach(q => { q.m.premultiply(new THREE.Matrix4().makeRotationX(-Math.PI / 2)).premultiply(new THREE.Matrix4().makeTranslation(0, y0 - 0.14, 0)); dp.list.push(q); });
+        g.add(dp.mesh(vcMat));
+        const ledMat = new THREE.MeshBasicMaterial({ color: 0x9fe8ff, toneMapped: false });
+        const led = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.05), ledMat); led.position.set(ledP[0], ledP[1], ledP[2]); g.add(led);
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.105, 0.014, 6, 24), ledMat); ring.rotation.x = Math.PI / 2; ring.position.y = y0 + 0.01; g.add(ring);
+        const anchor = new THREE.Object3D(); anchor.position.set(0, ty, 0); g.add(anchor);
+        const pool = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: A.tool === 'scan' ? 0x9fe8ff : 0xfff0d8, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+        pool.position.set(0, ty + 0.02, 0); pool.scale.setScalar(0.9); g.add(pool);
+        const spark = new THREE.Sprite(new THREE.SpriteMaterial({ map: sharedGlow(), color: 0xffc070, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+        spark.position.set(0, ty, 0); spark.visible = false; g.add(spark); O.sparks.push(spark);
+        Object.assign(arm, { g, x0: tx, z0: tz, xr: ux * 3.0, zr: uz * 3.0, anchor, ledMat, pool });
+      }
+      O.arms.push(arm);
     });
+
+    // ---- 機体のまわりの道具（整備工場・基地らしい物）。全部まとめて1つ。灯りと画面は別にまとめる -------------
+    const prop = (x, z, yaw, fn) => {
+      const M = new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
+      const pb = hgParts(); const L_ = [], S_ = [];
+      fn(pb, (p, c, mode, rate, ph) => L_.push({ p, c, mode, rate, ph }), (p, r, w, h, uv) => S_.push({ p, r, w, h, uv }));
+      pb.list.forEach(q => { q.m.premultiply(M); SP.list.push(q); });
+      const v = new THREE.Vector3();
+      L_.forEach(l => { v.fromArray(l.p).applyMatrix4(M); leds.push({ p: [v.x, v.y, v.z], c: l.c, mode: l.mode || 'steady', rate: l.rate || 1, ph: l.ph || 0 }); });
+      S_.forEach(sc => { v.fromArray(sc.p).applyMatrix4(M); screens.push({ p: [v.x, v.y, v.z], r: [sc.r[0], sc.r[1] + yaw, sc.r[2], 'YXZ'], w: sc.w, h: sc.h, uv: sc.uv }); });
+    };
+    const wheel = (pb, x, y, z, r = 0.1, w = 0.06) => pb.add(new THREE.CylinderGeometry(r, r, w, 12), C.rubber, [x, y, z], [0, 0, Math.PI / 2]);
+    // 電源車（地上電源。オリーブ）と、台へ伸びる太いケーブル
+    prop(-4.15, 1.0, 0.12, (pb, led) => {
+      pb.add(new THREE.BoxGeometry(1.05, 0.5, 0.7), C.olive, [0, 0.42, 0]);
+      pb.add(new THREE.BoxGeometry(1.0, 0.05, 0.66), C.olive2, [0, 0.695, 0]);
+      for (let i = 0; i < 5; i++) pb.add(new THREE.BoxGeometry(0.06, 0.02, 0.5), C.black, [-0.3 + i * 0.12, 0.73, 0]);
+      for (const [x, z] of [[-0.36, -0.37], [0.36, -0.37], [-0.36, 0.37], [0.36, 0.37]]) wheel(pb, x, 0.13, z, 0.13, 0.08);
+      pb.add(new THREE.BoxGeometry(0.55, 0.04, 0.05), C.dark, [0.78, 0.2, 0]);
+      pb.add(new THREE.BoxGeometry(0.02, 0.22, 0.34), C.dark, [0.535, 0.46, 0]);
+      pb.add(new THREE.BoxGeometry(0.16, 0.16, 0.16), C.hazard, [-0.42, 0.78, 0.2]);
+      led([0.55, 0.52, -0.1], [1, 0.6, 0.15], 'blink', 0.7); led([0.55, 0.52, 0], [0.35, 1, 0.45]); led([0.55, 0.52, 0.1], [0.35, 1, 0.45], 'blink', 2.3, 0.4);
+    });
+    SP.tube([[-3.6, 0.36, 1.08], [-3.45, 0.06, 1.12], [-3.0, 0.045, 0.95], [-2.6, 0.045, 0.7], [-2.18, 0.05, 0.62]], 0.05, C.rubber, 24);
+    // 整備用の足場（はしご付き）
+    prop(-3.55, -0.62, 0.05, (pb) => {
+      for (const [x, z] of [[-0.33, -0.24], [0.33, -0.24], [-0.33, 0.24], [0.33, 0.24]]) pb.add(new THREE.BoxGeometry(0.05, 0.95, 0.05), C.gray, [x, 0.48, z]);
+      pb.add(new THREE.BoxGeometry(0.74, 0.05, 0.54), C.plate, [0, 0.95, 0]);
+      for (const z of [-0.26, 0.26]) pb.add(new THREE.BoxGeometry(0.74, 0.035, 0.035), C.hazard, [0, 1.28, z]);
+      for (const x of [-0.36, 0.36]) for (const z of [-0.26, 0.26]) pb.add(new THREE.BoxGeometry(0.035, 0.34, 0.035), C.hazard, [x, 1.12, z]);
+      for (let i = 0; i < 4; i++) pb.add(new THREE.BoxGeometry(0.16, 0.03, 0.44), C.plate, [0.44 + i * 0.13, 0.76 - i * 0.2, 0]);
+      for (const z of [-0.23, 0.23]) pb.rod([0.4, 0.95, z], [0.86, 0.05, z], 0.022, C.gray, 6);
+      for (const [x, z] of [[-0.33, -0.24], [0.33, -0.24], [-0.33, 0.24], [0.33, 0.24]]) wheel(pb, x, 0.05, z, 0.05, 0.04);
+    });
+    // 弾薬（麻酔弾）の台車：3本と、白い帯・尾翼
+    prop(3.86, 0.55, 0, (pb) => {
+      pb.add(new THREE.BoxGeometry(0.64, 0.08, 1.55), C.dark, [0, 0.3, 0]);
+      for (const z of [-0.45, 0.45]) pb.add(new THREE.BoxGeometry(0.62, 0.1, 0.1), C.gun2, [0, 0.4, z]);
+      for (const [x, z] of [[-0.27, -0.62], [0.27, -0.62], [-0.27, 0.62], [0.27, 0.62]]) wheel(pb, x, 0.1, z, 0.1, 0.06);
+      pb.add(new THREE.BoxGeometry(0.05, 0.05, 0.5), C.dark, [0, 0.22, -1.0]);
+      for (const x of [-0.19, 0, 0.19]) {
+        pb.rod([x, 0.53, 0.62], [x, 0.53, -0.45], 0.085, C.olive, 14);
+        pb.rod([x, 0.53, -0.45], [x, 0.53, -0.68], 0.012, C.steel, 14, 0.085);
+        pb.add(new THREE.CylinderGeometry(0.088, 0.088, 0.045, 14), C.white, [x, 0.53, -0.36], [Math.PI / 2, 0, 0]);
+        for (const fr of [0, Math.PI / 2]) pb.add(new THREE.BoxGeometry(0.22, 0.012, 0.14), C.olive2, [x, 0.53, 0.58], [0, 0, fr]);
+      }
+    });
+    // 工具箱（引き出し付き）
+    prop(4.55, -1.0, -0.2, (pb) => {
+      pb.add(new THREE.BoxGeometry(0.56, 0.72, 0.44), C.gun2, [0, 0.42, 0]);
+      for (let i = 0; i < 5; i++) { pb.add(new THREE.BoxGeometry(0.02, 0.1, 0.4), C.dark, [-0.29, 0.18 + i * 0.13, 0]); pb.add(new THREE.BoxGeometry(0.015, 0.02, 0.18), C.steel, [-0.3, 0.2 + i * 0.13, 0]); }
+      pb.add(new THREE.BoxGeometry(0.58, 0.05, 0.46), C.steel, [0, 0.8, 0]);
+      for (const [x, z] of [[-0.22, -0.17], [0.22, -0.17], [-0.22, 0.17], [0.22, 0.17]]) wheel(pb, x, 0.05, z, 0.05, 0.04);
+      pb.add(new THREE.BoxGeometry(0.2, 0.06, 0.12), C.hazard, [0.05, 0.86, -0.1]);
+    });
+    // ボンベ（3本）の架台
+    prop(4.5, 2.1, 0, (pb) => {
+      for (const z of [-0.33, 0.33]) pb.add(new THREE.BoxGeometry(0.42, 0.9, 0.05), C.dark, [0, 0.45, z]);
+      pb.add(new THREE.BoxGeometry(0.42, 0.05, 0.7), C.dark, [0, 0.9, 0]);
+      for (const z of [-0.2, 0, 0.2]) {
+        pb.add(new THREE.CylinderGeometry(0.1, 0.1, 0.82, 14), C.olive2, [0, 0.44, z]);
+        pb.add(new THREE.CylinderGeometry(0.102, 0.102, 0.05, 14), C.white, [0, 0.7, z]);
+        pb.add(new THREE.CylinderGeometry(0.035, 0.05, 0.1, 10), C.steel, [0, 0.9, z]);
+      }
+    });
+    // ホースの巻き取り機（くすんだ黄）と、台へ伸びるホース
+    prop(-4.4, -2.55, 0.3, (pb) => {
+      for (const x of [-0.18, 0.18]) pb.add(new THREE.BoxGeometry(0.04, 0.62, 0.5), C.dark, [x, 0.31, 0]);
+      pb.add(new THREE.CylinderGeometry(0.33, 0.33, 0.3, 20), C.hazard, [0, 0.44, 0], [0, 0, Math.PI / 2]);
+      pb.add(new THREE.TorusGeometry(0.24, 0.07, 8, 20), C.rubber, [0, 0.44, 0], [0, Math.PI / 2, 0]);
+    });
+    SP.tube([[-4.15, 0.2, -2.45], [-3.8, 0.04, -2.2], [-3.1, 0.035, -1.9], [-2.5, 0.04, -1.42], [-2.15, 0.04, -1.05]], 0.032, C.rubber, 24);
+    // 管制の机（画面・灯りの列）。奥の左右
+    const desk = (pb, led, scr, flip) => {
+      pb.add(new THREE.BoxGeometry(1.35, 0.6, 0.52), C.dark, [0, 0.3, 0]);
+      pb.add(new THREE.BoxGeometry(1.35, 0.05, 0.46), C.gun, [0, 0.66, 0.06], [-0.5, 0, 0]);
+      pb.add(new THREE.BoxGeometry(1.4, 0.04, 0.56), C.gun2, [0, 0.61, -0.02]);
+      pb.add(new THREE.BoxGeometry(0.5, 0.34, 0.05), C.black, [flip * 0.38, 1.12, -0.2]);
+      pb.rod([flip * 0.38, 0.62, -0.22], [flip * 0.38, 0.96, -0.22], 0.025, C.gray, 6);
+      scr([-0.28, 0.69, 0.1], [-0.5 - Math.PI / 2, 0, 0], 0.44, 0.24, flip > 0 ? [0, 0.5, 0.5, 1] : [0.5, 0.5, 1, 1]);
+      scr([0.3, 0.69, 0.1], [-0.5 - Math.PI / 2, 0, 0], 0.44, 0.24, flip > 0 ? [0.5, 0, 1, 0.5] : [0, 0, 0.5, 0.5]);
+      scr([flip * 0.38, 1.12, -0.17], [0, 0, 0], 0.44, 0.28, flip > 0 ? [0.5, 0.5, 1, 1] : [0, 0.5, 0.5, 1]);
+      for (let i = 0; i < 8; i++) led([-0.55 + i * 0.155, 0.645, 0.3], [[1, 0.62, 0.18], [0.35, 1, 0.5], [1, 0.25, 0.22], [0.55, 0.85, 1]][i % 4], 'blink', 0.8 + (i * 0.37) % 1.6, i * 0.29);
+    };
+    prop(-2.75, -3.95, 0.35, (pb, led, scr) => desk(pb, led, scr, 1));
+    prop(2.8, -3.9, -0.35, (pb, led, scr) => desk(pb, led, scr, -1));
+    // 投光器（三脚）
+    const flood = (pb, led) => {
+      for (let i = 0; i < 3; i++) { const a = i / 3 * Math.PI * 2; pb.rod([0, 1.15, 0], [Math.cos(a) * 0.38, 0.02, Math.sin(a) * 0.38], 0.02, C.gray, 6); }
+      pb.add(new THREE.BoxGeometry(0.36, 0.24, 0.16), C.dark, [0, 1.24, -0.04], [0.55, 0, 0]);
+      pb.add(new THREE.BoxGeometry(0.3, 0.18, 0.02), C.white, [0, 1.2, -0.12], [0.55, 0, 0]);
+    };
+    prop(-2.95, 2.75, Math.atan2(2.95, -2.75), flood);
+    prop(3.05, -2.45, Math.atan2(-3.05, 2.45), flood);
+    // 車止め・コーン・消火器・木箱
+    for (const [x, z] of [[-0.62, 2.78], [0.62, 2.78]]) SP.add(new THREE.BoxGeometry(0.28, 0.12, 0.14), C.hazard, [x, 0.06, z], [0.25, 0, 0]);
+    for (const [x, z] of [[-1.68, 3.22], [1.72, 3.16], [-4.6, 3.1]]) { SP.add(new THREE.ConeGeometry(0.11, 0.34, 12), C.orange, [x, 0.19, z]); SP.add(new THREE.BoxGeometry(0.26, 0.03, 0.26), C.black, [x, 0.015, z]); SP.add(new THREE.CylinderGeometry(0.07, 0.085, 0.04, 12), C.white, [x, 0.2, z]); }
+    SP.add(new THREE.CylinderGeometry(0.075, 0.075, 0.42, 12), C.red, [-1.55, 0.21, -3.25]);
+    SP.add(new THREE.BoxGeometry(0.1, 0.05, 0.05), C.black, [-1.55, 0.44, -3.25]);
+    prop(-4.55, -1.72, 0.18, (pb) => { pb.add(new THREE.BoxGeometry(0.8, 0.5, 0.6), C.olive, [0, 0.25, 0]); pb.add(new THREE.BoxGeometry(0.6, 0.4, 0.5), C.olive2, [0.05, 0.7, 0.02], [0, 0.2, 0]); pb.add(new THREE.BoxGeometry(0.82, 0.04, 0.62), C.black, [0, 0.5, 0]); });
+    prop(4.65, 3.35, -0.12, (pb) => { pb.add(new THREE.BoxGeometry(0.7, 0.55, 0.7), C.khaki, [0, 0.275, 0]); pb.add(new THREE.BoxGeometry(0.72, 0.04, 0.72), C.black, [0, 0.4, 0]); });
+    // 牽引車（機体を引く小さな車。台の手前）と、床に置いた巻いたケーブル・工具の板
+    prop(-0.42, 3.74, 0.08, (pb, led) => {
+      pb.add(new THREE.BoxGeometry(0.62, 0.22, 0.92), C.khaki, [0, 0.2, 0]);
+      pb.add(new THREE.BoxGeometry(0.58, 0.05, 0.4), C.black, [0, 0.33, 0.14]);
+      pb.add(new THREE.BoxGeometry(0.26, 0.2, 0.22), C.dark, [0, 0.42, 0.22]);           // 座席
+      pb.add(new THREE.BoxGeometry(0.5, 0.04, 0.06), C.gray, [0, 0.36, -0.12]);          // ハンドルの棒
+      pb.add(new THREE.BoxGeometry(0.64, 0.06, 0.06), C.hazard, [0, 0.3, -0.47]);
+      for (const [x, z] of [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.32], [0.3, 0.32]]) wheel(pb, x, 0.11, z, 0.11, 0.08);
+      pb.rod([0, 0.13, -0.47], [0, 0.11, -1.02], 0.025, C.hazard, 8);                    // 牽引棒（台へ）
+      pb.add(new THREE.BoxGeometry(0.1, 0.06, 0.08), C.black, [0, 0.11, -1.04]);
+      led([-0.22, 0.33, -0.47], [1, 0.62, 0.18], 'blink', 1.3); led([0.22, 0.33, -0.47], [1, 0.62, 0.18], 'blink', 1.3, 0.5);
+    });
+    SP.add(new THREE.TorusGeometry(0.2, 0.026, 6, 22), C.rubber, [-1.38, 0.03, 3.62], [Math.PI / 2, 0, 0]);
+    SP.add(new THREE.TorusGeometry(0.15, 0.026, 6, 20), C.rubber, [-1.38, 0.07, 3.62], [Math.PI / 2, 0, 0]);
+    SP.add(new THREE.BoxGeometry(0.42, 0.025, 0.3), C.plate, [0.5, 0.013, 4.02], [0, 0.3, 0]);
+    SP.add(new THREE.BoxGeometry(0.14, 0.03, 0.04), C.hazard, [0.46, 0.04, 3.98], [0, 0.3, 0]);
+    SP.add(new THREE.CylinderGeometry(0.04, 0.04, 0.16, 8), C.red, [0.6, 0.06, 4.08], [0, 0, Math.PI / 2]);
+    // 床の両端の配管（画面の左右の枠になる）
+    for (const sx of [-1, 1]) {
+      SP.rod([sx * 5.05, 0.12, -9], [sx * 5.05, 0.12, 9], 0.09, C.gun, 10);
+      SP.rod([sx * 5.28, 0.1, -9], [sx * 5.28, 0.1, 9], 0.07, C.olive2, 10);
+      for (let z = -8; z <= 8; z += 2) SP.add(new THREE.BoxGeometry(0.62, 0.06, 0.12), C.black, [sx * 5.15, 0.2, z]);
+    }
+    const propMesh = SP.mesh(vcMat);
+    root.add(propMesh);
+    // 小さな灯り（まとめて1つ。点滅は毎コマ色を変える）
+    O.leds = leds;
+    O.ledMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.045, 0.03, 0.045), basic({ color: 0xffffff }), Math.max(1, leds.length));
+    leds.forEach((l, i) => { hgM.makeTranslation(l.p[0], l.p[1], l.p[2]); O.ledMesh.setMatrixAt(i, hgM); O.ledMesh.setColorAt(i, hgC.setRGB(l.c[0], l.c[1], l.c[2])); });
+    O.ledMesh.frustumCulled = false; root.add(O.ledMesh);
+    // 画面（絵は1枚にまとめた hgScreenAtlas）
+    if (screens.length) {
+      const sp = hgParts();
+      screens.forEach(sc => {
+        const geo = new THREE.PlaneGeometry(sc.w, sc.h);
+        const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, sc.uv[0] + uv.getX(i) * (sc.uv[2] - sc.uv[0]), sc.uv[1] + uv.getY(i) * (sc.uv[3] - sc.uv[1]));
+        sp.add(geo, 0xffffff, sc.p, sc.r);
+      });
+      O.screenMesh = sp.mesh(new THREE.MeshBasicMaterial({ map: hgScreenAtlas(), vertexColors: true, toneMapped: false }), { shadow: false, recv: false });
+      root.add(O.screenMesh);
+    }
     // 回転灯（台のまわりの4か所。発進の警報のときだけ光って回る）
     const fanTex = hgFanTexture();
     const fanGeo = new THREE.PlaneGeometry(4.2, 4.2); fanGeo.rotateX(-Math.PI / 2);
@@ -4285,6 +4547,29 @@ function start(bridge) {
       O.runwayZ.push(z);
     }
     O.runwayLights.frustumCulled = false; up.add(O.runwayLights);
+    // 滑走路の LED（縁の2本は細かい粒の列・中心は破線）。ロック（LOCKED）で台の側から奥へ点いていく
+    //   粒（細かい箱）と、そのまわりのにじむ光（足し合わせる板。消えているときは見えない）
+    O.rwLed = []; const rwLedList = [];
+    for (let d = 0.2; d < rwLen - 0.2; d += 0.32) for (const x of [-2.06, 2.06]) rwLedList.push([x, d, 0.2]);
+    for (let d = 1.2; d < rwLen - 1.2; d += 4.2) for (let k = 0; k < 6; k++) rwLedList.push([0, d + 0.2 + k * 0.34, 0.24]);
+    O.rwLedMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), basic({ color: 0xffffff }), rwLedList.length);
+    const glowGeo = new THREE.PlaneGeometry(1, 1); glowGeo.rotateX(-Math.PI / 2);
+    const glowTex = canvasTexture(32, 8, (g) => {
+      const grd = g.createLinearGradient(0, 0, 32, 0);
+      grd.addColorStop(0, 'rgba(255,255,255,0)'); grd.addColorStop(0.32, 'rgba(255,255,255,.35)'); grd.addColorStop(0.5, 'rgba(255,255,255,1)'); grd.addColorStop(0.68, 'rgba(255,255,255,.35)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = grd; g.fillRect(0, 0, 32, 8);
+    });
+    O.rwGlowMesh = new THREE.InstancedMesh(glowGeo, new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), rwLedList.length);
+    rwLedList.forEach(([x, d, len], i) => {
+      const z = -(HG.R + 0.6) - d;
+      hgM.compose(hgV.set(x, HG.deckY + 0.016, z), hgQ.identity(), hgV2.set(x ? 0.085 : 0.1, 0.022, len));
+      O.rwLedMesh.setMatrixAt(i, hgM); O.rwLedMesh.setColorAt(i, hgC.setRGB(0.03, 0.035, 0.04));
+      hgM.compose(hgV.set(x, HG.deckY + 0.03, z), hgQ.identity(), hgV2.set(0.62, 1, len + 0.16));
+      O.rwGlowMesh.setMatrixAt(i, hgM); O.rwGlowMesh.setColorAt(i, hgC.setRGB(0, 0, 0));
+      O.rwLed.push({ d: d + (HG.R + 0.6) - HG.R, c: !x });
+    });
+    O.rwLedMesh.frustumCulled = false; up.add(O.rwLedMesh);
+    O.rwGlowMesh.frustumCulled = false; O.rwGlowMesh.renderOrder = 0.8; up.add(O.rwGlowMesh);
     // 出口の明かり（滑走路の先）
     const exitGeo = new THREE.PlaneGeometry(6.6, 6); exitGeo.rotateX(-Math.PI / 2);
     add(up, exitGeo, basic({ color: 0xd8ecff, fog: false }), { p: [0, HG.deckY + 0.01, -HG.deckLen - 1.5] });
@@ -4432,14 +4717,15 @@ function start(bridge) {
   }
 
   // ---- アームの姿勢 -------------------------------------------------------------
-  // 肩の高さ ys・先の位置 (px, pz) から、腕の向き（IK）と柱の内筒の長さを決める
-  function hgPoseArm(arm, ys, px, pz) {
-    hgArmIK(arm.sx, arm.sz, px, pz, arm.ik);
-    arm.shoulder.position.y = ys;
-    arm.upper.rotation.y = arm.ik.upper;
-    arm.fore.rotation.y = arm.ik.fore - arm.ik.upper;   // 前腕はひじ（上腕の子）の中なので、上腕の向きを引く
-    arm.wrist.rotation.y = -arm.ik.fore;                 // 工具の向きは変えない
-    arm.inner.scale.y = Math.max(0.05, arm.dropTop - 0.7 - (ys + 0.13) + 0.05);
+  //   link … 関節（水平の軸）で縦に回る。k … たたむ割合（0：機体に触れる → 1：上へたたむ）、bob … 修理の小さな揺れ
+  //   drop … 柱ごと上がり（lift）、天井のレールに沿って外へ（slide）
+  function hgPoseArm(arm, k, bob, lift, slide) {
+    if (arm.type === 'link') {
+      const p = arm.pitch + bob;
+      arm.link.rotation.x = p + (HG_LINK_UP - p) * k;
+    } else {
+      arm.g.position.set(arm.x0 + (arm.xr - arm.x0) * slide, lift + bob, arm.z0 + (arm.zr - arm.z0) * slide);
+    }
   }
 
   // ---- カメラ -------------------------------------------------------------------
@@ -4534,24 +4820,45 @@ function start(bridge) {
       flash.position.set(0, platY + 0.5 + craftLift, craftZ + HG.S * 0.75);
     } else flash.intensity = 0;
 
-    // アーム：ふだんは機体の上（先の灯りから基地メニューの線が出る）。大破なら2本が修理（低く・機体に寄る）。警報でたたんで上がる
-    const retractP = L ? hgEase(seg(T.alert + 100, T.alert + 700)) : 0;
+    // アーム：ふだんは工具の先が機体に触れている（そこから基地メニューの線が出る）。大破なら工具が小さく動いて修理する。
+    //   警報で link は上へたたみ、drop は柱ごと上がってから外へ退く（台が昇る道を空ける）
+    const foldP = L ? hgEase(seg(T.alert + 120, T.alert + 720)) : 0;
+    const liftP = L ? hgEase(seg(T.alert + 80, T.alert + 520)) : 0;
+    const slideP = L ? hgEase(seg(T.alert + 380, T.alert + 860)) : 0;
     hg.arms.forEach((arm, i) => {
-      const fix = dmg && i < 2 && !L;
-      let px = arm.head[0], pz = arm.head[1], ys = HG_ARM.shoulderY;
-      if (fix) { px *= 0.86; pz *= 0.86; ys = 2.12 + Math.sin(t * 2.2 + i * 1.7) * 0.03; }
-      px += (arm.retract[0] - px) * retractP; pz += (arm.retract[1] - pz) * retractP; ys += (3.35 - ys) * retractP;
-      hgPoseArm(arm, ys, px, pz);
-      const pulse = 0.78 + 0.22 * Math.sin(t * 2.0 + i * 1.3);
-      const on = (L ? 0.35 * (1 - retractP) : pulse) * (0.2 + 0.8 * enterP);
-      arm.glow.material.opacity = 0.55 * on;
-      arm.lampMat.color.setRGB(0.08 + 0.74 * on, 0.08 + 0.82 * on, 0.1 + 0.9 * on);
-      arm.pool.visible = !L;
-      if (!L) { arm.pool.position.set(px, 0.03 + HG.craftY + 0.28, pz); arm.pool.material.opacity = 0.11 * enterP; }
+      const fix = dmg && !L;
+      const bob = fix ? (arm.type === 'link' ? Math.sin(t * 2.6 + i * 1.7) * 0.022 : Math.max(0, Math.sin(t * 1.9 + i * 2.1)) * 0.06) : 0;
+      hgPoseArm(arm, foldP, bob, 3.4 * liftP, slideP);
+      if (arm.type === 'drop') {
+        const pulse = 0.72 + 0.28 * Math.sin(t * 2.4 + i * 1.3);
+        const on = (L ? 0.4 * (1 - liftP) : pulse) * (0.25 + 0.75 * enterP);
+        if (fix) arm.ledMat.color.setRGB(0.2 + 0.8 * on, 0.1 + 0.28 * on, 0.06 + 0.1 * on);
+        else arm.ledMat.color.setRGB(0.06 + 0.56 * on, 0.1 + 0.8 * on, 0.12 + 0.88 * on);
+        arm.pool.visible = !L || liftP < 0.6;
+        if (arm.pool.visible) {
+          arm.pool.material.opacity = (arm.tool === 'scan' ? 0.24 : 0.14) * on * (1 - liftP);
+          if (fix) arm.pool.material.color.setHex(0xffa060); else arm.pool.material.color.setHex(arm.tool === 'scan' ? 0x9fe8ff : 0xfff0d8);
+        }
+      }
     });
+    // 小さな灯り（机・電源車・柱の箱）：点滅するものと、点いたままのもの。警報の間は速く
+    if (hg.ledMesh) {
+      const lit = 0.2 + 0.8 * enterP, fast = L && !locked ? 2.2 : 1;
+      hg.leds.forEach((l, i) => {
+        let k = 1;
+        if (l.mode === 'blink') k = ((t * l.rate * fast + l.ph) % 1) < 0.55 ? 1 : 0.12;
+        if (dmg && !L && l.mode === 'blink' && i % 3 === 0) { hg.ledMesh.setColorAt(i, hgC.setRGB(k * lit, 0.12 * k * lit, 0.1 * k * lit)); return; }
+        hg.ledMesh.setColorAt(i, hgC.setRGB(l.c[0] * k * lit, l.c[1] * k * lit, l.c[2] * k * lit));
+      });
+      hg.ledMesh.instanceColor.needsUpdate = true;
+    }
+    if (hg.screenMesh) {
+      const k = (0.3 + 0.7 * enterP) * (0.94 + 0.06 * Math.sin(t * 7.3));
+      if (dmg && !L) hg.screenMesh.material.color.setRGB(k, 0.55 * k, 0.5 * k); else hg.screenMesh.material.color.setRGB(k, k, k);
+    }
     // 修理の火花（大破）
     hg.sparks.forEach((sp, i) => {
-      const on = dmg && !L && i < 2 && Math.random() < 0.6;
+      const on = dmg && !L && (i === 0 || i === 3) && Math.random() < 0.6;
       sp.visible = on;
       if (on) { sp.scale.setScalar(0.3 + Math.random() * 0.55); sp.material.opacity = 0.7 + Math.random() * 0.3; }
     });
@@ -4612,16 +4919,29 @@ function start(bridge) {
       });
       hg.lockRing.material.opacity = lockFlash * 0.9;
       hg.lockRing.scale.setScalar(1 + (1 - lockFlash) * 0.35);
+      // 点く波（LOCKED の瞬間に台の側から奥へ。1秒に 55）と、点火からの流れ（前へ）
+      const front = locked ? (lt - T.lock) / 1000 * 55 : -1;
       const wave = L && lt >= T.ignite ? (lt - T.ignite) / 1000 * 46 : -1;   // 先頭が進んだ距離
       for (let i = 0; i < hg.runwayZ.length; i++) {
         const d = -hg.runwayZ[i] - HG.R;
-        let v = 0.22;
-        if (locked) v = 0.42;
-        if (wave >= 0) { const dd = wave - d; v = dd < 0 ? 0.42 : 0.42 + 0.9 * Math.exp(-dd / 5); }
+        let v = 0.1;
+        if (front >= d) v = 0.42 + 0.7 * Math.exp(-(front - d) / 55 * 6);
+        if (wave >= 0 && wave >= d) v = 0.42 + 0.9 * Math.exp(-(wave - d) / 5);
         const c = wave >= 0 && wave - d > -0.5 ? [0.75, 0.92, 1] : [1, 0.92, 0.8];
         hg.runwayLights.setColorAt(i, hgC.setRGB(c[0] * v, c[1] * v, c[2] * v));
       }
       hg.runwayLights.instanceColor.needsUpdate = true;
+      const go = L && lt >= T.ignite ? (lt - T.ignite) / 1000 : -1;
+      for (let i = 0; i < hg.rwLed.length; i++) {
+        const e = hg.rwLed[i];
+        if (!(front >= e.d)) { hg.rwLedMesh.setColorAt(i, hgC.setRGB(0.03, 0.035, 0.042)); hg.rwGlowMesh.setColorAt(i, hgC.setRGB(0, 0, 0)); continue; }
+        const age = (front - e.d) / 55;                       // 点いてからの秒
+        let v = 0.95 + 1.1 * Math.exp(-age * 7);              // 点いた瞬間は強く
+        if (go >= 0) { const ph = ((e.d / 3.2 - go * 5.5) % 1 + 1) % 1; v *= 0.8 + 0.75 * Math.pow(Math.max(0, Math.cos(ph * Math.PI * 2)), 6); }
+        hg.rwLedMesh.setColorAt(i, hgC.setRGB(0.72 * v, 0.9 * v, 1.0 * v));
+        const gv = 0.3 * v; hg.rwGlowMesh.setColorAt(i, hgC.setRGB(0.35 * gv, 0.75 * gv, 1.0 * gv));
+      }
+      hg.rwLedMesh.instanceColor.needsUpdate = true; hg.rwGlowMesh.instanceColor.needsUpdate = true;
     }
 
     // 光：台を照らす太陽（台と一緒に昇る）
@@ -5154,5 +5474,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v392' };
+window.NOAH3D = { start, version: 'v393' };
 })();
