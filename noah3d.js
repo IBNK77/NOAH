@@ -50,6 +50,7 @@
 // v394〜：まわりの道具と、アームの柱をやめた。アームは天井の左右のレール（v392 と同じ。HG_RAIL）の外側の下の肩から（根元はレールで隠れる）、
 //   上腕 → ひじ → 前腕 → 工具（縦の面の2本の腕。hgPoseArm）。床の「頭上注意」の線を戻した。警戒円の X 字の床に埋めた照明（HG_LAMP。光の帯・機体の縁の光）。
 //   基地メニューの線の行き先は機体の上の点（HG_LINE_PTS。機体強化・カード強化だけ）。
+// v395〜：天井のレールは影を落とさない（床を縦に走る暗い帯になっていた）。
 // =============================================================================
 (function () {
 'use strict';
@@ -4307,18 +4308,19 @@ function start(bridge) {
       hgPoseArm(arm, arm.T0);
       O.arms.push(arm);
     });
-    // 天井の左右のレール（I形の梁）と、天井へ上がる吊り材（v392 と同じ。画面の左右の床と、アームの根元を隠す）
+    // 天井の左右のレール（I形の梁）と、天井へ上がる吊り材（v392 と同じ。画面の左右の床と、アームの根元を隠す）。
+    //   v395：影は落とさない（左のレールの影が、床を縦に走る暗い帯になっていた）
     {
       const R_ = HG_RAIL, railMat = metal(0x2c3137, 0.52, 0.55), darkMat = metal(0x1c2026, 0.55, 0.5), blackMat = metal(0x101215, 0.6, 0.4);
       const railGeo = new THREE.BoxGeometry(R_.w, R_.h, R_.len), flangeGeo = new THREE.BoxGeometry(R_.w + 0.2, 0.06, R_.len);
       const strutGeo = new THREE.BoxGeometry(0.16, 11, 0.16), braceGeo = new THREE.BoxGeometry(0.62, 0.12, 0.34);
       for (const sx of [-1, 1]) {
         const x = sx * R_.x;
-        add(root, railGeo, railMat, { p: [x, R_.y, 0], shadow: true, recv: true });
-        add(root, flangeGeo, darkMat, { p: [x, R_.y - R_.h / 2, 0], shadow: true });
-        add(root, flangeGeo, darkMat, { p: [x, R_.y + R_.h / 2, 0], shadow: true });
+        add(root, railGeo, railMat, { p: [x, R_.y, 0], recv: true });
+        add(root, flangeGeo, darkMat, { p: [x, R_.y - R_.h / 2, 0] });
+        add(root, flangeGeo, darkMat, { p: [x, R_.y + R_.h / 2, 0] });
         for (const z of [-3.45, 3.65]) {
-          add(root, strutGeo, darkMat, { p: [x, R_.y + R_.h / 2 + 5.5, z], shadow: true });
+          add(root, strutGeo, darkMat, { p: [x, R_.y + R_.h / 2 + 5.5, z] });
           add(root, braceGeo, blackMat, { p: [x, R_.y + R_.h / 2 + 0.06, z] });
         }
       }
@@ -5380,5 +5382,5 @@ function start(bridge) {
   }
 }
 
-window.NOAH3D = { start, version: 'v394' };
+window.NOAH3D = { start, version: 'v395' };
 })();
